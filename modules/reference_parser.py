@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from loguru import logger
 
 
@@ -15,6 +15,7 @@ class ParsedReference:
     url: Optional[str]
     source_name: Optional[str]
     line_number: int
+    section_index: int = 0  # Which reference section this belongs to
     citation_type: Optional[str] = None
     processed: bool = False
     new_label: Optional[str] = None
@@ -22,6 +23,19 @@ class ParsedReference:
     needs_review: bool = False
     review_reason: Optional[str] = None
     metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class DocumentSection:
+    """Represents a section of the document with its own reference list."""
+    section_index: int
+    body_start: int  # Line number where body starts
+    body_end: int    # Line number where body ends (before references)
+    ref_start: int   # Line number where references header is
+    ref_end: int     # Line number where references end
+    body_content: str
+    references: List[ParsedReference] = field(default_factory=list)
+    inline_ref_style: str = "numeric"  # "numeric" [1] or "footnote" [^1]
 
 
 class ReferenceParser:
@@ -41,14 +55,72 @@ class ReferenceParser:
     
     # Pattern 3: Text-only format - "1. Title. Authors. Journal. Year;Vol:Pages."
     TEXT_ONLY_REF_PATTERN = r'^(\d+)\.\s+([^[\]]+)$'
+    
+    # Patterns for bullet-point references
+    BULLET_REF_PATTERN = r'^[-*]\s+(?:[^:]+:\s*)?\[([^\]]+)\]\(([^)]+)\)\s*$'
 
-    def __init__(self, content: str):
+    def __init__(self, content: str, multi_section: bool = False):
         self.content = content
         self.lines = content.split('\n')
+        self.multi_section = multi_section
         self.reference_section_start: Optional[int] = None
         self.reference_section_end: Optional[int] = None
         self.body_content: str = ""
         self.references: List[ParsedReference] = []
+        self.sections: List[DocumentSection] = []
+
+    def find_all_reference_sections(self) -> List[Tuple[int, int]]:
+        """
+        Find ALL reference sections in the document.
+        
+        Returns list of (start_line, end_line) tuples for each reference section.
+        """
+        logger.info("Searching for all reference sections...")
+        
+        ref_header_positions = []
+        for i, line in enumerate(self.lines):
+            for pattern in self.REFERENCE_HEADER_PATTERNS:
+                if re.match(pattern, line.strip(), re.IGNORECASE):
+                    # Verify this is a real reference section (has numbered items after it)
+                    has_refs = False
+                    for j in range(i + 1, min(i + 20, len(self.lines))):
+                        check_line = self.lines[j].strip()
+                        if re.match(r'^\d+\.', check_line) or re.match(r'^[-*]\s+.*\[', check_line):
+                            has_refs = True
+                            break
+                        if re.match(r'^#{1,2}\s+', check_line):
+                            break  # Hit another header, no refs found
+                    if has_refs:
+                        ref_header_positions.append(i)
+                    break
+        
+        if not ref_header_positions:
+            logger.warning("No reference sections found")
+            return []
+        
+        logger.info(f"Found {len(ref_header_positions)} reference section(s)")
+        
+        # Calculate end positions for each section
+        sections = []
+        for idx, start in enumerate(ref_header_positions):
+            # End is either the next reference section or end of document
+            if idx + 1 < len(ref_header_positions):
+                end = ref_header_positions[idx + 1]
+            else:
+                end = len(self.lines)
+            
+            # But also check for other headers that might end the section
+            for i in range(start + 1, end):
+                line = self.lines[i].strip()
+                # Stop at major headers that aren't reference-related
+                if re.match(r'^#{1,2}\s+(?!References|Sources|Citations)', line, re.IGNORECASE):
+                    # Check if this header starts another content section
+                    end = i
+                    break
+            
+            sections.append((start, end))
+        
+        return sections
 
     def find_reference_section(self) -> Tuple[Optional[int], Optional[int]]:
         """
@@ -59,33 +131,95 @@ class ReferenceParser:
         """
         logger.info("Searching for reference section...")
 
-        # Find ALL reference headers, then use the last one
-        ref_header_positions = []
-        for i, line in enumerate(self.lines):
-            for pattern in self.REFERENCE_HEADER_PATTERNS:
-                if re.match(pattern, line.strip(), re.IGNORECASE):
-                    ref_header_positions.append(i)
-                    break
-
-        if not ref_header_positions:
+        all_sections = self.find_all_reference_sections()
+        
+        if not all_sections:
             logger.warning("No reference section found")
             return None, None
         
-        # Use the last reference header (most likely the actual references)
-        self.reference_section_start = ref_header_positions[-1]
+        # Use the last reference section by default
+        self.reference_section_start, self.reference_section_end = all_sections[-1]
         logger.info(f"Found reference section at line {self.reference_section_start + 1}")
         
-        if len(ref_header_positions) > 1:
-            logger.info(f"Note: Found {len(ref_header_positions)} 'References' headers, using last one")
-
-        self.reference_section_end = len(self.lines)
-        for i in range(self.reference_section_start + 1, len(self.lines)):
-            line = self.lines[i].strip()
-            if re.match(r'^#{1,2}\s+(?!References|Sources|Citations)', line, re.IGNORECASE):
-                self.reference_section_end = i
-                break
+        if len(all_sections) > 1:
+            logger.info(f"Note: Found {len(all_sections)} 'References' headers, using last one")
 
         return self.reference_section_start, self.reference_section_end
+    
+    def parse_multi_section(self) -> List[DocumentSection]:
+        """
+        Parse document with multiple reference sections.
+        
+        Each section is processed independently with its own body content
+        and reference list.
+        """
+        all_ref_sections = self.find_all_reference_sections()
+        
+        if not all_ref_sections:
+            logger.warning("No reference sections found for multi-section parsing")
+            return []
+        
+        logger.info(f"Parsing {len(all_ref_sections)} document section(s)...")
+        
+        for idx, (ref_start, ref_end) in enumerate(all_ref_sections):
+            # Determine body start (end of previous section or start of document)
+            if idx == 0:
+                body_start = 0
+            else:
+                body_start = all_ref_sections[idx - 1][1]
+            
+            body_end = ref_start
+            body_content = '\n'.join(self.lines[body_start:body_end])
+            
+            # Detect inline reference style
+            inline_style = self._detect_inline_style(body_content)
+            
+            section = DocumentSection(
+                section_index=idx,
+                body_start=body_start,
+                body_end=body_end,
+                ref_start=ref_start,
+                ref_end=ref_end,
+                body_content=body_content,
+                inline_ref_style=inline_style,
+            )
+            
+            # Parse references for this section
+            section.references = self._parse_section_references(ref_start, ref_end, idx)
+            
+            self.sections.append(section)
+            logger.info(f"Section {idx + 1}: {len(section.references)} references, style={inline_style}")
+        
+        # Aggregate all references for compatibility
+        for section in self.sections:
+            self.references.extend(section.references)
+        
+        return self.sections
+    
+    def _detect_inline_style(self, body_content: str) -> str:
+        """Detect whether body uses [N] or [^N] style references."""
+        footnote_count = len(re.findall(r'\[\^(\d+)\]', body_content))
+        numeric_count = len(re.findall(r'\[(\d+)\]', body_content))
+        
+        if footnote_count > numeric_count:
+            return "footnote"
+        return "numeric"
+    
+    def _parse_section_references(self, start: int, end: int, section_idx: int) -> List[ParsedReference]:
+        """Parse references from a specific section."""
+        refs = []
+        
+        for i in range(start + 1, end):
+            line = self.lines[i].strip()
+            if not line:
+                continue
+            
+            parsed = self._parse_single_reference(line, i + 1)
+            if parsed:
+                parsed.section_index = section_idx
+                refs.append(parsed)
+        
+        return refs
 
     def parse_references(self) -> List[ParsedReference]:
         """Parse all references from the reference section."""
@@ -172,6 +306,12 @@ class ReferenceParser:
                 title_parts = content.split('.')
                 title = title_parts[0].strip() if title_parts else content
                 
+                # Clean up title if it contains author separators like dashes
+                for sep in [' - ', ' – ', ' — ', ' | ']:
+                    if sep in title:
+                        title = title.split(sep)[0].strip()
+                        break
+                
                 return ParsedReference(
                     original_number=number,
                     original_text=line,
@@ -202,23 +342,38 @@ class ReferenceParser:
         """Get mapping of original numbers to new labels."""
         return {ref.original_number: ref.new_label for ref in self.references if ref.processed and ref.new_label}
 
-    def find_referenced_numbers(self) -> set:
-        """Find all citation numbers actually used in the body text."""
-        if not self.body_content:
-            self.body_content = '\n'.join(self.lines[:self.reference_section_start or len(self.lines)])
+    def find_referenced_numbers(self, body_content: Optional[str] = None, style: str = "auto") -> set:
+        """
+        Find all citation numbers actually used in the body text.
         
-        # Pattern matches [1], [2], [1, 2], [1-3], etc.
-        pattern = r'\[(\d+(?:\s*[-,]\s*\d+)*)\]'
-        matches = re.findall(pattern, self.body_content)
+        Args:
+            body_content: Optional body text to search (uses self.body_content if not provided)
+            style: "numeric" for [N], "footnote" for [^N], "auto" to detect both
+        """
+        if body_content is None:
+            if not self.body_content:
+                self.body_content = '\n'.join(self.lines[:self.reference_section_start or len(self.lines)])
+            body_content = self.body_content
         
         referenced = set()
-        for match in matches:
-            # Handle ranges like "1-3" and lists like "1, 2"
-            parts = re.split(r'[-,]', match)
-            for part in parts:
-                part = part.strip()
-                if part.isdigit():
-                    referenced.add(int(part))
+        
+        # Numeric style: [1], [2], [1, 2], [1-3], etc.
+        if style in ("numeric", "auto"):
+            pattern = r'\[(\d+(?:\s*[-,]\s*\d+)*)\]'
+            matches = re.findall(pattern, body_content)
+            for match in matches:
+                parts = re.split(r'[-,]', match)
+                for part in parts:
+                    part = part.strip()
+                    if part.isdigit():
+                        referenced.add(int(part))
+        
+        # Footnote style: [^1], [^2], etc.
+        if style in ("footnote", "auto"):
+            pattern = r'\[\^(\d+)\]'
+            matches = re.findall(pattern, body_content)
+            for match in matches:
+                referenced.add(int(match))
         
         return referenced
 
@@ -245,4 +400,36 @@ class ReferenceParser:
             logger.info(f"Found {len(unused)} unreferenced citations (will be skipped)")
         
         return used, unused
+    
+    def filter_unreferenced_by_section(self) -> Dict[int, Tuple[List[ParsedReference], List[ParsedReference]]]:
+        """
+        Separate references into used and unused, by section.
+        
+        Returns:
+            Dict mapping section_index -> (used_references, unused_references)
+        """
+        results = {}
+        
+        for section in self.sections:
+            referenced_numbers = self.find_referenced_numbers(
+                body_content=section.body_content,
+                style=section.inline_ref_style
+            )
+            
+            used = []
+            unused = []
+            
+            for ref in section.references:
+                if ref.original_number in referenced_numbers:
+                    used.append(ref)
+                else:
+                    unused.append(ref)
+                    logger.debug(f"Section {section.section_index + 1}: Reference #{ref.original_number} not used")
+            
+            if unused:
+                logger.info(f"Section {section.section_index + 1}: Found {len(unused)} unreferenced citations")
+            
+            results[section.section_index] = (used, unused)
+        
+        return results
 

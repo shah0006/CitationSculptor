@@ -11,6 +11,7 @@ Options:
     --dry-run, -n    Preview changes without writing output
     --no-backup      Skip creating backup file
     --gui            Show progress in a popup dialog window
+    --multi-section  Process documents with multiple reference sections independently
 """
 
 import sys
@@ -25,7 +26,7 @@ from rich.panel import Panel
 from loguru import logger
 
 from modules.file_handler import FileHandler
-from modules.reference_parser import ReferenceParser, ParsedReference
+from modules.reference_parser import ReferenceParser, ParsedReference, DocumentSection
 from modules.type_detector import CitationTypeDetector, CitationType
 from modules.pubmed_client import PubMedClient, ArticleMetadata
 from modules.vancouver_formatter import VancouverFormatter, FormattedCitation
@@ -46,6 +47,7 @@ class CitationSculptor:
         dry_run: bool = False,
         create_backup: bool = True,
         use_gui: bool = False,
+        multi_section: bool = False,
     ):
         self.input_path = input_path
         self.output_path = output_path
@@ -53,6 +55,7 @@ class CitationSculptor:
         self.dry_run = dry_run
         self.create_backup = create_backup
         self.use_gui = use_gui
+        self.multi_section = multi_section
         self.gui_dialog = None
 
         log_level = "DEBUG" if verbose else "INFO"
@@ -83,96 +86,316 @@ class CitationSculptor:
 
         try:
             self._step_read_file()
-            parser = self._step_parse_references()
-            if not parser.references:
-                console.print("[yellow]No references found. Nothing to process.[/yellow]")
-                return False
-
-            # Filter out unreferenced citations early
-            used_refs, unused_refs = self._step_filter_unreferenced(parser)
             
-            categorized = self._step_categorize_references(used_refs)
-
-            if not self._step_test_pubmed():
-                console.print("[red]Cannot proceed without PubMed MCP server.[/red]")
-                return False
-
-            # Initialize GUI dialog if enabled
-            if self.use_gui:
-                from modules.progress_dialog import MultiTaskProgressDialog
-                tasks = []
-                journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
-                webpage_refs = categorized.get(CitationType.WEBPAGE, [])
-                blog_refs = categorized.get(CitationType.BLOG, [])
-                newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
-                
-                if journal_refs:
-                    tasks.append(("Processing Journal Articles (via PubMed)", len(journal_refs)))
-                if webpage_refs:
-                    tasks.append(("Processing Webpages", len(webpage_refs)))
-                if blog_refs:
-                    tasks.append(("Processing Blogs", len(blog_refs)))
-                if newspaper_refs:
-                    tasks.append(("Processing Newspaper Articles", len(newspaper_refs)))
-                
-                self.gui_dialog = MultiTaskProgressDialog()
-                self.gui_dialog.show(tasks)
+            if self.multi_section:
+                return self._run_multi_section()
             else:
-                journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
-                webpage_refs = categorized.get(CitationType.WEBPAGE, [])
-                blog_refs = categorized.get(CitationType.BLOG, [])
-                newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
-
-            task_idx = 0
-            if journal_refs:
-                # Batch prefetch ID conversions for efficiency
-                self._prefetch_journal_ids(journal_refs)
-                
-                if self.gui_dialog:
-                    self.gui_dialog.start_task(task_idx)
-                    task_idx += 1
-                self._step_process_journal_articles(journal_refs)
-
-            # Process webpages (no API calls needed)
-            if webpage_refs:
-                if self.gui_dialog:
-                    self.gui_dialog.start_task(task_idx)
-                    task_idx += 1
-                self._step_process_webpages(webpage_refs)
-
-            # Process blogs (no API calls needed)  
-            if blog_refs:
-                if self.gui_dialog:
-                    self.gui_dialog.start_task(task_idx)
-                    task_idx += 1
-                self._step_process_blogs(blog_refs)
-
-            # Process newspaper articles (no API calls needed)
-            if newspaper_refs:
-                if self.gui_dialog:
-                    self.gui_dialog.start_task(task_idx)
-                    task_idx += 1
-                self._step_process_newspapers(newspaper_refs)
-
-            # Close GUI dialog
-            if self.gui_dialog:
-                self.gui_dialog.close()
-                self.gui_dialog = None
-
-            body_content = self._step_update_inline_references(parser.get_body_content())
-
-            if not self.dry_run:
-                self._step_generate_output(body_content, categorized, parser)
-            else:
-                self._step_preview_output()
-
-            self._print_summary()
-            return True
+                return self._run_single_section()
 
         except Exception as e:
             console.print(f"[red]Error: {e}[/red]")
             logger.exception("Processing failed")
             return False
+    
+    def _run_single_section(self) -> bool:
+        """Run single-section processing (original behavior)."""
+        parser = self._step_parse_references()
+        if not parser.references:
+            console.print("[yellow]No references found. Nothing to process.[/yellow]")
+            return False
+
+        # Filter out unreferenced citations early
+        used_refs, unused_refs = self._step_filter_unreferenced(parser)
+        
+        categorized = self._step_categorize_references(used_refs)
+
+        if not self._step_test_pubmed():
+            console.print("[red]Cannot proceed without PubMed MCP server.[/red]")
+            return False
+
+        # Initialize GUI dialog if enabled
+        if self.use_gui:
+            from modules.progress_dialog import MultiTaskProgressDialog
+            tasks = []
+            journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+            # Treat UNKNOWN references as potential journal articles to be looked up by title
+            journal_refs.extend(categorized.get(CitationType.UNKNOWN, []))
+            
+            webpage_refs = categorized.get(CitationType.WEBPAGE, [])
+            blog_refs = categorized.get(CitationType.BLOG, [])
+            newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+            
+            if journal_refs:
+                tasks.append(("Processing Journal Articles (via PubMed)", len(journal_refs)))
+            if webpage_refs:
+                tasks.append(("Processing Webpages", len(webpage_refs)))
+            if blog_refs:
+                tasks.append(("Processing Blogs", len(blog_refs)))
+            if newspaper_refs:
+                tasks.append(("Processing Newspaper Articles", len(newspaper_refs)))
+            
+            self.gui_dialog = MultiTaskProgressDialog()
+            self.gui_dialog.show(tasks)
+        else:
+            journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+            # Treat UNKNOWN references as potential journal articles to be looked up by title
+            journal_refs.extend(categorized.get(CitationType.UNKNOWN, []))
+            
+            webpage_refs = categorized.get(CitationType.WEBPAGE, [])
+            blog_refs = categorized.get(CitationType.BLOG, [])
+            newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+
+        task_idx = 0
+        if journal_refs:
+            # Batch prefetch ID conversions for efficiency
+            self._prefetch_journal_ids(journal_refs)
+            
+            if self.gui_dialog:
+                self.gui_dialog.start_task(task_idx)
+                task_idx += 1
+            self._step_process_journal_articles(journal_refs)
+
+        # Process webpages (no API calls needed)
+        if webpage_refs:
+            if self.gui_dialog:
+                self.gui_dialog.start_task(task_idx)
+                task_idx += 1
+            self._step_process_webpages(webpage_refs)
+
+        # Process blogs (no API calls needed)  
+        if blog_refs:
+            if self.gui_dialog:
+                self.gui_dialog.start_task(task_idx)
+                task_idx += 1
+            self._step_process_blogs(blog_refs)
+
+        # Process newspaper articles (no API calls needed)
+        if newspaper_refs:
+            if self.gui_dialog:
+                self.gui_dialog.start_task(task_idx)
+                task_idx += 1
+            self._step_process_newspapers(newspaper_refs)
+
+        # Close GUI dialog
+        if self.gui_dialog:
+            self.gui_dialog.close()
+            self.gui_dialog = None
+
+        body_content = self._step_update_inline_references(parser.get_body_content())
+
+        if not self.dry_run:
+            self._step_generate_output(body_content, categorized, parser)
+        else:
+            self._step_preview_output()
+
+        self._print_summary()
+        return True
+    
+    def _run_multi_section(self) -> bool:
+        """Run multi-section processing for documents with multiple reference lists."""
+        console.print("\n[bold cyan]Multi-Section Mode[/bold cyan]")
+        console.print("Processing each reference section independently...\n")
+        
+        parser = ReferenceParser(self.file_handler.original_content, multi_section=True)
+        sections = parser.parse_multi_section()
+        
+        if not sections:
+            console.print("[yellow]No reference sections found. Nothing to process.[/yellow]")
+            return False
+        
+        console.print(f"[green][OK][/green] Found {len(sections)} document section(s)")
+        
+        if not self._step_test_pubmed():
+            console.print("[red]Cannot proceed without PubMed MCP server.[/red]")
+            return False
+        
+        # Track all section results for combined output
+        all_section_results = []
+        
+        for section in sections:
+            console.print(f"\n[bold]━━━ Section {section.section_index + 1} ━━━[/bold]")
+            console.print(f"  Body: lines {section.body_start + 1}-{section.body_end}")
+            console.print(f"  References: lines {section.ref_start + 1}-{section.ref_end}")
+            console.print(f"  Inline style: {section.inline_ref_style}")
+            console.print(f"  References: {len(section.references)}")
+            
+            # Reset state for this section
+            self.processed_citations = []
+            self.manual_review_items = []
+            self.number_to_label_map = {}
+            
+            # Filter unreferenced for this section
+            used_refs, unused_refs = self._filter_section_unreferenced(parser, section)
+            
+            if not used_refs:
+                console.print("[yellow]  No used references in this section[/yellow]")
+                all_section_results.append({
+                    'section': section,
+                    'body_content': section.body_content,
+                    'processed': [],
+                    'manual_review': [],
+                    'mapping': {},
+                })
+                continue
+            
+            # Categorize and process
+            categorized = self._step_categorize_references(used_refs)
+            
+            journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+            # Treat UNKNOWN references as potential journal articles to be looked up by title
+            journal_refs.extend(categorized.get(CitationType.UNKNOWN, []))
+            
+            webpage_refs = categorized.get(CitationType.WEBPAGE, [])
+            blog_refs = categorized.get(CitationType.BLOG, [])
+            newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+            
+            if journal_refs:
+                self._prefetch_journal_ids(journal_refs)
+                self._step_process_journal_articles(journal_refs)
+            
+            if webpage_refs:
+                self._step_process_webpages(webpage_refs)
+            
+            if blog_refs:
+                self._step_process_blogs(blog_refs)
+            
+            if newspaper_refs:
+                self._step_process_newspapers(newspaper_refs)
+            
+            # Update inline references for this section
+            updated_body = self._step_update_inline_references(
+                section.body_content, 
+                style=section.inline_ref_style
+            )
+            
+            all_section_results.append({
+                'section': section,
+                'body_content': updated_body,
+                'categorized': categorized,
+                'processed': list(self.processed_citations),
+                'manual_review': list(self.manual_review_items),
+                'mapping': dict(self.number_to_label_map),
+            })
+        
+        # Generate combined output
+        if not self.dry_run:
+            self._generate_multi_section_output(all_section_results, parser)
+        else:
+            self._step_preview_output()
+        
+        # Print combined summary
+        total_processed = sum(len(r['processed']) for r in all_section_results)
+        total_review = sum(len(r['manual_review']) for r in all_section_results)
+        total_mapped = sum(len(r['mapping']) for r in all_section_results)
+        
+        console.print("\n" + "=" * 60)
+        console.print("[bold]Multi-Section Processing Complete![/bold]")
+        console.print("=" * 60)
+        
+        table = Table(show_header=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", justify="right", style="green")
+        table.add_row("Sections processed", str(len(sections)))
+        table.add_row("Total citations processed", str(total_processed))
+        table.add_row("Total inline references updated", str(total_mapped))
+        table.add_row("Total items needing review", str(total_review))
+        console.print(table)
+        
+        return True
+    
+    def _filter_section_unreferenced(self, parser: ReferenceParser, section: DocumentSection):
+        """Filter unreferenced citations for a specific section."""
+        referenced_numbers = parser.find_referenced_numbers(
+            body_content=section.body_content,
+            style=section.inline_ref_style
+        )
+        
+        used = []
+        unused = []
+        
+        for ref in section.references:
+            if ref.original_number in referenced_numbers:
+                used.append(ref)
+            else:
+                unused.append(ref)
+        
+        if unused:
+            console.print(f"[yellow][!][/yellow] Skipping {len(unused)} unreferenced citations in section")
+        
+        console.print(f"[green][OK][/green] {len(used)} citations are used in section body")
+        return used, unused
+    
+    def _generate_multi_section_output(self, section_results: List[dict], parser: ReferenceParser):
+        """Generate output for multi-section document."""
+        # Reconstruct document with updated sections
+        lines = self.file_handler.original_content.split('\n')
+        output_parts = []
+        last_end = 0
+        
+        for result in section_results:
+            section = result['section']
+            
+            # Add any content before this section's body that we haven't processed
+            if section.body_start > last_end:
+                output_parts.append('\n'.join(lines[last_end:section.body_start]))
+            
+            # Add the updated body content
+            output_parts.append(result['body_content'])
+            
+            # Generate formatted reference section
+            ref_section = self._format_section_references(result)
+            output_parts.append(ref_section)
+            
+            last_end = section.ref_end
+        
+        # Add any remaining content after the last section
+        if last_end < len(lines):
+            output_parts.append('\n'.join(lines[last_end:]))
+        
+        output_content = '\n'.join(output_parts)
+        output_path = self.file_handler.write_output(output_content, self.output_path)
+        console.print(f"\n[green][OK][/green] Output written to: {output_path}")
+        
+        # Generate combined mapping file
+        all_mappings = []
+        for result in section_results:
+            section = result['section']
+            for num, label in result['mapping'].items():
+                all_mappings.append({
+                    'section': section.section_index + 1,
+                    'original_number': num,
+                    'new_label': label,
+                })
+        
+        mapping_path = output_path.parent / f"{output_path.stem}_mapping.json"
+        import json
+        with open(mapping_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'sections': len(section_results),
+                'total_mappings': len(all_mappings),
+                'mappings': all_mappings,
+            }, f, indent=2)
+        console.print(f"[green][OK][/green] Mapping: {mapping_path.name}")
+    
+    def _format_section_references(self, result: dict) -> str:
+        """Format reference section for output."""
+        lines = ["\n## References\n"]
+        
+        # Add processed citations
+        for citation in result['processed']:
+            lines.append(citation.full_citation)
+            lines.append("")
+        
+        # Add manual review section if needed
+        if result['manual_review']:
+            lines.append("\n### Needs Manual Review\n")
+            for item in result['manual_review']:
+                lines.append(f"- **#{item.original_number}**: {item.reason}")
+                lines.append(f"  - Original: {item.original_text[:100]}...")
+                lines.append(f"  - Suggested: {item.suggested_action}")
+                lines.append("")
+        
+        return '\n'.join(lines)
 
     def _step_read_file(self):
         """Read input file and create backup."""
@@ -537,14 +760,14 @@ class CitationSculptor:
         console.print(f"[green][OK][/green] Processed {processed_count} newspaper articles" +
                      (f" ({error_count} errors)" if error_count else ""))
 
-    def _step_update_inline_references(self, body_content: str) -> str:
+    def _step_update_inline_references(self, body_content: str, style: str = "numeric") -> str:
         """Update inline references in document body."""
         if not self.number_to_label_map:
             console.print("[yellow]No mappings to apply[/yellow]")
             return body_content
 
         with console.status("[bold green]Updating inline references..."):
-            replacer = InlineReplacer(self.number_to_label_map)
+            replacer = InlineReplacer(self.number_to_label_map, style=style)
             result = replacer.replace_all(body_content)
 
         console.print(f"[green][OK][/green] Made {result.replacements_made} inline reference replacements")
@@ -633,6 +856,8 @@ def main():
     parser.add_argument("--dry-run", "-n", action="store_true", help="Preview only")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup")
     parser.add_argument("--gui", action="store_true", help="Show progress in popup dialog")
+    parser.add_argument("--multi-section", "-m", action="store_true", 
+                       help="Process documents with multiple reference sections independently")
 
     args = parser.parse_args()
 
@@ -647,6 +872,7 @@ def main():
         dry_run=args.dry_run,
         create_backup=not args.no_backup,
         use_gui=args.gui,
+        multi_section=args.multi_section,
     )
 
     success = sculptor.run()

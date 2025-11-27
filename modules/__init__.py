@@ -1,7 +1,7 @@
 """CitationSculptor Modules"""
 
 from .file_handler import FileHandler
-from .reference_parser import ReferenceParser
+from .reference_parser import ReferenceParser, ParsedReference, DocumentSection
 from .type_detector import CitationTypeDetector, CitationType
 from .pubmed_client import PubMedClient, ArticleMetadata, IdConversionResult, CrossRefMetadata
 from .vancouver_formatter import VancouverFormatter, FormattedCitation

@@ -18,13 +18,24 @@ class ReplacementResult:
 class InlineReplacer:
     """Replaces inline reference marks with mnemonic labels."""
 
+    # Numeric style: [1], [1,2,3], [1-5]
     SINGLE_REF_PATTERN = r'\[(\d+)\]'
     COMMA_REF_PATTERN = r'\[([\d,\s]+)\]'
     RANGE_REF_PATTERN = r'\[(\d+)\s*[-–—]\s*(\d+)\]'
+    
+    # Footnote style: [^1], [^2]
+    FOOTNOTE_REF_PATTERN = r'\[\^(\d+)\]'
 
-    def __init__(self, number_to_label_map: Dict[int, str]):
-        """Initialize with mapping: {1: "[^SmithJA-2024-12345]", ...}"""
+    def __init__(self, number_to_label_map: Dict[int, str], style: str = "numeric"):
+        """
+        Initialize with mapping: {1: "[^SmithJA-2024-12345]", ...}
+        
+        Args:
+            number_to_label_map: Mapping from original number to new label
+            style: "numeric" for [N] or "footnote" for [^N] input style
+        """
         self.mapping = number_to_label_map
+        self.style = style
         self.replacement_log: List[Tuple[str, str]] = []
 
     def replace_all(self, content: str) -> ReplacementResult:
@@ -32,10 +43,14 @@ class InlineReplacer:
         self.replacement_log = []
         modified = content
 
-        # Process in order: ranges, comma-separated, singles
-        modified = self._replace_ranges(modified)
-        modified = self._replace_comma_separated(modified)
-        modified = self._replace_singles(modified)
+        if self.style == "footnote":
+            # Footnote style: only single refs [^1]
+            modified = self._replace_footnotes(modified)
+        else:
+            # Numeric style: Process in order: ranges, comma-separated, singles
+            modified = self._replace_ranges(modified)
+            modified = self._replace_comma_separated(modified)
+            modified = self._replace_singles(modified)
 
         return ReplacementResult(
             original_text=content,
@@ -43,6 +58,21 @@ class InlineReplacer:
             replacements_made=len(self.replacement_log),
             replacement_log=self.replacement_log,
         )
+    
+    def _replace_footnotes(self, content: str) -> str:
+        """Replace [^1] with [^label]."""
+        def replacer(match: re.Match) -> str:
+            num = int(match.group(1))
+            original = match.group(0)
+
+            if num in self.mapping:
+                replacement = self.mapping[num]
+                self.replacement_log.append((original, replacement))
+                logger.debug(f"Footnote: {original} -> {replacement}")
+                return replacement
+            return original  # Keep original if not mapped
+
+        return re.sub(self.FOOTNOTE_REF_PATTERN, replacer, content)
 
     def _replace_ranges(self, content: str) -> str:
         """Replace [1-5] with [^label1] [^label2] ..."""
@@ -112,21 +142,34 @@ class InlineReplacer:
         return previews
 
     @staticmethod
-    def extract_inline_numbers(content: str) -> List[int]:
-        """Extract all reference numbers from content."""
+    def extract_inline_numbers(content: str, style: str = "auto") -> List[int]:
+        """
+        Extract all reference numbers from content.
+        
+        Args:
+            content: Text to search
+            style: "numeric" for [N], "footnote" for [^N], "auto" for both
+        """
         numbers = set()
 
-        for match in re.finditer(r'\[(\d+)\]', content):
-            numbers.add(int(match.group(1)))
+        # Numeric style: [1], [1-3], [1,2,3]
+        if style in ("numeric", "auto"):
+            for match in re.finditer(r'\[(\d+)\]', content):
+                numbers.add(int(match.group(1)))
 
-        for match in re.finditer(r'\[(\d+)\s*[-–—]\s*(\d+)\]', content):
-            start, end = int(match.group(1)), int(match.group(2))
-            numbers.update(range(start, end + 1))
+            for match in re.finditer(r'\[(\d+)\s*[-–—]\s*(\d+)\]', content):
+                start, end = int(match.group(1)), int(match.group(2))
+                numbers.update(range(start, end + 1))
 
-        for match in re.finditer(r'\[([\d,\s]+)\]', content):
-            for num_str in match.group(1).split(','):
-                if num_str.strip().isdigit():
-                    numbers.add(int(num_str.strip()))
+            for match in re.finditer(r'\[([\d,\s]+)\]', content):
+                for num_str in match.group(1).split(','):
+                    if num_str.strip().isdigit():
+                        numbers.add(int(num_str.strip()))
+        
+        # Footnote style: [^1]
+        if style in ("footnote", "auto"):
+            for match in re.finditer(r'\[\^(\d+)\]', content):
+                numbers.add(int(match.group(1)))
 
         return sorted(numbers)
 
