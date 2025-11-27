@@ -472,8 +472,17 @@ class PubMedClient:
             words2 = set(article_clean.split())
             if words1 and words2:
                 overlap = len(words1 & words2) / len(words1 | words2)
+                
+                # Check 1: Strong overlap
                 if overlap >= 0.7:
-                    logger.info(f"Verified: PMID {article.pmid}")
+                    logger.info(f"Verified (high overlap {overlap:.2f}): PMID {article.pmid}")
+                    return article
+                
+                # Check 2: Subset match (all significant query words are in result)
+                # Good for when query is a shortened version of the full title
+                sig_words1 = {w for w in words1 if len(w) > 3}
+                if sig_words1 and sig_words1.issubset(words2):
+                    logger.info(f"Verified (subset match): PMID {article.pmid}")
                     return article
 
         logger.warning(f"No match found for: {title[:60]}...")
@@ -594,7 +603,11 @@ class PubMedClient:
                 return []
 
             articles = []
-            for item in data.get('articles', data.get('results', [])):
+            # Check for various keys used by different server versions
+            # The search tool now returns 'briefSummaries'
+            items = data.get('articles') or data.get('briefSummaries') or data.get('results') or []
+            
+            for item in items:
                 if 'pmid' in item:
                     articles.append(self._article_to_metadata(item))
 

@@ -1,0 +1,35 @@
+---
+modified: 2025-11-27T15:11:45-05:00
+---
+# Gene Therapy Approaches in Arrhythmogenic Cardiomyopathy
+> **Figure Prompt**: Create a schematic showing how PKP2 gene therapy approaches work at the cellular level in ACM. Illustrate the use of AAV vectors to deliver healthy PKP2 genes, the restoration of functional plakophilin-2 protein, stabilization of desmosomes, and the downstream effects on sodium channels and fibrosis development. Include a representation of how this might halt or reverse the pathological process of ACM.I need to create a schematic diagram showing how PKP2 gene therapy approaches work at the cellular level in Arrhythmogenic cardiomyopathy. I would also like to illustrate the use of AAV vectors to deliver healthy PKP2 genes, the restoration of functional plakophilin-2 protein, stabilization of desmosomes, and the downstream effects on sodium channels and fibrosis development. Include a representation of how this might halt or reverse the pathological process of ACM. for each of the following steps create a separate image in the style of a New England Journal of medicine graphic.
+That iillustrate gene therapy targeting the PKP2 gene in arrhythmogenic cardiomyopathy (ACM) at the cellular level, the following key steps and molecular events should be depicted:
+<span class="rightimg"><img src="Gene Therapy Approaches in Arrhythmogenic Cardiomyopathy-2025-07-03-1.png" width="300"><b>Step 1:</b> AAV Vector Delivery</span>
+1. AAV Vector Delivery: An adeno-associated virus (AAV) vector—commonly serotype rh.74 or AAV9—is engineered to carry a healthy copy of the human PKP2 gene. The vector is administered systemically (e.g., intravenous injection), allowing it to transduce cardiomyocytes throughout the myocardium.[^1] [^2]<br><br><br>
+<span class="rightimg"><img src="Gene Therapy Approaches in Arrhythmogenic Cardiomyopathy-2025-07-03-2.png" width="300"><b>Step 2:</b> Transduction and PKP2 Expression</span>
+2. Transduction and PKP2 Expression: The AAV vector enters cardiomyocytes, and the delivered PKP2 gene is transcribed and translated, resulting in the production of functional plakophilin-2 protein. This protein localizes to the intercalated disc, specifically integrating into desmosomes.[^1] [^2] [^3]<br><br><br><br><br>
+<span class="rightimg"><img src="Gene Therapy Approaches in Arrhythmogenic Cardiomyopathy-2025-07-04-1.png" width="300"><b>Step 3:</b> Restoration of Desmosomal Integrity</span>
+3. Restoration of Desmosomal Integrity: The newly synthesized plakophilin-2 restores the structural and functional integrity of desmosomes, which are critical for mechanical coupling between cardiomyocytes. This stabilization also supports the proper assembly of other desmosomal proteins (e.g., desmoglein-2, desmoplakin).[^3] [^4] [^5]<br><br><br><br><br><br><span class="rightimg"><img src="" width="300"></span>
+4. Downstream Effects on Sodium Channels: Restoration of plakophilin-2 at the intercalated disc enables normal trafficking and localization of the cardiac sodium channel NaV1.5 (encoded by SCN5A), leading to normalization of sodium current (I_Na) density and improved electrical conduction velocity. This reduces the substrate for reentrant arrhythmias.[^6] [^7] [^8]<br><br><br>
+5. Suppression of Fibrotic Pathways: Functional desmosomes and restored PKP2 expression suppress activation of profibrotic signaling pathways, particularly TGF-β1/p38 MAPK, which are upregulated in PKP2 deficiency. This results in decreased transcription of fibrotic genes and reduced myocardial fibrosis.[^9]<br><br><br>
+6. Halting/Reversing Pathology: By restoring desmosomal function, normalizing sodium channel activity, and suppressing fibrosis, gene therapy can arrest or partially reverse the pathological remodeling characteristic of ACM, including prevention of ventricular dilation, reduction in arrhythmia burden, and improved survival in preclinical models.[^1] [^3] [^9]<br><br><br>
+A schematic should visually represent: (1) AAV vector entering the cardiomyocyte; (2) PKP2 gene expression and plakophilin-2 protein localization to the intercalated disc; (3) stabilization of desmosomes; (4) restoration of NaV1.5 at the intercalated disc; (5) suppression of TGF-β1/p38 MAPK signaling and fibrosis; and (6) overall improvement in cell-cell adhesion, electrical conduction, and prevention of fibrofatty replacement.[^1] [^3] [^6] [^7] [^8] [^9]
+
+## References
+[^1]: van Opbergen CJM, Narayanan B, Sacramento CB, et al. AAV-Mediated Delivery of Plakophilin-2a Arrests Progression of Arrhythmogenic Right Ventricular Cardiomyopathy in Murine Hearts: Preclinical Evidence Supporting Gene Therapy in Humans. Circulation. Genomic and Precision Medicine. 2024;17(1):e004305. [DOI](https://doi.org/10.1161/CIRCGEN.123.004305)
+
+[^2]: Argiro A, Bui Q, Hong KN, et al. Applications of Gene Therapy In Cardiomyopathies. JACC. Heart Failure. 2024;12(2):248-260. [DOI](https://doi.org/10.1016/j.jchf.2023.09.015)
+
+[^3]: Inoue H, Nakamura S, Higo S, et al. Modeling Reduced Contractility and Impaired Desmosome Assembly Due to Plakophilin-2 Deficiency Using Isogenic iPS Cell-Derived Cardiomyocytes. Stem Cell Reports. 2022;17(2):337-351. [DOI](https://doi.org/10.1016/j.stemcr.2021.12.016)
+
+[^4]: Tsui H, van Kampen SJ, Han SJ, et al. Desmosomal Protein Degradation as an Underlying Cause of Arrhythmogenic Cardiomyopathy. Science Translational Medicine. 2023;15(688):eadd4248. [DOI](https://doi.org/10.1126/scitranslmed.add4248)
+
+[^5]: Costa S, Cerrone M, Saguner AM, et al. Arrhythmogenic Cardiomyopathy: An in-Depth Look at Molecular Mechanisms and Clinical Correlates. Trends in Cardiovascular Medicine. 2021;31(7):395-402. [DOI](https://doi.org/10.1016/j.tcm.2020.07.006)
+
+[^6]: Sato PY, Musa H, Coombs W, et al. Loss of Plakophilin-2 Expression Leads to Decreased Sodium Current and Slower Conduction Velocity in Cultured Cardiac Myocytes. Circulation Research. 2009;105(6):523-6. [DOI](https://doi.org/10.1161/CIRCRESAHA.109.201418)
+
+[^7]: Cerrone M, Lin X, Zhang M, et al. Missense Mutations in Plakophilin-2 Cause Sodium Current Deficit and Associate With a Brugada Syndrome Phenotype. Circulation. 2014;129(10):1092-103. [DOI](https://doi.org/10.1161/CIRCULATIONAHA.113.003077)
+
+[^8]: Khudiakov A, Zaytseva A, Perepelina K, et al. Sodium Current Abnormalities and Deregulation of WNT/­Β-Catenin Signaling in iPSC-derived Cardiomyocytes Generated From Patient With Arrhythmogenic Cardiomyopathy Harboring Compound Genetic Variants in Plakophilin 2 Gene. Biochimica Et Biophysica Acta. Molecular Basis of Disease. 2020;1866(11):165915. [DOI](https://doi.org/10.1016/j.bbadis.2020.165915)
+
+[^9]: Dubash AD, Kam CY, Aguado BA, et al. Plakophilin-2 Loss Promotes TGF-β1/­p38 MAPK-dependent Fibrotic Gene Expression in Cardiomyocytes. The Journal of Cell Biology. 2016;212(4):425-38. [DOI](https://doi.org/10.1083/jcb.201507018)

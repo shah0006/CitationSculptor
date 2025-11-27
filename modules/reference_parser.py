@@ -56,6 +56,9 @@ class ReferenceParser:
     # Pattern 3: Text-only format - "1. Title. Authors. Journal. Year;Vol:Pages."
     TEXT_ONLY_REF_PATTERN = r'^(\d+)\.\s+([^[\]]+)$'
     
+    # Pattern 4: Footnote definition - "[^1]: Citation text..."
+    FOOTNOTE_DEF_PATTERN = r'^\[\^(\d+)\]:\s*(.+)$'
+    
     # Patterns for bullet-point references
     BULLET_REF_PATTERN = r'^[-*]\s+(?:[^:]+:\s*)?\[([^\]]+)\]\(([^)]+)\)\s*$'
 
@@ -85,7 +88,9 @@ class ReferenceParser:
                     has_refs = False
                     for j in range(i + 1, min(i + 20, len(self.lines))):
                         check_line = self.lines[j].strip()
-                        if re.match(r'^\d+\.', check_line) or re.match(r'^[-*]\s+.*\[', check_line):
+                        if re.match(r'^\d+\.', check_line) or \
+                           re.match(r'^[-*]\s+.*\[', check_line) or \
+                           re.match(r'^\[\^(\d+)\]:', check_line):
                             has_refs = True
                             break
                         if re.match(r'^#{1,2}\s+', check_line):
@@ -289,6 +294,49 @@ class ReferenceParser:
                 source_name=source,
                 line_number=line_number,
                 metadata={'extra_info': extra_info} if extra_info else {},
+            )
+
+        # Try Pattern 4: Footnote definition "[^1]: ..."
+        match = re.match(self.FOOTNOTE_DEF_PATTERN, line)
+        if match:
+            number = int(match.group(1))
+            content = match.group(2).strip()
+            
+            # Try to extract URL/DOI from content
+            url = None
+            # Check for markdown link [DOI](url) or just link
+            md_link_match = re.search(r'\[([^\]]*)\]\(([^)]+)\)', content)
+            if md_link_match:
+                url = md_link_match.group(2)
+            else:
+                # Raw URL
+                url_match = re.search(r'https?://[^\s\)]+', content)
+                if url_match:
+                    url = url_match.group(0).rstrip(').,')
+            
+            # Extract title (best guess: typically between authors and journal)
+            # If we have a URL, title is less critical as we'll lookup by ID
+            # Heuristic: Take the longest segment between periods?
+            # Or just the second segment if it looks like authors are first?
+            parts = content.split('.')
+            title = content
+            if len(parts) > 1:
+                # Often: Authors. Title. Journal.
+                # But could be: Title. Authors.
+                # If first part has many commas, it's likely authors
+                if parts[0].count(',') >= 2:
+                    title = parts[1].strip()
+                else:
+                    title = parts[0].strip()
+
+            return ParsedReference(
+                original_number=number,
+                original_text=line,
+                title=title,
+                url=url,
+                source_name=None,
+                line_number=line_number,
+                metadata={'raw_content': content}
             )
 
         # Try Pattern 3: Text-only numbered reference "1. Title. Authors..."

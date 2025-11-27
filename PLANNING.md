@@ -115,13 +115,20 @@
   - Created a `Multi-Section Mode` in `CitationSculptor` that processes each section independently.
   - Ensured inline citation replacements (`[^1]`) are scoped strictly to their containing section, preserving document integrity.
 
-### 6. Validation & Cleanup
-- **Verified**: Validated backward compatibility with a simple single-section test file.
-- **Cleanup**: Removed temporary test files (`test_old_format.md`, etc.) to keep the workspace clean.
-- **Commit**: Pushed all changes to GitHub with detailed commit messages.
+### 6. Footnote Definition Support (Nov 27, 2025)
+- **Challenge**: A new sample document used standard Markdown footnote definitions (`[^1]: Citation...`) instead of a numbered list. The parser initially failed to find any references.
+- **Solution**: 
+  - Updated `ReferenceParser` to recognize `^\[\^(\d+)\]:\s*(.+)$` patterns.
+  - Updated section detection to accept footnotes as valid reference content.
+  - Result: 100% success rate (9/9) on "Gene Therapy" document.
 
 ### 7. Search Tool Troubleshooting
 - **Issue**: Text-only citations were failing lookup. Diagnostics revealed the MCP server's `pubmed_search_articles` tool was returning 0 results due to `fetchBriefSummaries` defaulting to 0.
 - **Fix**: Server agent updated default to 3. Client now receives metadata correctly.
 - **Remaining Challenge**: LLM-generated citations often have titles that diverge significantly from PubMed records (e.g., missing words), causing strict title searches to fail even when the server works. "Smart Fallback" (Author + Year) is planned to solve this.
+
+### 8. Validation & Cleanup
+- **Verified**: Validated backward compatibility with a simple single-section test file.
+- **Cleanup**: Removed temporary test files (`test_old_format.md`, etc.) to keep the workspace clean.
+- **Commit**: Pushed all changes to GitHub with detailed commit messages.
 
