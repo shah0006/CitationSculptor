@@ -110,6 +110,7 @@ class CitationTypeDetector:
         - publisher.com/articles/10.xxxx/...
         
         Also cleans up:
+        - Query parameters (?key=value)
         - Trailing punctuation
         - OUP-style article IDs (e.g., /7236864 after DOI in academic.oup.com URLs)
         """
@@ -117,6 +118,10 @@ class CitationTypeDetector:
             match = re.search(pattern, url, re.IGNORECASE)
             if match:
                 doi = match.group(1)
+                
+                # Remove query parameters (e.g., ?url_ver=Z39.88-2003&rfr_id=...)
+                doi = re.sub(r'\?.*$', '', doi)
+                
                 # Clean up trailing punctuation/parentheses
                 doi = re.sub(r'[\)\]\s]+$', '', doi)
                 

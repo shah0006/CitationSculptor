@@ -32,7 +32,15 @@ class ReferenceParser:
         r'^#{1,2}\s*Sources\s*$',
         r'^#{1,2}\s*Citations\s*$',
     ]
-    NUMBERED_REF_PATTERN = r'^(\d+)\.\s*\[([^\]]+)\]\(([^)]+)\)\s*$'
+    
+    # Pattern 1: Simple format - "1. [Title - Source](URL)"
+    SIMPLE_REF_PATTERN = r'^(\d+)\.\s*\[([^\]]+)\]\(([^)]+)\)\s*$'
+    
+    # Pattern 2: Extended format - "1. [Title](URL). Authors. Journal. Year;Vol:Pages. doi:xxx"
+    EXTENDED_REF_PATTERN = r'^(\d+)\.\s*\[([^\]]+)\]\(([^)]+)\)\.?\s*(.*)$'
+    
+    # Pattern 3: Text-only format - "1. Title. Authors. Journal. Year;Vol:Pages."
+    TEXT_ONLY_REF_PATTERN = r'^(\d+)\.\s+([^[\]]+)$'
 
     def __init__(self, content: str):
         self.content = content
@@ -43,21 +51,32 @@ class ReferenceParser:
         self.references: List[ParsedReference] = []
 
     def find_reference_section(self) -> Tuple[Optional[int], Optional[int]]:
-        """Find the start and end of the reference section."""
+        """
+        Find the start and end of the reference section.
+        
+        Uses the LAST reference header found to handle documents with
+        multiple sections that might be titled "References".
+        """
         logger.info("Searching for reference section...")
 
+        # Find ALL reference headers, then use the last one
+        ref_header_positions = []
         for i, line in enumerate(self.lines):
             for pattern in self.REFERENCE_HEADER_PATTERNS:
                 if re.match(pattern, line.strip(), re.IGNORECASE):
-                    self.reference_section_start = i
-                    logger.info(f"Found reference section at line {i + 1}")
+                    ref_header_positions.append(i)
                     break
-            if self.reference_section_start is not None:
-                break
 
-        if self.reference_section_start is None:
+        if not ref_header_positions:
             logger.warning("No reference section found")
             return None, None
+        
+        # Use the last reference header (most likely the actual references)
+        self.reference_section_start = ref_header_positions[-1]
+        logger.info(f"Found reference section at line {self.reference_section_start + 1}")
+        
+        if len(ref_header_positions) > 1:
+            logger.info(f"Note: Found {len(ref_header_positions)} 'References' headers, using last one")
 
         self.reference_section_end = len(self.lines)
         for i in range(self.reference_section_start + 1, len(self.lines)):
@@ -92,8 +111,10 @@ class ReferenceParser:
         return self.references
 
     def _parse_single_reference(self, line: str, line_number: int) -> Optional[ParsedReference]:
-        """Parse a single reference line."""
-        match = re.match(self.NUMBERED_REF_PATTERN, line)
+        """Parse a single reference line supporting multiple formats."""
+        
+        # Try Pattern 1: Simple format "1. [Title - Source](URL)"
+        match = re.match(self.SIMPLE_REF_PATTERN, line)
         if match:
             number = int(match.group(1))
             full_title = match.group(2)
@@ -107,18 +128,61 @@ class ReferenceParser:
                 source_name=source,
                 line_number=line_number,
             )
-
-        if re.match(r'^\d+\.', line):
+        
+        # Try Pattern 2: Extended format "1. [Title](URL). Authors. Journal..."
+        match = re.match(self.EXTENDED_REF_PATTERN, line)
+        if match:
+            number = int(match.group(1))
+            title = match.group(2)
+            url = match.group(3)
+            extra_info = match.group(4).strip() if match.group(4) else ""
+            
+            # Extract source/journal from extra info if present
+            source = None
+            if extra_info:
+                # Try to extract journal name (usually after authors, before year)
+                # Format: "Authors. Journal Name. Year;Vol..."
+                parts = extra_info.split('.')
+                if len(parts) >= 2:
+                    # Second part is often the journal
+                    source = parts[1].strip() if parts[1].strip() else None
+            
             return ParsedReference(
-                original_number=int(re.match(r'^(\d+)\.', line).group(1)),
+                original_number=number,
                 original_text=line,
-                title=line,
-                url=None,
-                source_name=None,
+                title=title,
+                url=url,
+                source_name=source,
                 line_number=line_number,
-                needs_review=True,
-                review_reason="Could not parse reference format",
+                metadata={'extra_info': extra_info} if extra_info else {},
             )
+
+        # Try Pattern 3: Text-only numbered reference "1. Title. Authors..."
+        if re.match(r'^\d+\.', line):
+            number_match = re.match(r'^(\d+)\.\s*(.+)$', line)
+            if number_match:
+                number = int(number_match.group(1))
+                content = number_match.group(2).strip()
+                
+                # Check if it has a URL hidden in brackets
+                url_match = re.search(r'\(([^)]*https?://[^)]+)\)', content)
+                url = url_match.group(1) if url_match else None
+                
+                # Extract title (first sentence or up to first period)
+                title_parts = content.split('.')
+                title = title_parts[0].strip() if title_parts else content
+                
+                return ParsedReference(
+                    original_number=number,
+                    original_text=line,
+                    title=title,
+                    url=url,
+                    source_name=None,
+                    line_number=line_number,
+                    needs_review=url is None,  # Flag for review if no URL
+                    review_reason="No URL found" if url is None else None,
+                )
+        
         return None
 
     def _split_title_source(self, full_title: str) -> Tuple[str, Optional[str]]:
