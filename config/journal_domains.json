@@ -1,0 +1,43 @@
+{
+  "journal_domains": [
+    {"domain": "pubmed.ncbi.nlm.nih.gov", "type": "journal_article", "description": "PubMed"},
+    {"domain": "pmc.ncbi.nlm.nih.gov", "type": "journal_article", "description": "PubMed Central"},
+    {"domain": "doi.org", "type": "journal_article", "description": "DOI resolver"},
+    {"domain": "biomedcentral.com", "type": "journal_article", "description": "BioMed Central"},
+    {"domain": "springer.com", "type": "journal_article", "description": "Springer"},
+    {"domain": "sciencedirect.com", "type": "journal_article", "description": "ScienceDirect"},
+    {"domain": "nature.com", "type": "journal_article", "description": "Nature"},
+    {"domain": "cell.com", "type": "journal_article", "description": "Cell Press"},
+    {"domain": "jamanetwork.com", "type": "journal_article", "description": "JAMA Network"},
+    {"domain": "nejm.org", "type": "journal_article", "description": "NEJM"},
+    {"domain": "thelancet.com", "type": "journal_article", "description": "The Lancet"},
+    {"domain": "bmj.com", "type": "journal_article", "description": "BMJ"},
+    {"domain": "ahajournals.org", "type": "journal_article", "description": "AHA Journals"},
+    {"domain": "wiley.com", "type": "journal_article", "description": "Wiley"},
+    {"domain": "academic.oup.com", "type": "journal_article", "description": "Oxford Academic"},
+    {"domain": "frontiersin.org", "type": "journal_article", "description": "Frontiers"},
+    {"domain": "mdpi.com", "type": "journal_article", "description": "MDPI"},
+    {"domain": "plos.org", "type": "journal_article", "description": "PLOS"},
+    {"domain": "jci.org", "type": "journal_article", "description": "JCI"},
+    {"domain": "jacc.org", "type": "journal_article", "description": "JACC"},
+    {"domain": "arxiv.org", "type": "journal_article", "description": "arXiv"}
+  ],
+  "newspaper_domains": [
+    {"domain": "nytimes.com", "type": "newspaper_article", "description": "New York Times"},
+    {"domain": "washingtonpost.com", "type": "newspaper_article", "description": "Washington Post"},
+    {"domain": "wsj.com", "type": "newspaper_article", "description": "Wall Street Journal"},
+    {"domain": "naplesnews.com", "type": "newspaper_article", "description": "Naples Daily News"},
+    {"domain": "floridaweekly.com", "type": "newspaper_article", "description": "Florida Weekly"},
+    {"domain": "sfchronicle.com", "type": "newspaper_article", "description": "San Francisco Chronicle"},
+    {"domain": "reuters.com", "type": "newspaper_article", "description": "Reuters"},
+    {"domain": "apnews.com", "type": "newspaper_article", "description": "Associated Press"}
+  ],
+  "blog_patterns": [
+    "/blog/",
+    "/blogs/",
+    "medium.com",
+    "substack.com",
+    "wordpress.com"
+  ]
+}
+
