@@ -28,7 +28,14 @@ class CitationTypeDetector:
         r'pmc\.ncbi\.nlm\.nih\.gov/articles/(PMC\d+)',
         r'ncbi\.nlm\.nih\.gov/pmc/articles/(PMC\d+)',
     ]
-    DOI_PATTERN = r'doi\.org/(10\.\d{4,}/[^\s]+)'
+    
+    # DOI patterns - matches doi.org URLs and embedded DOIs in publisher URLs
+    DOI_PATTERNS = [
+        r'doi\.org/(10\.\d{4,}/[^\s\)\]]+)',           # doi.org/10.xxxx/...
+        r'/doi/(10\.\d{4,}/[^\s\)\]]+)',               # /doi/10.xxxx/... (Wiley, OUP)
+        r'/articles?/(10\.\d{4,}/[^\s\)\]]+)',         # /article/10.xxxx/... (BMC, Springer journals)
+        r'/chapter/(10\.\d{4,}/[^\s\)\]]+)',           # /chapter/10.xxxx/... (Springer book chapters)
+    ]
 
     JOURNAL_DOMAINS = [
         'biomedcentral.com', 'springer.com', 'link.springer.com', 'sciencedirect.com',
@@ -95,9 +102,34 @@ class CitationTypeDetector:
         return None
 
     def extract_doi(self, url: str) -> Optional[str]:
-        """Extract DOI from URL."""
-        match = re.search(self.DOI_PATTERN, url, re.IGNORECASE)
-        return match.group(1) if match else None
+        """Extract DOI from URL.
+        
+        Handles various formats:
+        - doi.org/10.xxxx/... 
+        - publisher.com/doi/10.xxxx/...
+        - publisher.com/articles/10.xxxx/...
+        
+        Also cleans up:
+        - Trailing punctuation
+        - OUP-style article IDs (e.g., /7236864 after DOI in academic.oup.com URLs)
+        """
+        for pattern in self.DOI_PATTERNS:
+            match = re.search(pattern, url, re.IGNORECASE)
+            if match:
+                doi = match.group(1)
+                # Clean up trailing punctuation/parentheses
+                doi = re.sub(r'[\)\]\s]+$', '', doi)
+                
+                # Only for OUP URLs: remove trailing numeric article ID
+                # OUP format: /doi/10.1093/journal/article_id/PAGE_NUMBER
+                # The page number is NOT part of the DOI
+                if 'academic.oup.com' in url.lower():
+                    # Remove trailing /digits if preceded by a non-digit DOI suffix
+                    # e.g., "10.1093/jeea/jvad044/7236864" -> "10.1093/jeea/jvad044"
+                    doi = re.sub(r'(/[a-zA-Z][^/]*)/\d+$', r'\1', doi)
+                
+                return doi
+        return None
 
     def categorize_references(self, references: List) -> dict:
         """Categorize references by type."""

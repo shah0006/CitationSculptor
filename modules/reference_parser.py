@@ -138,3 +138,47 @@ class ReferenceParser:
         """Get mapping of original numbers to new labels."""
         return {ref.original_number: ref.new_label for ref in self.references if ref.processed and ref.new_label}
 
+    def find_referenced_numbers(self) -> set:
+        """Find all citation numbers actually used in the body text."""
+        if not self.body_content:
+            self.body_content = '\n'.join(self.lines[:self.reference_section_start or len(self.lines)])
+        
+        # Pattern matches [1], [2], [1, 2], [1-3], etc.
+        pattern = r'\[(\d+(?:\s*[-,]\s*\d+)*)\]'
+        matches = re.findall(pattern, self.body_content)
+        
+        referenced = set()
+        for match in matches:
+            # Handle ranges like "1-3" and lists like "1, 2"
+            parts = re.split(r'[-,]', match)
+            for part in parts:
+                part = part.strip()
+                if part.isdigit():
+                    referenced.add(int(part))
+        
+        return referenced
+
+    def filter_unreferenced(self) -> Tuple[List[ParsedReference], List[ParsedReference]]:
+        """
+        Separate references into used and unused.
+        
+        Returns:
+            Tuple of (used_references, unused_references)
+        """
+        referenced_numbers = self.find_referenced_numbers()
+        
+        used = []
+        unused = []
+        
+        for ref in self.references:
+            if ref.original_number in referenced_numbers:
+                used.append(ref)
+            else:
+                unused.append(ref)
+                logger.info(f"Reference #{ref.original_number} not used in body text")
+        
+        if unused:
+            logger.info(f"Found {len(unused)} unreferenced citations (will be skipped)")
+        
+        return used, unused
+

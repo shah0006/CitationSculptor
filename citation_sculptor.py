@@ -10,6 +10,7 @@ Options:
     --verbose, -v    Enable detailed logging
     --dry-run, -n    Preview changes without writing output
     --no-backup      Skip creating backup file
+    --gui            Show progress in a popup dialog window
 """
 
 import sys
@@ -19,7 +20,7 @@ from typing import List, Optional
 
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.panel import Panel
 from loguru import logger
 
@@ -31,7 +32,7 @@ from modules.vancouver_formatter import VancouverFormatter, FormattedCitation
 from modules.inline_replacer import InlineReplacer
 from modules.output_generator import OutputGenerator, OutputDocument, ManualReviewItem
 
-console = Console()
+console = Console(force_terminal=True)
 
 
 class CitationSculptor:
@@ -44,14 +45,16 @@ class CitationSculptor:
         verbose: bool = False,
         dry_run: bool = False,
         create_backup: bool = True,
+        use_gui: bool = False,
     ):
         self.input_path = input_path
         self.output_path = output_path
         self.verbose = verbose
         self.dry_run = dry_run
         self.create_backup = create_backup
+        self.use_gui = use_gui
+        self.gui_dialog = None
 
-        # Configure logging
         log_level = "DEBUG" if verbose else "INFO"
         logger.remove()
         logger.add(
@@ -60,14 +63,12 @@ class CitationSculptor:
             format="<level>{level: <8}</level> | <cyan>{message}</cyan>",
         )
 
-        # Initialize components
         self.file_handler = FileHandler(input_path)
         self.type_detector = CitationTypeDetector()
         self.pubmed_client = PubMedClient()
         self.formatter = VancouverFormatter(max_authors=3)
         self.output_generator = OutputGenerator()
 
-        # Processing state
         self.processed_citations: List[FormattedCitation] = []
         self.manual_review_items: List[ManualReviewItem] = []
         self.number_to_label_map: dict = {}
@@ -81,38 +82,87 @@ class CitationSculptor:
         ))
 
         try:
-            # Step 1: Read and backup file
             self._step_read_file()
-
-            # Step 2: Parse references
             parser = self._step_parse_references()
             if not parser.references:
                 console.print("[yellow]No references found. Nothing to process.[/yellow]")
                 return False
 
-            # Step 3: Categorize references
-            categorized = self._step_categorize_references(parser.references)
+            # Filter out unreferenced citations early
+            used_refs, unused_refs = self._step_filter_unreferenced(parser)
+            
+            categorized = self._step_categorize_references(used_refs)
 
-            # Step 4: Test PubMed connection
             if not self._step_test_pubmed():
                 console.print("[red]Cannot proceed without PubMed MCP server.[/red]")
                 return False
 
-            # Step 5: Process journal articles
-            journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+            # Initialize GUI dialog if enabled
+            if self.use_gui:
+                from modules.progress_dialog import MultiTaskProgressDialog
+                tasks = []
+                journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+                webpage_refs = categorized.get(CitationType.WEBPAGE, [])
+                blog_refs = categorized.get(CitationType.BLOG, [])
+                newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+                
+                if journal_refs:
+                    tasks.append(("Processing Journal Articles (via PubMed)", len(journal_refs)))
+                if webpage_refs:
+                    tasks.append(("Processing Webpages", len(webpage_refs)))
+                if blog_refs:
+                    tasks.append(("Processing Blogs", len(blog_refs)))
+                if newspaper_refs:
+                    tasks.append(("Processing Newspaper Articles", len(newspaper_refs)))
+                
+                self.gui_dialog = MultiTaskProgressDialog()
+                self.gui_dialog.show(tasks)
+            else:
+                journal_refs = categorized.get(CitationType.JOURNAL_ARTICLE, [])
+                webpage_refs = categorized.get(CitationType.WEBPAGE, [])
+                blog_refs = categorized.get(CitationType.BLOG, [])
+                newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+
+            task_idx = 0
             if journal_refs:
+                if self.gui_dialog:
+                    self.gui_dialog.start_task(task_idx)
+                    task_idx += 1
                 self._step_process_journal_articles(journal_refs)
 
-            # Step 6: Update inline references
+            # Process webpages (no API calls needed)
+            if webpage_refs:
+                if self.gui_dialog:
+                    self.gui_dialog.start_task(task_idx)
+                    task_idx += 1
+                self._step_process_webpages(webpage_refs)
+
+            # Process blogs (no API calls needed)  
+            if blog_refs:
+                if self.gui_dialog:
+                    self.gui_dialog.start_task(task_idx)
+                    task_idx += 1
+                self._step_process_blogs(blog_refs)
+
+            # Process newspaper articles (no API calls needed)
+            if newspaper_refs:
+                if self.gui_dialog:
+                    self.gui_dialog.start_task(task_idx)
+                    task_idx += 1
+                self._step_process_newspapers(newspaper_refs)
+
+            # Close GUI dialog
+            if self.gui_dialog:
+                self.gui_dialog.close()
+                self.gui_dialog = None
+
             body_content = self._step_update_inline_references(parser.get_body_content())
 
-            # Step 7: Generate output
             if not self.dry_run:
                 self._step_generate_output(body_content, categorized, parser)
             else:
                 self._step_preview_output()
 
-            # Summary
             self._print_summary()
             return True
 
@@ -127,11 +177,11 @@ class CitationSculptor:
             self.file_handler.read_file()
             file_info = self.file_handler.get_file_info()
 
-        console.print(f"[green]✓[/green] Loaded: {file_info['name']} ({file_info['size_bytes']:,} bytes)")
+        console.print(f"[green][OK][/green] Loaded: {file_info['name']} ({file_info['size_bytes']:,} bytes)")
 
         if self.create_backup and not self.dry_run:
             backup_path = self.file_handler.create_backup()
-            console.print(f"[green]✓[/green] Backup created: {backup_path.name}")
+            console.print(f"[green][OK][/green] Backup created: {backup_path.name}")
 
     def _step_parse_references(self) -> ReferenceParser:
         """Parse the reference section."""
@@ -141,10 +191,25 @@ class CitationSculptor:
             parser.parse_references()
 
         if parser.reference_section_start:
-            console.print(f"[green]✓[/green] Found reference section at line {parser.reference_section_start + 1}")
-            console.print(f"[green]✓[/green] Parsed {len(parser.references)} references")
+            console.print(f"[green][OK][/green] Found reference section at line {parser.reference_section_start + 1}")
+            console.print(f"[green][OK][/green] Parsed {len(parser.references)} references")
 
         return parser
+
+    def _step_filter_unreferenced(self, parser: ReferenceParser):
+        """Filter out citations not used in the document body."""
+        with console.status("[bold green]Checking for unreferenced citations..."):
+            used_refs, unused_refs = parser.filter_unreferenced()
+        
+        if unused_refs:
+            console.print(f"[yellow][!][/yellow] Skipping {len(unused_refs)} unreferenced citations:")
+            for ref in unused_refs[:5]:  # Show first 5
+                console.print(f"    - #{ref.original_number}: {ref.title[:50]}...")
+            if len(unused_refs) > 5:
+                console.print(f"    ... and {len(unused_refs) - 5} more")
+        
+        console.print(f"[green][OK][/green] {len(used_refs)} citations are used in document")
+        return used_refs, unused_refs
 
     def _step_categorize_references(self, references: List[ParsedReference]) -> dict:
         """Categorize references by type."""
@@ -169,26 +234,37 @@ class CitationSculptor:
             connected = self.pubmed_client.test_connection()
 
         if connected:
-            console.print("[green]✓[/green] Connected to PubMed MCP server")
+            console.print("[green][OK][/green] Connected to PubMed MCP server")
         else:
-            console.print("[red]✗[/red] Failed to connect to PubMed MCP server")
+            console.print("[red][X][/red] Failed to connect to PubMed MCP server")
             console.print("[yellow]  Ensure server is running at http://127.0.0.1:3017/mcp[/yellow]")
 
         return connected
 
     def _step_process_journal_articles(self, journal_refs: List[ParsedReference]):
         """Process journal article references via PubMed."""
-        console.print(f"\n[bold]Processing {len(journal_refs)} journal articles...[/bold]\n")
+        total = len(journal_refs)
+        processed_count = 0
+        error_count = 0
 
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[cyan]{task.completed}/{task.total}[/cyan]"),
             console=console,
+            disable=self.use_gui,  # Disable CLI progress if GUI is enabled
         ) as progress:
-            task = progress.add_task("Processing...", total=len(journal_refs))
+            task = progress.add_task("Processing journal articles...", total=total)
 
-            for ref in journal_refs:
-                progress.update(task, description=f"Processing #{ref.original_number}...")
+            for i, ref in enumerate(journal_refs):
+                status_msg = f"Article #{ref.original_number}..."
+                progress.update(task, description=status_msg)
+                
+                # Update GUI dialog if enabled
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i, status_msg)
 
                 try:
                     result = self._process_single_journal_article(ref)
@@ -197,41 +273,232 @@ class CitationSculptor:
                         self.number_to_label_map[ref.original_number] = result.label
                         ref.processed = True
                         ref.new_label = result.label
+                        processed_count += 1
                 except Exception as e:
                     logger.error(f"Error processing #{ref.original_number}: {e}")
                     self._add_manual_review(ref, f"Processing error: {str(e)}", "Manually verify")
+                    error_count += 1
+                
+                progress.update(task, advance=1)
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i + 1, status_msg)
 
-                progress.advance(task)
-
-        console.print(f"\n[green]✓[/green] Processed {len(self.processed_citations)} journal articles")
+        console.print(f"[green][OK][/green] Processed {processed_count} journal articles" +
+                     (f" ({error_count} errors)" if error_count else ""))
         if self.manual_review_items:
-            console.print(f"[yellow]![/yellow] {len(self.manual_review_items)} items need manual review")
+            console.print(f"[yellow][!][/yellow] {len(self.manual_review_items)} items need manual review")
 
     def _process_single_journal_article(self, ref: ParsedReference) -> Optional[FormattedCitation]:
         """Process a single journal article reference."""
         pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
         pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
+        doi = self.type_detector.extract_doi(ref.url) if ref.url else None
 
         metadata: Optional[ArticleMetadata] = None
 
+        # Priority 1: Direct PMID lookup
         if pmid:
             logger.info(f"Fetching PMID: {pmid}")
             metadata = self.pubmed_client.fetch_article_by_pmid(pmid)
+
+        # Priority 2: PMC ID lookup
         elif pmcid:
-            self._add_manual_review(ref, f"PMC article ({pmcid}), needs PMID", "Look up PMID")
-            return None
+            logger.info(f"Looking up PMC ID: {pmcid}")
+            metadata = self.pubmed_client.fetch_article_by_pmcid(pmcid)
+            if not metadata:
+                self._add_manual_review(ref, f"PMC article ({pmcid}), PMID not found", "Manually look up PMID")
+                return None
+
+        # Priority 3: DOI lookup
+        elif doi:
+            logger.info(f"Looking up DOI: {doi}")
+            metadata = self.pubmed_client.fetch_article_by_doi(doi)
+            if not metadata:
+                # Fall back to title search
+                logger.info(f"DOI not in PubMed, trying title search...")
+                metadata = self.pubmed_client.verify_article_exists(ref.title)
+
+        # Priority 4: Title search
         else:
             logger.info(f"Searching by title: {ref.title[:50]}...")
             metadata = self.pubmed_client.verify_article_exists(ref.title)
-            if not metadata:
-                self._add_manual_review(ref, "Article not found in PubMed", "Verify citation")
-                return None
 
-        if not metadata:
-            self._add_manual_review(ref, "Failed to fetch metadata", "Manual lookup needed")
-            return None
+        # If found in PubMed, format as journal article
+        if metadata:
+            return self.formatter.format_journal_article(metadata, ref.original_number)
 
-        return self.formatter.format_journal_article(metadata, ref.original_number)
+        # Priority 5: Try CrossRef for non-PubMed items (books, chapters, etc.)
+        if doi:
+            logger.info(f"Trying CrossRef for DOI: {doi}")
+            crossref_metadata = self.pubmed_client.crossref_lookup_doi(doi)
+            
+            if crossref_metadata:
+                logger.info(f"Found in CrossRef: {crossref_metadata.work_type}")
+                
+                # Format based on work type
+                if crossref_metadata.work_type == 'book-chapter':
+                    return self.formatter.format_book_chapter(crossref_metadata, ref.original_number)
+                elif crossref_metadata.work_type in ('book', 'monograph'):
+                    return self.formatter.format_book(crossref_metadata, ref.original_number)
+                elif crossref_metadata.work_type == 'journal-article':
+                    # Journal article not in PubMed - format from CrossRef
+                    return self.formatter.format_crossref_journal_article(crossref_metadata, ref.original_number)
+                else:
+                    # For other types (proceedings, reports, etc.)
+                    # Add to manual review with CrossRef info
+                    self._add_manual_review(
+                        ref, 
+                        f"Found in CrossRef as '{crossref_metadata.work_type}' but format not supported",
+                        f"Use CrossRef metadata: {crossref_metadata.title[:50]}..."
+                    )
+                    return None
+
+        self._add_manual_review(ref, "Article not found in PubMed or CrossRef", "Verify citation exists and format manually")
+        return None
+
+    def _step_process_webpages(self, references: List[ParsedReference]):
+        """Process webpage references (no API calls needed)."""
+        total = len(references)
+        processed_count = 0
+        error_count = 0
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[cyan]{task.completed}/{task.total}[/cyan]"),
+            console=console,
+            disable=self.use_gui,
+        ) as progress:
+            task = progress.add_task("Processing webpages...", total=total)
+            
+            for i, ref in enumerate(references):
+                status_msg = f"Webpage #{ref.original_number}..."
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i, status_msg)
+                
+                try:
+                    citation = self.formatter.format_webpage(
+                        title=ref.title,
+                        url=ref.url or "",
+                        source_name=ref.source_name,
+                        original_number=ref.original_number,
+                    )
+                    
+                    self.processed_citations.append(citation)
+                    self.number_to_label_map[ref.original_number] = citation.label
+                    ref.processed = True
+                    ref.new_label = citation.label
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing webpage #{ref.original_number}: {e}")
+                    self._add_manual_review(ref, f"Formatting error: {str(e)}", "Review and format manually")
+                    error_count += 1
+                
+                progress.update(task, advance=1)
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i + 1, status_msg)
+        
+        console.print(f"[green][OK][/green] Processed {processed_count} webpages" + 
+                     (f" ({error_count} errors)" if error_count else ""))
+
+    def _step_process_blogs(self, references: List[ParsedReference]):
+        """Process blog references (no API calls needed)."""
+        total = len(references)
+        processed_count = 0
+        error_count = 0
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[cyan]{task.completed}/{task.total}[/cyan]"),
+            console=console,
+            disable=self.use_gui,
+        ) as progress:
+            task = progress.add_task("Processing blogs...", total=total)
+            
+            for i, ref in enumerate(references):
+                status_msg = f"Blog #{ref.original_number}..."
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i, status_msg)
+                
+                try:
+                    citation = self.formatter.format_blog(
+                        title=ref.title,
+                        url=ref.url or "",
+                        source_name=ref.source_name,
+                        original_number=ref.original_number,
+                    )
+                    
+                    self.processed_citations.append(citation)
+                    self.number_to_label_map[ref.original_number] = citation.label
+                    ref.processed = True
+                    ref.new_label = citation.label
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing blog #{ref.original_number}: {e}")
+                    self._add_manual_review(ref, f"Formatting error: {str(e)}", "Review and format manually")
+                    error_count += 1
+                
+                progress.update(task, advance=1)
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i + 1, status_msg)
+        
+        console.print(f"[green][OK][/green] Processed {processed_count} blogs" +
+                     (f" ({error_count} errors)" if error_count else ""))
+
+    def _step_process_newspapers(self, references: List[ParsedReference]):
+        """Process newspaper article references (no API calls needed)."""
+        total = len(references)
+        processed_count = 0
+        error_count = 0
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[cyan]{task.completed}/{task.total}[/cyan]"),
+            console=console,
+            disable=self.use_gui,
+        ) as progress:
+            task = progress.add_task("Processing newspapers...", total=total)
+            
+            for i, ref in enumerate(references):
+                status_msg = f"Newspaper #{ref.original_number}..."
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i, status_msg)
+                
+                try:
+                    citation = self.formatter.format_newspaper_article(
+                        title=ref.title,
+                        url=ref.url or "",
+                        source_name=ref.source_name,
+                        original_number=ref.original_number,
+                    )
+                    
+                    self.processed_citations.append(citation)
+                    self.number_to_label_map[ref.original_number] = citation.label
+                    ref.processed = True
+                    ref.new_label = citation.label
+                    processed_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error processing newspaper #{ref.original_number}: {e}")
+                    self._add_manual_review(ref, f"Formatting error: {str(e)}", "Review and format manually")
+                    error_count += 1
+                
+                progress.update(task, advance=1)
+                if self.gui_dialog:
+                    self.gui_dialog.update_task(i + 1, status_msg)
+        
+        console.print(f"[green][OK][/green] Processed {processed_count} newspaper articles" +
+                     (f" ({error_count} errors)" if error_count else ""))
 
     def _step_update_inline_references(self, body_content: str) -> str:
         """Update inline references in document body."""
@@ -243,7 +510,7 @@ class CitationSculptor:
             replacer = InlineReplacer(self.number_to_label_map)
             result = replacer.replace_all(body_content)
 
-        console.print(f"[green]✓[/green] Made {result.replacements_made} inline reference replacements")
+        console.print(f"[green][OK][/green] Made {result.replacements_made} inline reference replacements")
         return result.modified_text
 
     def _step_generate_output(self, body_content: str, categorized: dict, parser: ReferenceParser):
@@ -259,14 +526,24 @@ class CitationSculptor:
             output_content = self.output_generator.generate(output_doc)
             output_path = self.file_handler.write_output(output_content, self.output_path)
 
-        console.print(f"[green]✓[/green] Output written to: {output_path}")
+        console.print(f"[green][OK][/green] Output written to: {output_path}")
 
         # Generate summary report
         report = self.output_generator.generate_summary_report(output_doc)
         report_path = output_path.parent / f"{output_path.stem}_report.md"
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(report)
-        console.print(f"[green]✓[/green] Report: {report_path.name}")
+        console.print(f"[green][OK][/green] Report: {report_path.name}")
+
+        # Generate reference mapping file (for backup/rollback)
+        mappings = self.output_generator.generate_reference_mapping(
+            all_references=parser.references,
+            processed_citations=self.processed_citations,
+            manual_review=self.manual_review_items,
+            number_to_label_map=self.number_to_label_map,
+        )
+        mapping_path = self.output_generator.save_mapping_file(mappings, output_path)
+        console.print(f"[green][OK][/green] Mapping: {mapping_path.name}")
 
     def _step_preview_output(self):
         """Preview what would be generated (dry run)."""
@@ -274,7 +551,7 @@ class CitationSculptor:
 
         console.print("[bold]Processed Citations:[/bold]")
         for citation in self.processed_citations[:5]:
-            console.print(f"  • {citation.label}: PMID {citation.pmid}")
+            console.print(f"  - {citation.label}: PMID {citation.pmid}")
         if len(self.processed_citations) > 5:
             console.print(f"  ... and {len(self.processed_citations) - 5} more")
 
@@ -318,6 +595,7 @@ def main():
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Preview only")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup")
+    parser.add_argument("--gui", action="store_true", help="Show progress in popup dialog")
 
     args = parser.parse_args()
 
@@ -331,6 +609,7 @@ def main():
         verbose=args.verbose,
         dry_run=args.dry_run,
         create_backup=not args.no_backup,
+        use_gui=args.gui,
     )
 
     success = sculptor.run()
@@ -339,4 +618,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
