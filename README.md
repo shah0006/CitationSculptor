@@ -4,23 +4,46 @@
 
 ## Overview
 
-CitationSculptor is a Python tool that processes Obsidian markdown documents containing LLM-generated reference sections and reformats them according to Vancouver citation standards. It integrates with the PubMed API (via MCP server) to fetch accurate journal article metadata.
+CitationSculptor is a Python tool that processes Obsidian markdown documents containing LLM-generated reference sections and reformats them according to Vancouver citation standards. It integrates with PubMed and CrossRef APIs (via MCP server) to fetch accurate metadata for journal articles, book chapters, books, and more.
 
 ## Features
 
-- **Journal Article Processing**: Fetches metadata from PubMed and generates complete Vancouver citations
-- **Smart Citation Detection**: Identifies citation types (journal articles, books, webpages, etc.)
-- **Inline Reference Transformation**: Converts numbered references `[1]` to mnemonic labels `[^AuthorYear-PMID]`
-- **Hallucination Detection**: Verifies citations against PubMed
-- **Manual Review Flagging**: Problematic citations are flagged for human review
+### Citation Processing
+- **Journal Articles**: Fetches metadata from PubMed with DOI, volume, issue, and pages
+- **Book Chapters**: Retrieves from CrossRef with proper Vancouver formatting
+- **Books**: CrossRef integration for complete book citations
+- **Newspaper Articles**: Extracts publication info from URLs
+- **Webpages & Blogs**: Generates labels from organization/source names
+
+### Smart Detection & Filtering
+- **Citation Type Detection**: Automatically identifies journals, books, webpages, blogs, newspapers
+- **DOI Extraction**: Handles multiple publisher URL patterns (Springer, Wiley, OUP, BMC, etc.)
+- **Unreferenced Citation Filter**: Skips citations not actually used in document body
+- **PMC ID → PMID Conversion**: Uses NCBI ID Converter API
+
+### Inline Reference Transformation
+- Converts numbered references `[1]` to mnemonic labels
+- Journal articles: `[^AuthorAB-2024-12345678]` (with PMID)
+- Book chapters: `[^AuthorAB-2024-p123]` (with starting page)
+- Webpages/blogs: `[^OrgName-BriefTitle-Year]`
+
+### Reliability Features
+- **Rate Limiting**: 2.5 requests/second with exponential backoff
+- **Retry Logic**: Automatic retry on 429 errors (5s, 10s, 20s, 40s)
+- **Mapping File**: JSON audit trail for rollback/debugging
+- **Progress Indicators**: Real-time progress bars with counts
 
 ## Installation
 
 ```bash
-cd C:\Users\tusharshah\Projects\CitationSculptor
+# Navigate to project (Mac)
+cd "/path/to/CitationSculptor"
 
 # Create virtual environment
 python -m venv venv
+
+# Activate (Mac/Linux)
+source venv/bin/activate
 
 # Activate (Windows)
 .\venv\Scripts\activate
@@ -29,10 +52,24 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
+## Configuration
+
+Create a `.env` file:
+
+```env
+PUBMED_MCP_URL=http://127.0.0.1:3017/mcp
+LOG_LEVEL=INFO
+MAX_AUTHORS=3
+```
+
 ## Usage
 
 ```bash
+# Basic usage
 python citation_sculptor.py "path/to/document.md"
+
+# With options
+python citation_sculptor.py "path/to/document.md" --verbose --output custom_output.md
 ```
 
 ### Options
@@ -43,24 +80,77 @@ python citation_sculptor.py "path/to/document.md"
 | `--verbose, -v` | Enable detailed logging |
 | `--dry-run, -n` | Preview changes without writing |
 | `--no-backup` | Skip creating backup file |
+| `--gui` | Show progress in popup dialog (requires compatible tkinter) |
+
+### Output Files
+
+| File | Description |
+|------|-------------|
+| `*_formatted.md` | Processed document with Vancouver citations |
+| `*_formatted_report.md` | Processing summary statistics |
+| `*_formatted_mapping.json` | Reference mapping for audit/rollback |
 
 ## Requirements
 
 - Python 3.9+
 - PubMed MCP Server running at `http://127.0.0.1:3017/mcp`
+  - Required tools: `pubmed_search_articles`, `pubmed_fetch_contents`, `pubmed_convert_ids`, `crossref_lookup_doi`
 
 ## Project Phases
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| Phase 1 | Journal articles via PubMed | In Progress |
-| Phase 2 | Book chapters, books | Planned |
-| Phase 3 | Newspaper articles | Planned |
-| Phase 4 | Webpages, web articles, blogs | Planned |
-| Phase 5 | Batch processing | Planned |
-| Phase 6 | Obsidian plugin | Planned |
+| Phase 1 | Journal articles via PubMed | ✅ Complete |
+| Phase 2 | Book chapters, books (CrossRef) | ✅ Complete |
+| Phase 3 | Newspaper articles | ✅ Complete |
+| Phase 4 | Webpages, web articles, blogs | ✅ Complete |
+| Phase 5 | Batch processing | 📋 Planned |
+| Phase 6 | Obsidian plugin | 📋 Planned |
+
+## Test Results (Sample Document)
+
+| Metric | Value |
+|--------|-------|
+| Total references | 211 |
+| Used in document | 130 |
+| Journal articles | 11 |
+| Book chapters | 1 |
+| Webpages | 106 |
+| Blogs | 7 |
+| Newspaper articles | 4 |
+| **Inline replacements** | **257** |
+| **Manual review needed** | **0** |
+
+## Architecture
+
+```
+CitationSculptor/
+├── citation_sculptor.py      # Main CLI entry point
+├── modules/
+│   ├── file_handler.py       # File I/O and backup
+│   ├── reference_parser.py   # Parse reference sections
+│   ├── type_detector.py      # Detect citation types, extract DOIs
+│   ├── pubmed_client.py      # PubMed & CrossRef MCP client
+│   ├── vancouver_formatter.py # Format citations
+│   ├── inline_replacer.py    # Replace inline references
+│   ├── output_generator.py   # Generate output files
+│   └── progress_dialog.py    # GUI progress (optional)
+├── config/
+│   └── journal_domains.json  # Journal domain patterns
+├── samples/                  # Test documents
+└── tests/                    # Unit tests
+```
+
+## Recent Updates (2025-11-27)
+
+- Added CrossRef integration for non-PubMed items
+- Implemented unreferenced citation filtering
+- Added DOI extraction for OUP, Springer chapter URLs
+- Fixed DOI suffix stripping for article IDs
+- Added mapping file for audit trail
+- Implemented rate limiting with exponential backoff
+- Added progress indicators with counts
 
 ## License
 
 MIT License
-
