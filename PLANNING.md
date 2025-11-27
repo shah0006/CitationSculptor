@@ -119,3 +119,9 @@
 - **Verified**: Validated backward compatibility with a simple single-section test file.
 - **Cleanup**: Removed temporary test files (`test_old_format.md`, etc.) to keep the workspace clean.
 - **Commit**: Pushed all changes to GitHub with detailed commit messages.
+
+### 7. Search Tool Troubleshooting
+- **Issue**: Text-only citations were failing lookup. Diagnostics revealed the MCP server's `pubmed_search_articles` tool was returning 0 results due to `fetchBriefSummaries` defaulting to 0.
+- **Fix**: Server agent updated default to 3. Client now receives metadata correctly.
+- **Remaining Challenge**: LLM-generated citations often have titles that diverge significantly from PubMed records (e.g., missing words), causing strict title searches to fail even when the server works. "Smart Fallback" (Author + Year) is planned to solve this.
+
