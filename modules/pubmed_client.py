@@ -439,7 +439,11 @@ class PubMedClient:
     def search_by_title(self, title: str, max_results: int = 5) -> List[ArticleMetadata]:
         """Search PubMed by title."""
         clean_title = re.sub(r'[^\w\s\-]', ' ', title)
-        clean_title = ' '.join(clean_title.split())[:200]
+        clean_title = ' '.join(clean_title.split())
+        # Truncate to ~100 chars for better search results (long queries often fail)
+        # But try to break at a word boundary
+        if len(clean_title) > 100:
+            clean_title = clean_title[:100].rsplit(' ', 1)[0]
         logger.info(f"Searching: {clean_title[:60]}...")
 
         result = self._send_request("tools/call", {
@@ -458,7 +462,7 @@ class PubMedClient:
         return self._parse_search_result(result)
 
     def verify_article_exists(self, title: str) -> Optional[ArticleMetadata]:
-        """Verify article exists in PubMed."""
+        """Verify article exists in PubMed and return full metadata."""
         results = self.search_by_title(title, max_results=5)
         if not results:
             logger.warning(f"No results for: {title[:60]}...")
@@ -473,16 +477,26 @@ class PubMedClient:
             if words1 and words2:
                 overlap = len(words1 & words2) / len(words1 | words2)
                 
+                matched = False
                 # Check 1: Strong overlap
                 if overlap >= 0.7:
                     logger.info(f"Verified (high overlap {overlap:.2f}): PMID {article.pmid}")
-                    return article
+                    matched = True
                 
                 # Check 2: Subset match (all significant query words are in result)
                 # Good for when query is a shortened version of the full title
-                sig_words1 = {w for w in words1 if len(w) > 3}
-                if sig_words1 and sig_words1.issubset(words2):
-                    logger.info(f"Verified (subset match): PMID {article.pmid}")
+                if not matched:
+                    sig_words1 = {w for w in words1 if len(w) > 3}
+                    if sig_words1 and sig_words1.issubset(words2):
+                        logger.info(f"Verified (subset match): PMID {article.pmid}")
+                        matched = True
+                
+                if matched:
+                    # Fetch full metadata using the PMID (search results have limited data)
+                    full_metadata = self.fetch_article_by_pmid(article.pmid)
+                    if full_metadata:
+                        return full_metadata
+                    # Fall back to search result if full fetch fails
                     return article
 
         logger.warning(f"No match found for: {title[:60]}...")
@@ -498,14 +512,26 @@ class PubMedClient:
         # Normalize PMC ID format (ensure it has PMC prefix)
         if not pmcid.upper().startswith('PMC'):
             pmcid = f"PMC{pmcid}"
+            
+        # Try ID conversion using batch converter logic (returns full object)
+        # We use convert_ids directly to get access to DOI if PMID is missing
+        results = self.convert_ids([pmcid], id_type="pmcid", target_type="all")
         
-        # Use the ID converter to get PMID
-        pmid = self.convert_pmcid_to_pmid(pmcid)
+        if results and results[0].status == "success":
+            res = results[0]
+            
+            # 1. If PMID found, use it (Standard path)
+            if res.pmid:
+                return self.fetch_article_by_pmid(res.pmid)
+                
+            # 2. If no PMID but DOI found, try CrossRef (Backup path)
+            if res.doi:
+                logger.info(f"No PMID for {pmcid}, but found DOI: {res.doi}. Fetching from CrossRef...")
+                crossref_meta = self.crossref_lookup_doi(res.doi)
+                if crossref_meta:
+                    return self._crossref_to_article_metadata(crossref_meta, pmcid=pmcid)
         
-        if pmid:
-            return self.fetch_article_by_pmid(pmid)
-        
-        # Fallback: try searching PubMed directly (less reliable)
+        # 3. Fallback: Direct search (legacy, but might catch something)
         logger.info(f"ID converter failed, trying direct search for {pmcid}")
         clean_pmcid = pmcid.replace('PMC', '')
         result = self._send_request("tools/call", {
@@ -524,8 +550,27 @@ class PubMedClient:
                     logger.info(f"Found PMID {article.pmid} for {pmcid} via search")
                     return self.fetch_article_by_pmid(article.pmid)
 
-        logger.warning(f"Could not find PMID for {pmcid}")
+        logger.warning(f"Could not find PMID or usable metadata for {pmcid}")
         return None
+
+    def _crossref_to_article_metadata(self, cm: CrossRefMetadata, pmcid: Optional[str] = None) -> ArticleMetadata:
+        """Convert CrossRef metadata to ArticleMetadata."""
+        return ArticleMetadata(
+            pmid="",  # No PMID available
+            title=cm.title,
+            authors=cm.authors,
+            journal=cm.container_title or "",
+            journal_abbreviation=cm.container_title or "",
+            year=cm.year or "",
+            month=cm.month or "",
+            volume=cm.volume or "",
+            issue=cm.issue or "",
+            pages=cm.pages or "",
+            doi=cm.doi,
+            abstract="",  # CrossRef usually doesn't provide abstract
+            pub_date=f"{cm.year} {cm.month}".strip(),
+            pmcid=pmcid
+        )
 
     def fetch_article_by_doi(self, doi: str) -> Optional[ArticleMetadata]:
         """Fetch article metadata by DOI.
@@ -862,4 +907,159 @@ class PubMedClient:
             "conversion_cache_size": len(self._conversion_cache._cache),
             "crossref_cache_size": len(self._crossref_cache._cache),
         }
+
+
+@dataclass
+class WebpageMetadata:
+    """Metadata extracted from a webpage's citation meta tags."""
+    title: str
+    url: str
+    authors: List[str] = field(default_factory=list)
+    journal: str = ""
+    volume: str = ""
+    issue: str = ""
+    first_page: str = ""
+    last_page: str = ""
+    year: str = ""
+    month: str = ""
+    doi: str = ""
+    
+    @property
+    def pages(self) -> str:
+        if self.first_page and self.last_page:
+            return f"{self.first_page}-{self.last_page}"
+        return self.first_page
+    
+    def get_first_author_label(self) -> str:
+        if not self.authors:
+            return "Unknown"
+        first = self.authors[0].replace(',', ' ').split()
+        if len(first) >= 2:
+            last_name = first[-1] if len(first[-1]) > 2 else first[0]
+            initials = ''.join([p[0].upper() for p in first if p != last_name and len(p) > 0])
+            return f"{last_name}{initials}"
+        return self.authors[0].replace(' ', '')[:10]
+    
+    def format_authors_vancouver(self, max_authors: int = 3) -> str:
+        if not self.authors:
+            return ""
+        formatted = []
+        for author in self.authors[:max_authors]:
+            parts = author.strip().split()
+            if len(parts) >= 2:
+                last_name = parts[-1]
+                initials = ''.join([p[0].upper() for p in parts[:-1]])
+                formatted.append(f"{last_name} {initials}")
+            else:
+                formatted.append(author)
+        if len(self.authors) > max_authors:
+            return ', '.join(formatted) + ', et al'
+        return ', '.join(formatted)
+
+
+class WebpageScraper:
+    """Scrapes citation metadata from academic webpages."""
+    
+    META_PATTERNS = {
+        'title': ['citation_title', 'dc.title', 'og:title'],
+        'author': ['citation_author', 'dc.creator', 'author'],
+        'journal': ['citation_journal_title', 'citation_journal_abbrev', 'dc.source'],
+        'volume': ['citation_volume'],
+        'issue': ['citation_issue'],
+        'first_page': ['citation_firstpage'],
+        'last_page': ['citation_lastpage'],
+        'doi': ['citation_doi', 'dc.identifier'],
+        'year': ['citation_year'],
+        'date': ['citation_publication_date', 'citation_date', 'dc.date'],
+    }
+    
+    def __init__(self, timeout: int = 10):
+        self.timeout = timeout
+    
+    def extract_metadata(self, url: str) -> Optional[WebpageMetadata]:
+        """Extract citation metadata from a webpage's meta tags."""
+        try:
+            logger.info(f"Scraping metadata from: {url[:60]}...")
+            headers = {'User-Agent': 'Mozilla/5.0 (compatible; CitationSculptor/1.0)', 'Accept': 'text/html'}
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            response.raise_for_status()
+            return self._parse_html(response.text, url)
+        except Exception as e:
+            logger.warning(f"Failed to scrape {url}: {e}")
+            return None
+    
+    def _parse_html(self, html: str, url: str) -> Optional[WebpageMetadata]:
+        meta_tags = self._extract_meta_tags(html)
+        if not meta_tags:
+            return None
+        
+        # Check for citation meta tags
+        has_citation_tags = any(k.startswith('citation_') or k.startswith('dc.') for k in meta_tags.keys())
+        if not has_citation_tags:
+            return None
+        
+        title = self._get_first_value(meta_tags, self.META_PATTERNS['title'])
+        if not title:
+            m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+            if m:
+                title = m.group(1).strip()
+        if not title:
+            return None
+        
+        authors = self._get_all_values(meta_tags, self.META_PATTERNS['author'])
+        journal = self._get_first_value(meta_tags, self.META_PATTERNS['journal']) or ""
+        volume = self._get_first_value(meta_tags, self.META_PATTERNS['volume']) or ""
+        issue = self._get_first_value(meta_tags, self.META_PATTERNS['issue']) or ""
+        first_page = self._get_first_value(meta_tags, self.META_PATTERNS['first_page']) or ""
+        last_page = self._get_first_value(meta_tags, self.META_PATTERNS['last_page']) or ""
+        
+        doi = self._get_first_value(meta_tags, self.META_PATTERNS['doi']) or ""
+        if doi:
+            doi = re.sub(r'^doi:\s*', '', doi, flags=re.IGNORECASE)
+            m = re.search(r'(10\.\d{4,}/[^\s]+)', doi)
+            if m:
+                doi = m.group(1)
+        
+        year = self._get_first_value(meta_tags, self.META_PATTERNS['year']) or ""
+        month = ""
+        if not year:
+            date_str = self._get_first_value(meta_tags, self.META_PATTERNS['date']) or ""
+            if date_str:
+                m = re.match(r'(\d{4})[-/]?(\d{2})?', date_str)
+                if m:
+                    year = m.group(1)
+                    month = m.group(2) or ""
+        
+        logger.info(f"Extracted: {title[:50]}... by {len(authors)} authors")
+        return WebpageMetadata(
+            title=title.strip(), url=url, authors=authors, journal=journal.strip(),
+            volume=volume.strip(), issue=issue.strip(), first_page=first_page.strip(),
+            last_page=last_page.strip(), year=year.strip(), month=month.strip(), doi=doi.strip()
+        )
+    
+    def _extract_meta_tags(self, html: str) -> Dict[str, List[str]]:
+        tags: Dict[str, List[str]] = {}
+        for m in re.finditer(r'<meta\s+(?:name|property)=["\']([^"\']+)["\']\s+content=["\']([^"\']*)["\']', html, re.IGNORECASE):
+            name = m.group(1).lower()
+            content = m.group(2)
+            if name not in tags:
+                tags[name] = []
+            if content and content not in tags[name]:
+                tags[name].append(content)
+        return tags
+    
+    def _get_first_value(self, tags: Dict[str, List[str]], keys: List[str]) -> Optional[str]:
+        for key in keys:
+            if key.lower() in tags and tags[key.lower()]:
+                return tags[key.lower()][0]
+        return None
+    
+    def _get_all_values(self, tags: Dict[str, List[str]], keys: List[str]) -> List[str]:
+        values = []
+        for key in keys:
+            if key.lower() in tags:
+                for v in tags[key.lower()]:
+                    if v and v not in values:
+                        values.append(v)
+        return values
 

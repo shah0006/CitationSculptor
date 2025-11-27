@@ -100,6 +100,20 @@ class ReferenceParser:
                     break
         
         if not ref_header_positions:
+            # Fallback: Look for implicit footnote section (lines starting with [^1]:)
+            logger.info("No reference headers found. Looking for implicit footnote section...")
+            implicit_start = -1
+            for i, line in enumerate(self.lines):
+                if re.match(r'^\[\^(\d+)\]:', line.strip()):
+                    implicit_start = i
+                    break
+            
+            if implicit_start != -1:
+                logger.info(f"Found implicit reference section starting at line {implicit_start + 1}")
+                # Return range. Start is implicit_start - 1 so that the loop 
+                # (start + 1 to end) begins at implicit_start.
+                return [(implicit_start - 1, len(self.lines))]
+
             logger.warning("No reference sections found")
             return []
         
@@ -157,6 +171,9 @@ class ReferenceParser:
         
         Each section is processed independently with its own body content
         and reference list.
+        
+        Handles documents where body text continues AFTER the reference definitions
+        (e.g., footnotes defined mid-document).
         """
         all_ref_sections = self.find_all_reference_sections()
         
@@ -173,16 +190,35 @@ class ReferenceParser:
             else:
                 body_start = all_ref_sections[idx - 1][1]
             
-            body_end = ref_start
-            body_content = '\n'.join(self.lines[body_start:body_end])
+            # Body content BEFORE references
+            body_before = '\n'.join(self.lines[body_start:ref_start])
             
-            # Detect inline reference style
+            # Check for body content AFTER references (but before next section or EOF)
+            # This handles documents where footnotes are defined mid-document
+            if idx + 1 < len(all_ref_sections):
+                next_section_start = all_ref_sections[idx + 1][0]
+            else:
+                next_section_start = len(self.lines)
+            
+            body_after = '\n'.join(self.lines[ref_end:next_section_start])
+            
+            # Combine body content (before + after references)
+            # Use a marker so we can reconstruct the document later
+            if body_after.strip():
+                body_content = body_before + '\n<!-- REF_SECTION_MARKER -->\n' + body_after
+                body_end_effective = next_section_start
+                logger.info(f"Section {idx + 1}: Found body content after references (lines {ref_end + 1}-{next_section_start})")
+            else:
+                body_content = body_before
+                body_end_effective = ref_start
+            
+            # Detect inline reference style from combined body
             inline_style = self._detect_inline_style(body_content)
             
             section = DocumentSection(
                 section_index=idx,
                 body_start=body_start,
-                body_end=body_end,
+                body_end=body_end_effective,
                 ref_start=ref_start,
                 ref_end=ref_end,
                 body_content=body_content,
@@ -209,6 +245,30 @@ class ReferenceParser:
         if footnote_count > numeric_count:
             return "footnote"
         return "numeric"
+    
+    def find_undefined_references(self, body_content: str, defined_numbers: set, style: str = "footnote") -> set:
+        """
+        Find reference numbers used in body but not defined in reference list.
+        
+        Args:
+            body_content: The body text to scan
+            defined_numbers: Set of reference numbers that have definitions
+            style: "footnote" for [^N] or "numeric" for [N]
+            
+        Returns:
+            Set of undefined reference numbers
+        """
+        if style == "footnote":
+            used_numbers = set(int(m) for m in re.findall(r'\[\^(\d+)\]', body_content))
+        else:
+            used_numbers = set(int(m) for m in re.findall(r'\[(\d+)\]', body_content))
+        
+        undefined = used_numbers - defined_numbers
+        
+        if undefined:
+            logger.warning(f"Found {len(undefined)} undefined references: {sorted(undefined)}")
+        
+        return undefined
     
     def _parse_section_references(self, start: int, end: int, section_idx: int) -> List[ParsedReference]:
         """Parse references from a specific section."""

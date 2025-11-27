@@ -71,6 +71,14 @@ class CitationSculptor:
         self.pubmed_client = PubMedClient()
         self.formatter = VancouverFormatter(max_authors=3)
         self.output_generator = OutputGenerator()
+        
+        # Initialize webpage scraper for extracting metadata from academic sites
+        try:
+            from modules.pubmed_client import WebpageScraper
+            self.webpage_scraper = WebpageScraper(timeout=10)
+        except ImportError:
+            self.webpage_scraper = None
+            logger.warning("WebpageScraper not available")
 
         self.processed_citations: List[FormattedCitation] = []
         self.manual_review_items: List[ManualReviewItem] = []
@@ -125,6 +133,11 @@ class CitationSculptor:
             blog_refs = categorized.get(CitationType.BLOG, [])
             newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
             
+            # Treat PDF documents as potential journal articles (try PubMed lookup by title)
+            pdf_refs = categorized.get(CitationType.PDF_DOCUMENT, [])
+            if pdf_refs:
+                journal_refs.extend(pdf_refs)
+            
             if journal_refs:
                 tasks.append(("Processing Journal Articles (via PubMed)", len(journal_refs)))
             if webpage_refs:
@@ -144,6 +157,11 @@ class CitationSculptor:
             webpage_refs = categorized.get(CitationType.WEBPAGE, [])
             blog_refs = categorized.get(CitationType.BLOG, [])
             newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+            
+            # Treat PDF documents as potential journal articles (try PubMed lookup by title)
+            pdf_refs = categorized.get(CitationType.PDF_DOCUMENT, [])
+            if pdf_refs:
+                journal_refs.extend(pdf_refs)
 
         task_idx = 0
         if journal_refs:
@@ -227,6 +245,17 @@ class CitationSculptor:
             # Filter unreferenced for this section
             used_refs, unused_refs = self._filter_section_unreferenced(parser, section)
             
+            # Check for undefined references (used in body but not defined)
+            defined_numbers = {ref.original_number for ref in section.references}
+            undefined_refs = parser.find_undefined_references(
+                section.body_content, 
+                defined_numbers, 
+                style=section.inline_ref_style
+            )
+            if undefined_refs:
+                console.print(f"[red][!] Warning: {len(undefined_refs)} undefined reference(s): {sorted(undefined_refs)}[/red]")
+                console.print(f"[dim]    These citations are used in the text but have no definition.[/dim]")
+            
             if not used_refs:
                 console.print("[yellow]  No used references in this section[/yellow]")
                 all_section_results.append({
@@ -248,6 +277,12 @@ class CitationSculptor:
             webpage_refs = categorized.get(CitationType.WEBPAGE, [])
             blog_refs = categorized.get(CitationType.BLOG, [])
             newspaper_refs = categorized.get(CitationType.NEWSPAPER_ARTICLE, [])
+            
+            # Treat PDF documents as potential journal articles (try PubMed lookup by title)
+            pdf_refs = categorized.get(CitationType.PDF_DOCUMENT, [])
+            if pdf_refs:
+                journal_refs.extend(pdf_refs)
+                console.print(f"[dim]  Including {len(pdf_refs)} PDF documents for PubMed title search[/dim]")
             
             if journal_refs:
                 self._prefetch_journal_ids(journal_refs)
@@ -275,6 +310,7 @@ class CitationSculptor:
                 'processed': list(self.processed_citations),
                 'manual_review': list(self.manual_review_items),
                 'mapping': dict(self.number_to_label_map),
+                'undefined_refs': undefined_refs,  # Track undefined references
             })
         
         # Generate combined output
@@ -328,29 +364,33 @@ class CitationSculptor:
     def _generate_multi_section_output(self, section_results: List[dict], parser: ReferenceParser):
         """Generate output for multi-section document."""
         # Reconstruct document with updated sections
-        lines = self.file_handler.original_content.split('\n')
         output_parts = []
-        last_end = 0
         
         for result in section_results:
             section = result['section']
+            body_content = result['body_content']
             
-            # Add any content before this section's body that we haven't processed
-            if section.body_start > last_end:
-                output_parts.append('\n'.join(lines[last_end:section.body_start]))
-            
-            # Add the updated body content
-            output_parts.append(result['body_content'])
-            
-            # Generate formatted reference section
-            ref_section = self._format_section_references(result)
-            output_parts.append(ref_section)
-            
-            last_end = section.ref_end
-        
-        # Add any remaining content after the last section
-        if last_end < len(lines):
-            output_parts.append('\n'.join(lines[last_end:]))
+            # Check if body content has the marker (meaning text exists after references)
+            if '<!-- REF_SECTION_MARKER -->' in body_content:
+                # Split body into before and after reference section
+                body_before, body_after = body_content.split('<!-- REF_SECTION_MARKER -->', 1)
+                
+                # Add body before references
+                output_parts.append(body_before.rstrip())
+                
+                # Add formatted reference section
+                ref_section = self._format_section_references(result)
+                output_parts.append(ref_section)
+                
+                # Add body after references
+                output_parts.append(body_after.lstrip())
+            else:
+                # Simple case: body is only before references
+                output_parts.append(body_content)
+                
+                # Add formatted reference section
+                ref_section = self._format_section_references(result)
+                output_parts.append(ref_section)
         
         output_content = '\n'.join(output_parts)
         output_path = self.file_handler.write_output(output_content, self.output_path)
@@ -381,8 +421,9 @@ class CitationSculptor:
         """Format reference section for output."""
         lines = ["\n## References\n"]
         
-        # Add processed citations
-        for citation in result['processed']:
+        # Add processed citations (sorted alphabetically by label)
+        sorted_citations = sorted(result['processed'], key=lambda c: c.label.lower())
+        for citation in sorted_citations:
             lines.append(citation.full_citation)
             lines.append("")
         
@@ -394,6 +435,16 @@ class CitationSculptor:
                 lines.append(f"  - Original: {item.original_text[:100]}...")
                 lines.append(f"  - Suggested: {item.suggested_action}")
                 lines.append("")
+        
+        # Add undefined references warning if any
+        undefined_refs = result.get('undefined_refs', set())
+        if undefined_refs:
+            lines.append("\n### ⚠️ Undefined References\n")
+            lines.append("> The following citation numbers are used in the text but have no definition in the reference list.\n")
+            lines.append("> These may be errors in the original document.\n")
+            for num in sorted(undefined_refs):
+                lines.append(f"- `[^{num}]` - No definition found")
+            lines.append("")
         
         return '\n'.join(lines)
 
@@ -617,9 +668,10 @@ class CitationSculptor:
         return None
 
     def _step_process_webpages(self, references: List[ParsedReference]):
-        """Process webpage references (no API calls needed)."""
+        """Process webpage references, attempting to scrape metadata first."""
         total = len(references)
         processed_count = 0
+        scraped_count = 0
         error_count = 0
         
         with Progress(
@@ -639,12 +691,27 @@ class CitationSculptor:
                     self.gui_dialog.update_task(i, status_msg)
                 
                 try:
-                    citation = self.formatter.format_webpage(
-                        title=ref.title,
-                        url=ref.url or "",
-                        source_name=ref.source_name,
-                        original_number=ref.original_number,
-                    )
+                    citation = None
+                    
+                    # Try to scrape metadata from the webpage first
+                    if ref.url and self.webpage_scraper:
+                        scraped_metadata = self.webpage_scraper.extract_metadata(ref.url)
+                        if scraped_metadata and scraped_metadata.authors:
+                            # Use scraped metadata for better formatting
+                            citation = self.formatter.format_scraped_webpage(
+                                metadata=scraped_metadata,
+                                original_number=ref.original_number,
+                            )
+                            scraped_count += 1
+                    
+                    # Fall back to basic webpage formatting
+                    if not citation:
+                        citation = self.formatter.format_webpage(
+                            title=ref.title,
+                            url=ref.url or "",
+                            source_name=ref.source_name,
+                            original_number=ref.original_number,
+                        )
                     
                     self.processed_citations.append(citation)
                     self.number_to_label_map[ref.original_number] = citation.label
@@ -661,8 +728,12 @@ class CitationSculptor:
                 if self.gui_dialog:
                     self.gui_dialog.update_task(i + 1, status_msg)
         
-        console.print(f"[green][OK][/green] Processed {processed_count} webpages" + 
-                     (f" ({error_count} errors)" if error_count else ""))
+        result_msg = f"[green][OK][/green] Processed {processed_count} webpages"
+        if scraped_count > 0:
+            result_msg += f" ({scraped_count} with scraped metadata)"
+        if error_count > 0:
+            result_msg += f" ({error_count} errors)"
+        console.print(result_msg)
 
     def _step_process_blogs(self, references: List[ParsedReference]):
         """Process blog references (no API calls needed)."""

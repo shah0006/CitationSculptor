@@ -5,7 +5,7 @@ from typing import Optional
 from dataclasses import dataclass
 from loguru import logger
 
-from .pubmed_client import ArticleMetadata, CrossRefMetadata
+from .pubmed_client import ArticleMetadata, CrossRefMetadata, WebpageMetadata
 
 
 @dataclass
@@ -78,8 +78,9 @@ class VancouverFormatter:
             citation_text += f" [DOI]({doi_url})."
 
         # Add PMID link
-        pmid_url = f"https://pubmed.ncbi.nlm.nih.gov/{metadata.pmid}/"
-        citation_text += f" [PMID: {metadata.pmid}]({pmid_url})"
+        if metadata.pmid:
+            pmid_url = f"https://pubmed.ncbi.nlm.nih.gov/{metadata.pmid}/"
+            citation_text += f" [PMID: {metadata.pmid}]({pmid_url})"
 
         full_citation = f"{label}: {citation_text}"
         logger.debug(f"Formatted: {label}")
@@ -416,6 +417,82 @@ class VancouverFormatter:
             full_citation=full_citation,
             citation_type="webpage",
             original_number=original_number,
+        )
+
+    def format_scraped_webpage(
+        self,
+        metadata: WebpageMetadata,
+        original_number: int,
+    ) -> FormattedCitation:
+        """
+        Format a webpage citation using scraped metadata in Vancouver style.
+        
+        This produces a proper journal-style citation when the webpage
+        has citation_* meta tags (common on academic publisher sites).
+        
+        Format: Authors. Title. Journal. Year;Vol(Issue):Pages. [Link](URL)
+        """
+        
+        # Generate author label
+        author_label = metadata.get_first_author_label()
+        
+        # Create label with year
+        year = metadata.year or "n.d."
+        label = f"[^{author_label}-{year}]"
+        
+        # Format authors
+        authors_str = metadata.format_authors_vancouver(self.max_authors)
+        
+        # Format title
+        title = metadata.title.strip()
+        if not title.endswith('.'):
+            title += '.'
+        
+        # Build citation parts
+        citation_parts = []
+        
+        if authors_str:
+            citation_parts.append(authors_str + '.')
+        
+        citation_parts.append(title)
+        
+        if metadata.journal:
+            citation_parts.append(metadata.journal + '.')
+        
+        # Date and volume/issue/pages
+        date_vol_parts = []
+        if metadata.year:
+            date_vol_parts.append(metadata.year)
+        if metadata.volume:
+            date_vol_parts.append(f";{metadata.volume}")
+            if metadata.issue:
+                date_vol_parts.append(f"({metadata.issue})")
+        if metadata.pages:
+            date_vol_parts.append(f":{metadata.pages}")
+        
+        if date_vol_parts:
+            citation_parts.append(''.join(date_vol_parts) + '.')
+        
+        citation_text = ' '.join(filter(None, citation_parts))
+        
+        # Add DOI if available
+        if metadata.doi:
+            doi_url = self._format_doi_url(metadata.doi)
+            citation_text += f" [DOI]({doi_url})."
+        
+        # Add link to original page
+        citation_text += f" [Link]({metadata.url})"
+        
+        full_citation = f"{label}: {citation_text}"
+        
+        logger.debug(f"Formatted scraped webpage: {label}")
+        
+        return FormattedCitation(
+            label=label,
+            full_citation=full_citation,
+            citation_type="webpage",
+            original_number=original_number,
+            doi=metadata.doi if metadata.doi else None,
         )
 
     def format_blog(
