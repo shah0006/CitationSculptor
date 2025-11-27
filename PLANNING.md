@@ -80,3 +80,42 @@
 - **Server**: PubMed MCP server must be running on port 3017.
 - **Rate Limits**: NCBI rate limits are stricter without an API key. Current delay is set to 200ms/request.
 
+---
+
+## 📜 Development Log & Retrospective (Nov 27, 2025)
+
+### 1. Environment Migration (Windows → Mac)
+- **Challenge**: The project was originally set up on Windows. The `venv` contained `.exe` files incompatible with macOS.
+- **Solution**: Deleted the old `venv`, created a fresh Python 3.9.6 environment, and reinstalled dependencies from `requirements.txt`. Created a new `.env` file for local configuration.
+
+### 2. Rate Limiting & API Stability
+- **Challenge**: The PubMed MCP server frequently returned HTTP 429 (Too Many Requests) errors, causing the pipeline to fail mid-process.
+- **Solution**: 
+  - Implemented a robust `RateLimiter` class in `pubmed_client.py` (2.5 requests/sec).
+  - Added exponential backoff retry logic (up to 4 attempts with increasing delays).
+  - Restarted the MCP server with a higher internal delay (200ms) to be safe.
+
+### 3. Metadata Quality & Parsing
+- **Challenge**: Some citations were missing DOIs or had incomplete metadata (missing volume/issue).
+- **Solution**: 
+  - Updated `pubmed_client.py` to correctly parse nested `journalInfo` from the API response.
+  - Added a new `crossref_lookup_doi` tool usage to handle non-PubMed items (books, chapters).
+  - Fixed DOI extraction regex to handle complex publisher URLs (e.g., Springer `/chapter/`, OUP `/article/`) and strip query parameters.
+
+### 4. Handling "Text-Only" Citations
+- **Challenge**: The sample document contained citations like `1. Recommendations... – Baggish et al., 2020.` without URLs. These were initially categorized as `UNKNOWN` and skipped.
+- **Solution**: 
+  - Updated `CitationSculptor` to attempt title-based lookup for `UNKNOWN` citations instead of ignoring them.
+  - Improved `ReferenceParser` to intelligently split titles from authors using dash separators (` – `), significantly improving lookup success.
+
+### 5. Multi-Section Document Architecture
+- **Challenge**: The user provided a complex document with **two independent reference sections** (likely from merged LLM outputs). The original parser only found the last one, ignoring the first.
+- **Solution**: 
+  - Rewrote `ReferenceParser` to detect multiple `# References` headers.
+  - Created a `Multi-Section Mode` in `CitationSculptor` that processes each section independently.
+  - Ensured inline citation replacements (`[^1]`) are scoped strictly to their containing section, preserving document integrity.
+
+### 6. Validation & Cleanup
+- **Verified**: Validated backward compatibility with a simple single-section test file.
+- **Cleanup**: Removed temporary test files (`test_old_format.md`, etc.) to keep the workspace clean.
+- **Commit**: Pushed all changes to GitHub with detailed commit messages.
