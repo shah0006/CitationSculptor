@@ -8,5 +8,5 @@ from .vancouver_formatter import VancouverFormatter, FormattedCitation
 from .inline_replacer import InlineReplacer
 from .output_generator import OutputGenerator, OutputDocument, ManualReviewItem, ReferenceMapping
 
-__version__ = '0.1.0'
+__version__ = '0.3.0'
 

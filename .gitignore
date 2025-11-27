@@ -39,5 +39,10 @@ Thumbs.db
 # Backup/output files
 *_backup_*.md
 *_formatted.md
+*_formatted_mapping.json
 *_report.md
+
+# Old log files
+output.log
+run_output.txt
 

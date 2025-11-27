@@ -1,7 +1,7 @@
 # CitationSculptor Planning Document
 
 ## Project Status Overview
-**Current Version:** 0.2.0
+**Current Version:** 0.3.0
 **Last Updated:** 2025-11-27
 **Status:** Active Development
 

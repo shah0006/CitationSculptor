@@ -1,4 +1,0 @@
-  File "C:\Users\tusharshah\Projects\CitationSculptor\citation_sculptor.py", line 3
-    [OK]"[OK]"[OK]"[OK]
-                  ^
-SyntaxError: unterminated string literal (detected at line 3)

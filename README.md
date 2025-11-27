@@ -20,6 +20,13 @@ CitationSculptor is a Python tool that processes Obsidian markdown documents con
 - **DOI Extraction**: Handles multiple publisher URL patterns (Springer, Wiley, OUP, BMC, etc.)
 - **Unreferenced Citation Filter**: Skips citations not actually used in document body
 - **PMC ID → PMID Conversion**: Uses NCBI ID Converter API
+- **Webpage Metadata Scraping**: Extracts `citation_*` meta tags from academic webpages
+
+### Multi-Section Document Support
+- Handles documents with multiple independent reference sections
+- Each section processed independently with its own numbering
+- Supports mixed reference formats within the same document
+- Detects footnote definitions (`[^N]:`) and numeric references (`[N]`)
 
 ### Inline Reference Transformation
 - Converts numbered references `[1]` to mnemonic labels
@@ -80,6 +87,7 @@ python citation_sculptor.py "path/to/document.md" --verbose --output custom_outp
 | `--verbose, -v` | Enable detailed logging |
 | `--dry-run, -n` | Preview changes without writing |
 | `--no-backup` | Skip creating backup file |
+| `--multi-section` | Process documents with multiple independent reference sections |
 | `--gui` | Show progress in popup dialog (requires compatible tkinter) |
 
 ### Output Files
@@ -128,28 +136,46 @@ CitationSculptor/
 ├── citation_sculptor.py      # Main CLI entry point
 ├── modules/
 │   ├── file_handler.py       # File I/O and backup
-│   ├── reference_parser.py   # Parse reference sections
+│   ├── reference_parser.py   # Parse reference sections (multi-section support)
 │   ├── type_detector.py      # Detect citation types, extract DOIs
-│   ├── pubmed_client.py      # PubMed & CrossRef MCP client
+│   ├── pubmed_client.py      # PubMed, CrossRef MCP client + webpage scraper
 │   ├── vancouver_formatter.py # Format citations
 │   ├── inline_replacer.py    # Replace inline references
 │   ├── output_generator.py   # Generate output files
 │   └── progress_dialog.py    # GUI progress (optional)
 ├── config/
 │   └── journal_domains.json  # Journal domain patterns
-├── samples/                  # Test documents
-└── tests/                    # Unit tests
+├── samples/                  # Active test documents
+├── test_samples/             # Regression test originals
+│   └── TEST_MANIFEST.md      # Test specifications
+└── tests/
+    ├── fixtures/             # Format examples (V1-V5)
+    └── test_*.py             # Unit tests
 ```
 
 ## Recent Updates (2025-11-27)
 
-- Added CrossRef integration for non-PubMed items
-- Implemented unreferenced citation filtering
-- Added DOI extraction for OUP, Springer chapter URLs
-- Fixed DOI suffix stripping for article IDs
-- Added mapping file for audit trail
-- Implemented rate limiting with exponential backoff
-- Added progress indicators with counts
+### v0.3.0
+- **Webpage Metadata Scraping**: Extract `citation_*` meta tags for proper Vancouver formatting
+- **Regression Testing**: Added `test_samples/` folder with TEST_MANIFEST.md
+- **PDF Document Handling**: PDFs now searched on PubMed by title
+- **PMC Fallback**: PMC articles without PMID now use CrossRef for metadata
+- **Alphabetical Sorting**: Reference sections sorted by citation label
+- **Undefined Reference Detection**: Flags citations used in text but not defined
+
+### v0.2.0
+- **Multi-Section Support**: Process documents with multiple reference sections
+- **Footnote Definitions**: Support for `[^N]:` syntax
+- **Text-Only Citations**: Title-based PubMed search for citations without URLs
+- **Body After References**: Handle documents with content after reference sections
+
+### v0.1.0
+- CrossRef integration for non-PubMed items
+- Unreferenced citation filtering
+- DOI extraction for OUP, Springer chapter URLs
+- Mapping file for audit trail
+- Rate limiting with exponential backoff
+- Progress indicators with counts
 
 ## License
 
