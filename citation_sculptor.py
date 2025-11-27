@@ -125,6 +125,9 @@ class CitationSculptor:
 
             task_idx = 0
             if journal_refs:
+                # Batch prefetch ID conversions for efficiency
+                self._prefetch_journal_ids(journal_refs)
+                
                 if self.gui_dialog:
                     self.gui_dialog.start_task(task_idx)
                     task_idx += 1
@@ -240,6 +243,40 @@ class CitationSculptor:
             console.print("[yellow]  Ensure server is running at http://127.0.0.1:3017/mcp[/yellow]")
 
         return connected
+
+    def _prefetch_journal_ids(self, journal_refs: List[ParsedReference]):
+        """
+        Batch prefetch ID conversions for journal articles.
+        
+        This is more efficient than converting one ID at a time because
+        the NCBI API can handle up to 200 IDs per request.
+        """
+        # Collect all PMC IDs and DOIs that need conversion
+        pmcids = []
+        dois = []
+        
+        for ref in journal_refs:
+            if ref.url:
+                pmcid = self.type_detector.extract_pmcid(ref.url)
+                doi = self.type_detector.extract_doi(ref.url)
+                pmid = self.type_detector.extract_pmid(ref.url)
+                
+                # Only need to convert if we don't have a direct PMID
+                if not pmid:
+                    if pmcid:
+                        pmcids.append(pmcid)
+                    elif doi:
+                        dois.append(doi)
+        
+        # Batch convert PMC IDs
+        if pmcids:
+            console.print(f"[dim]Prefetching {len(pmcids)} PMC ID conversions...[/dim]")
+            self.pubmed_client.batch_prefetch_conversions(pmcids, id_type="pmcid")
+        
+        # Batch convert DOIs
+        if dois:
+            console.print(f"[dim]Prefetching {len(dois)} DOI conversions...[/dim]")
+            self.pubmed_client.batch_prefetch_conversions(dois, id_type="doi")
 
     def _step_process_journal_articles(self, journal_refs: List[ParsedReference]):
         """Process journal article references via PubMed."""

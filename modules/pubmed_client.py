@@ -10,6 +10,34 @@ import requests
 from loguru import logger
 
 
+class SimpleCache:
+    """Simple in-memory cache for API responses."""
+    
+    def __init__(self, max_size: int = 500):
+        self._cache: Dict[str, Any] = {}
+        self._max_size = max_size
+    
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from cache."""
+        return self._cache.get(key)
+    
+    def set(self, key: str, value: Any):
+        """Set value in cache, evicting oldest if at capacity."""
+        if len(self._cache) >= self._max_size:
+            # Remove first item (oldest)
+            first_key = next(iter(self._cache))
+            del self._cache[first_key]
+        self._cache[key] = value
+    
+    def has(self, key: str) -> bool:
+        """Check if key exists in cache."""
+        return key in self._cache
+    
+    def clear(self):
+        """Clear the cache."""
+        self._cache.clear()
+
+
 class RateLimiter:
     """
     Rate limiter for API requests.
@@ -148,7 +176,7 @@ class ArticleMetadata:
 
 
 class PubMedClient:
-    """Client for PubMed MCP server with rate limiting and retry logic."""
+    """Client for PubMed MCP server with rate limiting, retry logic, and caching."""
 
     DEFAULT_SERVER_URL = "http://127.0.0.1:3017/mcp"
     MAX_RETRIES = 4
@@ -158,6 +186,12 @@ class PubMedClient:
     def __init__(self, server_url: Optional[str] = None, requests_per_second: float = 2.5):
         self.server_url = server_url or self.DEFAULT_SERVER_URL
         self.session = requests.Session()
+        
+        # Caches to avoid duplicate API calls
+        self._pmid_cache = SimpleCache(max_size=500)      # PMID -> ArticleMetadata
+        self._conversion_cache = SimpleCache(max_size=500)  # ID -> IdConversionResult
+        self._crossref_cache = SimpleCache(max_size=200)   # DOI -> CrossRefMetadata
+        
         self.session.headers.update({
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
@@ -322,25 +356,47 @@ class PubMedClient:
             return [IdConversionResult(input_id=id_, status="error", error=str(e)) for id_ in original_ids]
 
     def convert_pmcid_to_pmid(self, pmcid: str) -> Optional[str]:
-        """Convert a single PMC ID to PMID."""
+        """Convert a single PMC ID to PMID with caching."""
+        # Check cache
+        cached = self._conversion_cache.get(f"pmcid:{pmcid}")
+        if cached and cached.pmid:
+            logger.debug(f"Cache hit for PMCID conversion: {pmcid}")
+            return cached.pmid
+        
         results = self.convert_ids([pmcid], id_type="pmcid", target_type="pmid")
         if results and results[0].status == "success" and results[0].pmid:
             logger.info(f"Converted {pmcid} → PMID {results[0].pmid}")
+            # Cache the result
+            self._conversion_cache.set(f"pmcid:{pmcid}", results[0])
             return results[0].pmid
         logger.warning(f"Could not convert {pmcid} to PMID")
         return None
 
     def convert_doi_to_pmid(self, doi: str) -> Optional[str]:
-        """Convert a single DOI to PMID."""
+        """Convert a single DOI to PMID with caching."""
+        # Check cache
+        cached = self._conversion_cache.get(f"doi:{doi}")
+        if cached and cached.pmid:
+            logger.debug(f"Cache hit for DOI conversion: {doi}")
+            return cached.pmid
+        
         results = self.convert_ids([doi], id_type="doi", target_type="pmid")
         if results and results[0].status == "success" and results[0].pmid:
             logger.info(f"Converted DOI {doi} → PMID {results[0].pmid}")
+            # Cache the result
+            self._conversion_cache.set(f"doi:{doi}", results[0])
             return results[0].pmid
         logger.warning(f"Could not convert DOI {doi} to PMID")
         return None
 
     def fetch_article_by_pmid(self, pmid: str) -> Optional[ArticleMetadata]:
-        """Fetch article metadata by PMID."""
+        """Fetch article metadata by PMID with caching."""
+        # Check cache first
+        cached = self._pmid_cache.get(pmid)
+        if cached is not None:
+            logger.debug(f"Cache hit for PMID: {pmid}")
+            return cached
+        
         logger.info(f"Fetching PMID: {pmid}")
 
         result = self._send_request("tools/call", {
@@ -358,16 +414,25 @@ class PubMedClient:
 
         metadata = self._parse_fetch_result(result, pmid)
         
-        # Supplement missing DOI using ID converter
+        # Supplement missing DOI using ID converter (check conversion cache first)
         if metadata and not metadata.doi:
-            logger.debug(f"DOI missing for PMID {pmid}, trying ID converter...")
-            conversion = self.convert_ids([pmid], id_type="pmid", target_type="all")
-            if conversion and conversion[0].status == "success" and conversion[0].doi:
-                metadata.doi = conversion[0].doi
-                logger.info(f"Found DOI via converter: {metadata.doi}")
-                # Also capture PMCID if missing
-                if not metadata.pmcid and conversion[0].pmcid:
-                    metadata.pmcid = conversion[0].pmcid
+            conv_cached = self._conversion_cache.get(f"pmid:{pmid}")
+            if conv_cached and conv_cached.doi:
+                metadata.doi = conv_cached.doi
+                if not metadata.pmcid and conv_cached.pmcid:
+                    metadata.pmcid = conv_cached.pmcid
+            else:
+                logger.debug(f"DOI missing for PMID {pmid}, trying ID converter...")
+                conversion = self.convert_ids([pmid], id_type="pmid", target_type="all")
+                if conversion and conversion[0].status == "success" and conversion[0].doi:
+                    metadata.doi = conversion[0].doi
+                    logger.info(f"Found DOI via converter: {metadata.doi}")
+                    if not metadata.pmcid and conversion[0].pmcid:
+                        metadata.pmcid = conversion[0].pmcid
+        
+        # Cache the result
+        if metadata:
+            self._pmid_cache.set(pmid, metadata)
         
         return metadata
 
@@ -621,11 +686,17 @@ class PubMedClient:
 
     def crossref_lookup_doi(self, doi: str) -> Optional[CrossRefMetadata]:
         """
-        Look up metadata for a DOI using CrossRef API.
+        Look up metadata for a DOI using CrossRef API with caching.
         
         Use this for items not in PubMed: books, book chapters, 
         conference papers, non-indexed journal articles.
         """
+        # Check cache first
+        cached = self._crossref_cache.get(doi)
+        if cached is not None:
+            logger.debug(f"Cache hit for CrossRef DOI: {doi}")
+            return cached
+        
         logger.info(f"CrossRef lookup for DOI: {doi}")
         
         result = self._send_request("tools/call", {
@@ -639,7 +710,12 @@ class PubMedClient:
             logger.warning(f"CrossRef lookup failed for DOI: {doi}")
             return None
         
-        return self._parse_crossref_result(result, doi)
+        metadata = self._parse_crossref_result(result, doi)
+        
+        # Cache the result (even if None to avoid re-fetching)
+        self._crossref_cache.set(doi, metadata)
+        
+        return metadata
 
     def _parse_crossref_result(self, result: Dict, doi: str) -> Optional[CrossRefMetadata]:
         """Parse CrossRef API response into CrossRefMetadata."""
@@ -716,4 +792,61 @@ class PubMedClient:
         except Exception as e:
             logger.error(f"CrossRef parse error: {e}")
             return None
+
+    def batch_prefetch_conversions(self, ids: List[str], id_type: str = "auto") -> Dict[str, IdConversionResult]:
+        """
+        Batch prefetch ID conversions to cache for later use.
+        
+        This is more efficient than converting one at a time because 
+        the NCBI API supports up to 200 IDs per request.
+        
+        Args:
+            ids: List of identifiers to convert
+            id_type: Type of IDs (pmcid, doi, pmid, or auto)
+            
+        Returns:
+            Dict mapping input ID to conversion result
+        """
+        if not ids:
+            return {}
+        
+        # Filter out already cached IDs
+        uncached_ids = []
+        results = {}
+        
+        for id_ in ids:
+            cache_key = f"{id_type}:{id_}" if id_type != "auto" else id_
+            cached = self._conversion_cache.get(cache_key)
+            if cached:
+                results[id_] = cached
+                logger.debug(f"Batch prefetch cache hit: {id_}")
+            else:
+                uncached_ids.append(id_)
+        
+        if not uncached_ids:
+            logger.info(f"All {len(ids)} IDs found in cache")
+            return results
+        
+        logger.info(f"Batch prefetching {len(uncached_ids)} IDs ({len(ids) - len(uncached_ids)} cached)")
+        
+        # Process in batches of 200 (NCBI limit)
+        batch_size = 200
+        for i in range(0, len(uncached_ids), batch_size):
+            batch = uncached_ids[i:i + batch_size]
+            conversions = self.convert_ids(batch, id_type=id_type, target_type="all")
+            
+            for conv in conversions:
+                cache_key = f"{id_type}:{conv.input_id}" if id_type != "auto" else conv.input_id
+                self._conversion_cache.set(cache_key, conv)
+                results[conv.input_id] = conv
+        
+        return results
+
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Get cache statistics for debugging."""
+        return {
+            "pmid_cache_size": len(self._pmid_cache._cache),
+            "conversion_cache_size": len(self._conversion_cache._cache),
+            "crossref_cache_size": len(self._crossref_cache._cache),
+        }
 
