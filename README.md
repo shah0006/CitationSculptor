@@ -91,15 +91,40 @@ MAX_AUTHORS=3
 
 ## Usage
 
+### Graphical Interface (Recommended)
+
+```bash
+# Launch the web-based GUI
+python gui.py
+
+# Or directly with streamlit
+streamlit run gui.py
+```
+
+The GUI provides:
+- 📁 File browser for selecting markdown documents
+- ⚙️ Easy access to all processing options
+- 📊 Real-time processing statistics
+- 🔧 Built-in corrections editor for fixing missing data
+- 📥 Download buttons for processed files
+
+### Command Line
+
 ```bash
 # Basic usage
 python citation_sculptor.py "path/to/document.md"
 
 # With options
 python citation_sculptor.py "path/to/document.md" --verbose --output custom_output.md
+
+# Generate corrections template for incomplete citations
+python citation_sculptor.py "path/to/document.md" --generate-corrections
+
+# Apply corrections from a filled-in template
+python citation_sculptor.py --apply-corrections "corrections.md" "formatted_document.md"
 ```
 
-### Options
+### CLI Options
 
 | Option | Description |
 |--------|-------------|
@@ -108,15 +133,39 @@ python citation_sculptor.py "path/to/document.md" --verbose --output custom_outp
 | `--dry-run, -n` | Preview changes without writing |
 | `--no-backup` | Skip creating backup file |
 | `--multi-section` | Process documents with multiple independent reference sections |
-| `--gui` | Show progress in popup dialog (requires compatible tkinter) |
+| `--generate-corrections` | Generate a template for fixing incomplete citations |
+| `--apply-corrections FILE` | Apply corrections from a filled template |
 
 ### Output Files
 
 | File | Description |
 |------|-------------|
 | `*_formatted.md` | Processed document with Vancouver citations |
-| `*_formatted_report.md` | Processing summary statistics |
+| `*_corrections.md` | Template for fixing incomplete citations (if needed) |
 | `*_formatted_mapping.json` | Reference mapping for audit/rollback |
+
+### Corrections Workflow
+
+When websites block automated scraping, citations may have `Null_Date` or `Null_Author` placeholders:
+
+1. **Process document** → generates `_formatted.md` and `_corrections.md`
+2. **Open URLs** listed in corrections file and find the missing info
+3. **Fill in the template** with dates, authors, etc.
+4. **Apply corrections** via GUI or `--apply-corrections`
+
+Example corrections template:
+```markdown
+### 1. [^CBPP-StatesCan-ND]
+
+**URL**: https://www.cbpp.org/research/health/...
+**Current Citation**: CBPP. States Can Use Medicaid... Null_Date.
+**Missing**: Date, Authors
+
+**Corrections** (fill in below):
+- Date: 2024-02-27
+- Authors: Orris A, Bailey A, Sullivan J
+- New Tag (optional): [^OrrisA-2024]
+```
 
 ## Requirements
 

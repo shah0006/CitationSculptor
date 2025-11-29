@@ -241,3 +241,265 @@ class OutputGenerator:
         logger.info(f"Mapping saved: {mapping_path}")
         return mapping_path
 
+
+# ============================================================================
+# Corrections Handler - Generate and apply citation corrections
+# ============================================================================
+
+import re
+
+
+@dataclass
+class CorrectionEntry:
+    """A single correction entry for a citation."""
+    tag: str
+    url: str
+    current_citation: str
+    missing_fields: List[str]
+    new_tag: Optional[str] = None
+    date: Optional[str] = None
+    authors: Optional[str] = None
+    organization: Optional[str] = None
+    title: Optional[str] = None
+
+
+class CorrectionsHandler:
+    """Handles generation and application of citation corrections."""
+    
+    def __init__(self):
+        self.corrections: List[CorrectionEntry] = []
+    
+    def generate_corrections_template(self, formatted_content: str, output_path: str) -> str:
+        """Generate a corrections template file for citations with Null placeholders."""
+        null_citations = self._find_null_citations(formatted_content)
+        
+        if not null_citations:
+            logger.info("No citations need corrections")
+            return ""
+        
+        template = self._build_template(null_citations)
+        base_path = Path(output_path)
+        corrections_path = base_path.parent / f"{base_path.stem}_corrections.md"
+        with open(corrections_path, 'w', encoding='utf-8') as f:
+            f.write(template)
+        
+        logger.info(f"Generated corrections template: {corrections_path}")
+        return str(corrections_path)
+    
+    def _find_null_citations(self, content: str) -> List[Dict]:
+        """Find all citations with Null placeholders."""
+        citations = []
+        pattern = r'^\[(\^[^\]]+)\]:\s*(.+?)\[Link\]\(([^)]+)\)\s*$'
+        
+        for line in content.split('\n'):
+            match = re.match(pattern, line.strip())
+            if match:
+                tag = match.group(1)
+                citation_text = match.group(2).strip()
+                url = match.group(3)
+                
+                missing = []
+                if 'Null_Date' in citation_text:
+                    missing.append('Date')
+                if 'Null_Author' in citation_text:
+                    missing.append('Authors')
+                if 'Null_Organization' in citation_text:
+                    missing.append('Organization')
+                if '-ND]' in f'[{tag}]' and 'Date' not in missing:
+                    missing.append('Date')
+                
+                if missing:
+                    citations.append({
+                        'tag': f'[{tag}]',
+                        'citation': citation_text,
+                        'url': url,
+                        'missing': missing
+                    })
+        
+        return citations
+    
+    def _build_template(self, citations: List[Dict]) -> str:
+        """Build the corrections template markdown."""
+        lines = [
+            "# Citation Corrections",
+            "",
+            "This file contains citations that need manual corrections.",
+            "Fill in the missing information below, then run:",
+            "",
+            "```bash",
+            'python citation_sculptor.py --apply-corrections "this_file.md" "formatted_document.md"',
+            "```",
+            "",
+            "---",
+            "",
+            f"## {len(citations)} Citation(s) Need Corrections",
+            "",
+        ]
+        
+        for i, cit in enumerate(citations, 1):
+            lines.extend([
+                f"### {i}. {cit['tag']}",
+                "",
+                f"**URL**: {cit['url']}",
+                "",
+                f"**Current Citation**:",
+                f"> {cit['citation']}",
+                "",
+                f"**Missing**: {', '.join(cit['missing'])}",
+                "",
+                "**Corrections** (fill in below):",
+                "",
+            ])
+            
+            if 'Date' in cit['missing']:
+                lines.append("- Date: ")
+            if 'Authors' in cit['missing']:
+                lines.append("- Authors: ")
+            if 'Organization' in cit['missing']:
+                lines.append("- Organization: ")
+            
+            lines.append("- New Tag (optional): ")
+            lines.append("- Title (optional): ")
+            lines.extend(["", "---", ""])
+        
+        lines.extend([
+            "",
+            "## Instructions",
+            "",
+            "1. Open each URL and find the missing information",
+            "2. Fill in the fields above (leave blank to skip)",
+            "3. For **Date**, use format: YYYY or YYYY-MM-DD",
+            "4. For **Authors**, use format: LastName Initials (e.g., Smith J, Jones A)",
+            "5. For **New Tag**, use format: [^AuthorAB-Year]",
+            "6. Save this file and run the apply command",
+            "",
+        ])
+        
+        return '\n'.join(lines)
+    
+    def parse_corrections_file(self, corrections_path: str) -> List[CorrectionEntry]:
+        """Parse a filled-in corrections file."""
+        with open(corrections_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        corrections = []
+        current_entry = None
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            
+            tag_match = re.match(r'^###\s*\d+\.\s*(\[\^[^\]]+\])', line)
+            if tag_match:
+                if current_entry:
+                    corrections.append(current_entry)
+                current_entry = CorrectionEntry(
+                    tag=tag_match.group(1),
+                    url='',
+                    current_citation='',
+                    missing_fields=[]
+                )
+                continue
+            
+            if not current_entry:
+                continue
+            
+            if line.startswith('**URL**:'):
+                current_entry.url = line.replace('**URL**:', '').strip()
+            
+            if line.startswith('>'):
+                current_entry.current_citation = line[1:].strip()
+            
+            if line.startswith('**Missing**:'):
+                fields_str = line.replace('**Missing**:', '').strip()
+                current_entry.missing_fields = [f.strip() for f in fields_str.split(',')]
+            
+            if line.startswith('- Date:'):
+                value = line.replace('- Date:', '').strip()
+                if value:
+                    current_entry.date = value
+            
+            if line.startswith('- Authors:'):
+                value = line.replace('- Authors:', '').strip()
+                if value:
+                    current_entry.authors = value
+            
+            if line.startswith('- Organization:'):
+                value = line.replace('- Organization:', '').strip()
+                if value:
+                    current_entry.organization = value
+            
+            if line.startswith('- New Tag'):
+                value = line.split(':', 1)[1].strip() if ':' in line else ''
+                if value:
+                    current_entry.new_tag = value
+            
+            if line.startswith('- Title'):
+                value = line.split(':', 1)[1].strip() if ':' in line else ''
+                if value:
+                    current_entry.title = value
+        
+        if current_entry:
+            corrections.append(current_entry)
+        
+        corrections = [c for c in corrections if c.date or c.authors or c.organization or c.new_tag or c.title]
+        
+        logger.info(f"Parsed {len(corrections)} correction(s) from {corrections_path}")
+        return corrections
+    
+    def apply_corrections(self, formatted_content: str, corrections: List[CorrectionEntry]) -> tuple:
+        """Apply corrections to a formatted document."""
+        updated_content = formatted_content
+        applied_count = 0
+        
+        for correction in corrections:
+            pattern = re.escape(correction.tag[:-1]) + r'\]:\s*(.+?)\[Link\]\(([^)]+)\)'
+            match = re.search(pattern, updated_content)
+            
+            if not match:
+                logger.warning(f"Could not find citation for tag: {correction.tag}")
+                continue
+            
+            original_line = match.group(0)
+            citation_text = match.group(1).strip()
+            url = match.group(2)
+            
+            new_citation = citation_text
+            
+            if correction.date:
+                new_citation = new_citation.replace('Null_Date', correction.date)
+            
+            if correction.authors:
+                new_citation = new_citation.replace('Null_Author.', f'{correction.authors}.')
+                new_citation = new_citation.replace('Null_Author', correction.authors)
+            
+            new_tag = correction.new_tag if correction.new_tag else correction.tag
+            new_line = f"{new_tag}: {new_citation} [Link]({url})"
+            
+            updated_content = updated_content.replace(original_line, new_line)
+            
+            if correction.new_tag and correction.new_tag != correction.tag:
+                updated_content = updated_content.replace(correction.tag, correction.new_tag)
+            
+            applied_count += 1
+            logger.info(f"Applied correction to {correction.tag}")
+        
+        return updated_content, applied_count
+    
+    def apply_corrections_to_file(self, formatted_file: str, corrections_file: str) -> tuple:
+        """Apply corrections from a corrections file to a formatted document."""
+        with open(formatted_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        corrections = self.parse_corrections_file(corrections_file)
+        
+        if not corrections:
+            logger.warning("No valid corrections found in file")
+            return formatted_file, 0
+        
+        updated_content, count = self.apply_corrections(content, corrections)
+        
+        with open(formatted_file, 'w', encoding='utf-8') as f:
+            f.write(updated_content)
+        
+        logger.info(f"Applied {count} corrections to {formatted_file}")
+        return formatted_file, count

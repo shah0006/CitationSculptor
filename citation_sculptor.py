@@ -1176,7 +1176,7 @@ def main():
         description="Transform LLM-generated references to Vancouver-style citations"
     )
 
-    parser.add_argument("input_file", help="Path to input markdown file")
+    parser.add_argument("input_file", nargs='?', help="Path to input markdown file")
     parser.add_argument("--output", "-o", help="Output file path")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose logging")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Preview only")
@@ -1184,8 +1184,47 @@ def main():
     parser.add_argument("--gui", action="store_true", help="Show progress in popup dialog")
     parser.add_argument("--multi-section", "-m", action="store_true", 
                        help="Process documents with multiple reference sections independently")
+    
+    # Corrections workflow
+    parser.add_argument("--generate-corrections", action="store_true",
+                       help="Generate a corrections template for incomplete citations")
+    parser.add_argument("--apply-corrections", metavar="FILE",
+                       help="Apply corrections from a filled template file")
 
     args = parser.parse_args()
+
+    # Handle apply-corrections mode
+    if args.apply_corrections:
+        if not args.input_file:
+            console.print("[red]Error: Must provide formatted document path with --apply-corrections[/red]")
+            sys.exit(1)
+        
+        from modules.output_generator import CorrectionsHandler
+        handler = CorrectionsHandler()
+        
+        if not Path(args.apply_corrections).exists():
+            console.print(f"[red]Error: Corrections file not found: {args.apply_corrections}[/red]")
+            sys.exit(1)
+        
+        if not Path(args.input_file).exists():
+            console.print(f"[red]Error: Formatted file not found: {args.input_file}[/red]")
+            sys.exit(1)
+        
+        try:
+            output_path, count = handler.apply_corrections_to_file(
+                args.input_file,
+                args.apply_corrections
+            )
+            console.print(f"[green]✓ Applied {count} correction(s) to {output_path}[/green]")
+            sys.exit(0)
+        except Exception as e:
+            console.print(f"[red]Error applying corrections: {e}[/red]")
+            sys.exit(1)
+
+    # Require input file for normal processing
+    if not args.input_file:
+        parser.print_help()
+        sys.exit(1)
 
     if not Path(args.input_file).exists():
         console.print(f"[red]Error: File not found: {args.input_file}[/red]")
@@ -1202,6 +1241,27 @@ def main():
     )
 
     success = sculptor.run()
+    
+    # Generate corrections template if requested or if there are Null citations
+    if success and args.generate_corrections:
+        from modules.output_generator import CorrectionsHandler
+        handler = CorrectionsHandler()
+        
+        output_path = sculptor.output_path or str(Path(args.input_file).with_stem(
+            Path(args.input_file).stem + '_formatted'
+        ).with_suffix('.md'))
+        
+        if Path(output_path).exists():
+            with open(output_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            if 'Null_' in content:
+                corrections_path = handler.generate_corrections_template(content, output_path)
+                if corrections_path:
+                    console.print(f"[yellow]📋 Corrections template created: {corrections_path}[/yellow]")
+            else:
+                console.print("[green]✓ No corrections needed - all citations complete[/green]")
+    
     sys.exit(0 if success else 1)
 
 
