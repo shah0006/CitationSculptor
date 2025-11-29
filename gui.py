@@ -446,8 +446,60 @@ def main():
                                         st.session_state.corrections_content = f.read()
                         
                         progress_bar.progress(100, text="Complete!")
-                        st.success("✅ Processing complete! Check the **Results** tab.")
+                        st.success("✅ Processing complete!")
                         st.balloons()
+                        
+                        # Show summary statistics immediately
+                        st.markdown("### 📊 Processing Summary")
+                        
+                        # Count statistics from output
+                        output = st.session_state.output_content or ""
+                        null_dates = output.count('Null_Date')
+                        null_authors = output.count('Null_Author')
+                        null_orgs = output.count('Null_Organization')
+                        total_nulls = null_dates + null_authors + null_orgs
+                        
+                        # Count formatted citations (lines starting with [^)
+                        import re
+                        formatted_citations = len(re.findall(r'^\[\^[^\]]+\]:', output, re.MULTILINE))
+                        
+                        # Count undefined references
+                        undefined_match = re.search(r'Undefined References.*?(?=##|$)', output, re.DOTALL)
+                        undefined_count = len(re.findall(r'^- `\[\^', undefined_match.group(0), re.MULTILINE)) if undefined_match else 0
+                        
+                        # Display metrics in columns
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("✅ Citations Formatted", formatted_citations, 
+                                     help="Total citations successfully processed")
+                        with col2:
+                            st.metric("🔄 Inline Refs Updated", result.get('mapping_count', 0),
+                                     help="Number of inline reference marks replaced")
+                        with col3:
+                            delta_color = "off" if undefined_count == 0 else "inverse"
+                            st.metric("⚠️ Undefined Refs", undefined_count,
+                                     help="References used in text but not defined")
+                        with col4:
+                            delta_color = "off" if total_nulls == 0 else "inverse"
+                            st.metric("📝 Need Review", total_nulls,
+                                     help="Citations with missing data (Null_*)")
+                        
+                        # Detailed breakdown if there are issues
+                        if total_nulls > 0:
+                            with st.expander("📋 Missing Data Breakdown", expanded=False):
+                                if null_dates > 0:
+                                    st.write(f"- **Missing Dates:** {null_dates} citations")
+                                if null_authors > 0:
+                                    st.write(f"- **Missing Authors:** {null_authors} citations")
+                                if null_orgs > 0:
+                                    st.write(f"- **Missing Organizations:** {null_orgs} citations")
+                                st.info("💡 Search for 'Null_' in the output to find and fix these.")
+                        
+                        if undefined_count > 0:
+                            st.warning(f"⚠️ {undefined_count} references are used in the text but have no definitions. Check the 'Undefined References' section in the output.")
+                        
+                        st.markdown("---")
+                        st.info("📄 View the full output in the **Results** tab.")
                     else:
                         progress_bar.progress(100, text="Failed")
                         st.error("❌ Processing failed. Check logs for details.")

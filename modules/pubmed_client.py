@@ -1434,19 +1434,74 @@ class WebpageScraper:
         if not year:
             year, month, day = self._extract_date_from_html(html)
         
+        # Check if this is an evergreen page type (typically no date expected)
+        is_evergreen = self._is_evergreen_page(url, title)
+        if not year and is_evergreen:
+            # Don't flag as Null_Date - use empty string (formatter will handle)
+            logger.debug(f"Evergreen page detected, not flagging for missing date: {url[:60]}")
+        
         published_date = ""
         if year and month and day:
             published_date = f"{year}-{month}-{day}"
         elif year and month:
             published_date = f"{year}-{month}"
         
-        logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}")
+        logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}, evergreen={is_evergreen}")
         return WebpageMetadata(
             title=title.strip(), url=url, authors=authors, journal="",
             volume="", issue="", first_page="", last_page="",
-            year=year, month=month, doi="",
+            year=year if year else ("" if is_evergreen else ""), month=month, doi="",
             site_name=site_name.strip(), published_date=published_date
         )
+    
+    def _is_evergreen_page(self, url: str, title: str) -> bool:
+        """Detect if a page is evergreen content that typically doesn't have dates."""
+        url_lower = url.lower()
+        title_lower = title.lower() if title else ""
+        
+        # URL patterns indicating evergreen/institutional pages
+        evergreen_url_patterns = [
+            '/about', '/about-us', '/our-team', '/contact', '/services',
+            '/patient-care', '/clinical-services', '/departments',
+            '/programs', '/specialties', '/divisions', '/clinics',
+            '/find-', '/locations', '/staff', '/faculty',
+            '/practice', '/procedures', '/treatments',
+            '/what-we-do', '/who-we-are', '/our-mission',
+            '/resources', '/tools', '/calculators',
+            '/faq', '/help', '/support',
+        ]
+        
+        # Check URL patterns
+        for pattern in evergreen_url_patterns:
+            if pattern in url_lower:
+                return True
+        
+        # Title patterns indicating evergreen content
+        evergreen_title_patterns = [
+            'about us', 'contact us', 'our services', 'our team',
+            'find a doctor', 'find a provider', 'patient care',
+            'clinical services', 'our practice', 'meet our',
+            'locations', 'directions', 'hours',
+        ]
+        
+        for pattern in evergreen_title_patterns:
+            if pattern in title_lower:
+                return True
+        
+        # Domain patterns - organization homepages often don't have dates
+        # But only if URL path is short (landing page)
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        path = parsed.path.strip('/')
+        
+        # Short paths on organization domains are likely landing pages
+        if len(path.split('/')) <= 1 and not any(c.isdigit() for c in path):
+            # Check if it's likely an org domain (not a news site or blog)
+            news_indicators = ['news', 'blog', 'article', 'post', 'story']
+            if not any(ind in url_lower for ind in news_indicators):
+                return True
+        
+        return False
     
     def _extract_date(self, meta_tags: Dict[str, List[str]], date_keys: List[str]) -> Tuple[str, str, str]:
         """Extract year, month, day from date meta tags."""
