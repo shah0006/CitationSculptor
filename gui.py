@@ -61,6 +61,7 @@ def init_session_state():
         'corrections_content': None,
         'stats': None,
         'input_file_path': None,
+        'output_folder': None,
         'processing_log': [],
     }
     for key, value in defaults.items():
@@ -242,19 +243,40 @@ def main():
                 help="Upload any markdown document from your computer"
             )
             
+            # Output folder option
+            output_folder = st.text_input(
+                "📂 Output folder (optional):",
+                placeholder="Leave blank to download result, or enter path like /Users/you/Documents",
+                help="Where to save the formatted output. Leave blank to use the download button instead."
+            )
+            
             if uploaded_file:
-                # Save to temp location
-                temp_dir = Path("/tmp/citationsculptor")
-                temp_dir.mkdir(exist_ok=True)
-                temp_path = temp_dir / uploaded_file.name
-                
                 file_content = uploaded_file.getvalue().decode('utf-8')
-                with open(temp_path, 'w', encoding='utf-8') as f:
-                    f.write(file_content)
                 
-                file_path = str(temp_path)
-                st.session_state.input_file_path = file_path
-                st.success(f"✅ File uploaded: {uploaded_file.name} ({len(file_content):,} characters)")
+                if output_folder and Path(output_folder).exists():
+                    # Save to specified folder
+                    save_path = Path(output_folder) / uploaded_file.name
+                    with open(save_path, 'w', encoding='utf-8') as f:
+                        f.write(file_content)
+                    file_path = str(save_path)
+                    st.session_state.input_file_path = file_path
+                    st.session_state.output_folder = output_folder
+                    st.success(f"✅ File saved to: {save_path}")
+                else:
+                    # Save to temp location (download mode)
+                    temp_dir = Path("/tmp/citationsculptor")
+                    temp_dir.mkdir(exist_ok=True)
+                    temp_path = temp_dir / uploaded_file.name
+                    
+                    with open(temp_path, 'w', encoding='utf-8') as f:
+                        f.write(file_content)
+                    
+                    file_path = str(temp_path)
+                    st.session_state.input_file_path = file_path
+                    st.session_state.output_folder = None
+                    st.success(f"✅ File uploaded: {uploaded_file.name} ({len(file_content):,} characters)")
+                    if not output_folder:
+                        st.info("💡 Tip: Specify an output folder above to save directly, or use the download button in Results.")
         
         else:  # Browse test samples
             # List files from test_samples and samples directories
