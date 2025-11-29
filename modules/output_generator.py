@@ -607,7 +607,7 @@ Claim:"""
             response = requests.post(
                 self.ai_endpoint,
                 json={
-                    "model": "llama3.2",  # or mistral, etc.
+                    "model": "llama3:8b",
                     "prompt": prompt,
                     "stream": False,
                     "options": {"temperature": 0.1}
@@ -688,7 +688,7 @@ Search query:"""
             response = requests.post(
                 self.ai_endpoint,
                 json={
-                    "model": "llama3.2",
+                    "model": "llama3:8b",
                     "prompt": prompt,
                     "stream": False,
                     "options": {"temperature": 0.1}
