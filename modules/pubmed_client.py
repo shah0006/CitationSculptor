@@ -1354,6 +1354,10 @@ class WebpageScraper:
         if not authors:
             authors = self._extract_author_from_jsonld(html)
         
+        # If still no authors, try HTML patterns (bylines, author links, etc.)
+        if not authors:
+            authors = self._extract_author_from_html(html)
+        
         # Extract date from various patterns (meta tags first)
         year, month, day = self._extract_date(meta_tags, self.GENERAL_PATTERNS['date'])
         
@@ -1469,6 +1473,58 @@ class WebpageScraper:
                     return m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
         
         return "", "", ""
+    
+    def _extract_author_from_html(self, html: str) -> List[str]:
+        """Extract authors from common HTML patterns like bylines and author links."""
+        authors = []
+        
+        # Pattern 1: <p id='publication-byline'>by <a...>Author Name</a></p>
+        byline_match = re.search(
+            r'(?:id|class)=["\'](?:publication-byline|byline|author-name)["\'][^>]*>.*?by\s*<a[^>]*>([^<]+)</a>',
+            html, re.IGNORECASE | re.DOTALL
+        )
+        if byline_match:
+            author = byline_match.group(1).strip()
+            if self._is_valid_author(author):
+                authors.append(author)
+                logger.debug(f"Extracted author from byline: {author}")
+                return authors
+        
+        # Pattern 2: <a rel='author'...>Author Name</a>
+        author_links = re.findall(r'<a[^>]*rel=["\']author["\'][^>]*>([^<]+)</a>', html, re.IGNORECASE)
+        for author in author_links:
+            author = author.strip()
+            if self._is_valid_author(author) and author not in authors:
+                authors.append(author)
+        if authors:
+            logger.debug(f"Extracted authors from rel=author links: {authors}")
+            return authors
+        
+        # Pattern 3: <span class="author">Author Name</span> or similar
+        author_spans = re.findall(
+            r'<(?:span|div)[^>]*class=["\'][^"\']*author[^"\']*["\'][^>]*>([^<]+)</(?:span|div)>',
+            html, re.IGNORECASE
+        )
+        for author in author_spans:
+            author = author.strip()
+            if self._is_valid_author(author) and author not in authors:
+                authors.append(author)
+        if authors:
+            logger.debug(f"Extracted authors from author spans: {authors}")
+            return authors
+        
+        # Pattern 4: "By Author Name" or "Written by Author Name" in text
+        by_pattern = re.search(
+            r'(?:written\s+)?by\s+([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]+)',
+            html
+        )
+        if by_pattern:
+            author = by_pattern.group(1).strip()
+            if self._is_valid_author(author):
+                authors.append(author)
+                logger.debug(f"Extracted author from 'by' text: {author}")
+        
+        return authors
     
     def _extract_date_from_jsonld(self, html: str) -> Tuple[str, str, str]:
         """Extract publication date from JSON-LD structured data."""
