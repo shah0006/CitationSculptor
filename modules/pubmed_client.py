@@ -1343,35 +1343,46 @@ class WebpageScraper:
         if not title:
             return None
         
-        # Get site name from meta tags only (og:site_name, application-name)
-        site_name = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
+        # Try multiple methods to extract organization name, then pick the most specific
+        site_name_candidates = []
         
-        # If no site_name, try to extract from URL (especially for .edu domains)
-        if not site_name:
-            site_name = self._extract_org_from_url(url)
+        # Method 1: Meta tags (og:site_name, application-name)
+        meta_site = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
+        if meta_site:
+            site_name_candidates.append(('meta', meta_site))
         
-        # If still no site_name and title contains hierarchy (» or |), extract organization
-        if not site_name and title:
-            # Pattern: "Page Title » Division » College » University" - take last parts
-            if '»' in title or '&raquo;' in title:
-                # Split by » or &raquo; and take the last 1-2 parts as organization
-                parts = re.split(r'\s*(?:»|&raquo;)\s*', title)
-                if len(parts) >= 2:
-                    # Take last part (usually the root org like "University of Florida")
-                    site_name = parts[-1].strip()
-                    # For .edu domains, try to get a fuller name
-                    if '.edu' in url and len(parts) >= 3:
-                        # Combine like "University of Florida Division of Cardiovascular Medicine"
-                        last_part = parts[-1].strip()  # e.g., "University of Florida"
-                        second_last = parts[-2].strip()  # e.g., "College of Medicine"
-                        third_last = parts[-3].strip() if len(parts) >= 3 else ""  # e.g., "Division of..."
-                        
-                        # Build organization name - prioritize Division over College
-                        if 'Division' in third_last:
-                            site_name = f"{last_part} {third_last}"
-                        elif 'Division' in second_last:
-                            site_name = f"{last_part} {second_last}"
-                        logger.debug(f"Extracted site from title hierarchy: {site_name}")
+        # Method 2: URL domain (especially for .edu domains)
+        url_site = self._extract_org_from_url(url)
+        if url_site:
+            site_name_candidates.append(('url', url_site))
+        
+        # Method 3: Title hierarchy (» or | separators)
+        if title and ('»' in title or '&raquo;' in title):
+            parts = re.split(r'\s*(?:»|&raquo;)\s*', title)
+            if len(parts) >= 2:
+                title_site = parts[-1].strip()
+                # For .edu domains, try to get a fuller name with Division
+                if '.edu' in url and len(parts) >= 3:
+                    last_part = parts[-1].strip()  # e.g., "University of Florida"
+                    second_last = parts[-2].strip()  # e.g., "College of Medicine"
+                    third_last = parts[-3].strip() if len(parts) >= 3 else ""
+                    
+                    # Build organization name - prioritize Division over College
+                    if 'Division' in third_last:
+                        title_site = f"{last_part} {third_last}"
+                    elif 'Division' in second_last:
+                        title_site = f"{last_part} {second_last}"
+                
+                if title_site:
+                    site_name_candidates.append(('title', title_site))
+        
+        # Pick the most specific (longest) organization name
+        site_name = ""
+        if site_name_candidates:
+            # Sort by length (descending) and pick the longest
+            site_name_candidates.sort(key=lambda x: len(x[1]), reverse=True)
+            site_name = site_name_candidates[0][1]
+            logger.debug(f"Site name candidates: {site_name_candidates}, picked: '{site_name}'")
         
         # Get authors (less common on general webpages)
         # Filter out obvious non-author values (CMS usernames, system accounts, etc.)
