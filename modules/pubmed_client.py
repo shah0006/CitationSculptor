@@ -1376,6 +1376,12 @@ class WebpageScraper:
                 if title_site:
                     site_name_candidates.append(('title', title_site))
         
+        # Method 4: Use local LLM (Ollama) as fallback for complex cases
+        if not site_name_candidates or all(len(c[1]) < 15 for c in site_name_candidates):
+            llm_site = self._extract_org_with_llm(title, url)
+            if llm_site:
+                site_name_candidates.append(('llm', llm_site))
+        
         # Pick the most specific (longest) organization name
         site_name = ""
         if site_name_candidates:
@@ -1628,6 +1634,47 @@ class WebpageScraper:
             base = domain.split('.')[0] if '.' in domain else domain
             if base and base not in ['www', 'web']:
                 return base.replace('-', ' ').title()
+        
+        return ""
+    
+    def _extract_org_with_llm(self, title: str, url: str) -> str:
+        """Use local Ollama LLM to extract organization name from title/URL."""
+        try:
+            prompt = f"""Extract the organization or institution name from this webpage information.
+Return ONLY the organization name, nothing else. Be concise but complete.
+
+Title: {title}
+URL: {url}
+
+Examples:
+- "Preventive Cardiology » Division of Cardiovascular Medicine » University of Florida" → "University of Florida Division of Cardiovascular Medicine"
+- "Understanding ABNs - Florida Healthcare Lawfirm" → "Florida Healthcare Law Firm"
+- "Risk Pooling | American Academy of Actuaries" → "American Academy of Actuaries"
+
+Organization name:"""
+
+            response = requests.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3:8b",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.1, "num_predict": 50}
+                },
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                result = response.json().get('response', '').strip()
+                # Clean up the result - remove quotes, newlines, etc.
+                result = result.strip('"\'').split('\n')[0].strip()
+                if result and len(result) > 3 and len(result) < 100:
+                    logger.debug(f"LLM extracted organization: {result}")
+                    return result
+        except requests.exceptions.ConnectionError:
+            logger.debug("Ollama not available for org extraction")
+        except Exception as e:
+            logger.debug(f"LLM org extraction failed: {e}")
         
         return ""
     
