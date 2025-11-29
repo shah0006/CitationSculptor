@@ -1360,9 +1360,9 @@ class WebpageScraper:
             description = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['description']) or ""
             if description:
                 # Pattern matches "By: First Last" with optional credentials like ", Esq."
-                by_match = re.match(r'By:\s*([A-Z][a-z]+\s+[A-Z][a-z]+(?:,?\s*(?:Esq|JD|MD|PhD|DO)\.?)?)', description)
+                by_match = re.match(r'By:\s*([A-Z][a-z]+\s+[A-Z][a-z]+)(?:,?\s*(?:Esq|JD|MD|PhD|DO)\.?)?', description)
                 if by_match:
-                    author = by_match.group(1).strip().rstrip('.')  # Remove trailing period
+                    author = by_match.group(1).strip()  # Only capture the name, not credentials
                     if self._is_valid_author(author):
                         authors = [author]
                         logger.debug(f"Extracted author from meta description: {author}")
