@@ -15,34 +15,41 @@ import sys
 import os
 from pathlib import Path
 import time
-import threading
 
 # Add the project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
 
 def open_native_file_dialog() -> str:
-    """Open native macOS/Windows/Linux file dialog and return selected file path."""
-    import tkinter as tk
-    from tkinter import filedialog
+    """Open native macOS file dialog using AppleScript and return selected file path."""
+    import subprocess
+    import platform
     
-    # Create hidden root window
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes('-topmost', 1)  # Bring dialog to front
+    if platform.system() != "Darwin":
+        # Fallback for non-macOS systems
+        return ""
     
-    # Open file dialog
-    file_path = filedialog.askopenfilename(
-        title="Select Markdown File",
-        filetypes=[
-            ("Markdown files", "*.md"),
-            ("Text files", "*.txt"),
-            ("All files", "*.*")
-        ]
-    )
+    # AppleScript to open file dialog
+    script = '''
+    tell application "System Events"
+        activate
+        set theFile to choose file with prompt "Select a Markdown file" of type {"md", "txt", "markdown"}
+        return POSIX path of theFile
+    end tell
+    '''
     
-    root.destroy()
-    return file_path if file_path else ""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return ""
+    except Exception:
+        return ""
 
 
 def check_streamlit():
