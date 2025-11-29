@@ -328,6 +328,19 @@ class CitationSculptor:
         console.print("[bold]Multi-Section Processing Complete![/bold]")
         console.print("=" * 60)
         
+        # Count Null placeholders in processed citations
+        null_date_count = sum(
+            1 for r in all_section_results 
+            for c in r['processed'] 
+            if 'Null_Date' in c.full_citation
+        )
+        null_author_count = sum(
+            1 for r in all_section_results 
+            for c in r['processed'] 
+            if 'Null_Author' in c.full_citation
+        )
+        total_null = null_date_count + null_author_count
+        
         table = Table(show_header=False)
         table.add_column("Metric", style="cyan")
         table.add_column("Value", justify="right", style="green")
@@ -336,6 +349,14 @@ class CitationSculptor:
         table.add_row("Total inline references updated", str(total_mapped))
         table.add_row("Total items needing review", str(total_review))
         console.print(table)
+        
+        # Show Null placeholder summary if any exist
+        if total_null > 0:
+            console.print(f"\n[yellow][!][/yellow] {total_null} citations have incomplete data (search for 'Null_' to fix)")
+            if null_date_count > 0:
+                console.print(f"    - Null_Date: {null_date_count}")
+            if null_author_count > 0:
+                console.print(f"    - Null_Author: {null_author_count}")
         
         return True
     
@@ -858,12 +879,13 @@ class CitationSculptor:
         console.print(result_msg)
 
     def _step_process_blogs(self, references: List[ParsedReference]):
-        """Process blog references (no API calls needed)."""
+        """Process blog references, attempting to scrape metadata for dates/authors."""
         # Deduplicate references by URL
         unique_refs, url_to_numbers = self._deduplicate_references(references)
         
         total = len(unique_refs)
         processed_count = 0
+        scraped_count = 0
         error_count = 0
         
         with Progress(
@@ -883,12 +905,44 @@ class CitationSculptor:
                     self.gui_dialog.update_task(i, status_msg)
                 
                 try:
-                    citation = self.formatter.format_blog(
-                        title=ref.title,
-                        url=ref.url or "",
-                        source_name=ref.source_name,
-                        original_number=ref.original_number,
-                    )
+                    citation = None
+                    
+                    # Try to scrape metadata for additional info (dates, authors)
+                    if ref.url and self.webpage_scraper:
+                        scraped_metadata, _ = self.webpage_scraper.extract_metadata_with_status(ref.url)
+                        if scraped_metadata and scraped_metadata.authors:
+                            # Use scraped metadata for author-based blog citation
+                            citation = self.formatter.format_scraped_webpage(
+                                metadata=scraped_metadata,
+                                original_number=ref.original_number,
+                            )
+                            citation.citation_type = "blog"  # Override type
+                            scraped_count += 1
+                        elif scraped_metadata:
+                            # Use scraped year if available, even without authors
+                            year = scraped_metadata.year
+                            if not year and scraped_metadata.published_date:
+                                import re
+                                m = re.match(r'(\d{4})', scraped_metadata.published_date)
+                                if m:
+                                    year = m.group(1)
+                            site_name = scraped_metadata.site_name or ref.source_name
+                            citation = self.formatter.format_blog(
+                                title=ref.title,
+                                url=ref.url or "",
+                                source_name=site_name,
+                                original_number=ref.original_number,
+                                year=year,
+                            )
+                    
+                    # Fall back to basic formatting if no scraping
+                    if not citation:
+                        citation = self.formatter.format_blog(
+                            title=ref.title,
+                            url=ref.url or "",
+                            source_name=ref.source_name,
+                            original_number=ref.original_number,
+                        )
                     
                     self.processed_citations.append(citation)
                     
@@ -914,6 +968,7 @@ class CitationSculptor:
         
         console.print(f"[green][OK][/green] Processed {processed_count} unique blogs" +
                      (f" ({len(references)} total refs)" if len(references) != processed_count else "") +
+                     (f" ({scraped_count} with scraped metadata)" if scraped_count else "") +
                      (f" ({error_count} errors)" if error_count else ""))
 
     def _step_process_newspapers(self, references: List[ParsedReference]):

@@ -468,8 +468,15 @@ class VancouverFormatter:
         # Generate author label
         author_label = metadata.get_first_author_label()
         
-        # Create label with year
-        year = metadata.year or "Null_Date"
+        # Create label with year - check both year and published_date
+        year = metadata.year
+        if not year and hasattr(metadata, 'published_date') and metadata.published_date:
+            # Extract year from published_date (e.g., "2025-06-05" -> "2025")
+            import re
+            date_match = re.match(r'(\d{4})', metadata.published_date)
+            if date_match:
+                year = date_match.group(1)
+        year = year or "Null_Date"
         label_year = year if year != "Null_Date" else "ND"
         label = f"[^{author_label}-{label_year}]"
         
@@ -845,6 +852,7 @@ class VancouverFormatter:
         - /2024/05/ (year-month paths)
         - /2024/ (year-only paths at start of content path)
         - /2024-05-12/ (date in filename)
+        - DOI-style dates like 10.1377/forefront.20201130.594055 -> 2020
         
         Skips years embedded in article slugs (likely subject matter).
         """
@@ -856,6 +864,17 @@ class VancouverFormatter:
         match = re.search(r'/(\d{4})-\d{2}-\d{2}', url)
         if match:
             return match.group(1)
+        
+        # Match DOI-style date patterns: 20201130 (YYYYMMDD) embedded in path
+        # e.g., healthaffairs.org/do/10.1377/forefront.20201130.594055/
+        match = re.search(r'\.(\d{4})(\d{2})(\d{2})\.\d+', url)
+        if match:
+            year = match.group(1)
+            month = match.group(2)
+            day = match.group(3)
+            # Validate it looks like a real date
+            if 1990 <= int(year) <= 2030 and 1 <= int(month) <= 12 and 1 <= int(day) <= 31:
+                return year
         
         # Match year-only at start of content path (e.g., /2019/external-reference...)
         # This pattern requires the year to be followed by a content slug (not just numbers)
