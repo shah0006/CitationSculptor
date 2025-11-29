@@ -1,6 +1,8 @@
 """Output Generator Module - Generates formatted markdown output."""
 
 import json
+import re
+import requests
 from typing import List, Dict, Optional
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -503,3 +505,287 @@ class CorrectionsHandler:
         
         logger.info(f"Applied {count} corrections to {formatted_file}")
         return formatted_file, count
+
+
+# =============================================================================
+# Claim Extractor - For finding verified references when originals are hallucinated
+# =============================================================================
+
+import webbrowser
+from urllib.parse import quote_plus
+
+
+@dataclass
+class ExtractedClaim:
+    """Represents an extracted claim with context and search query."""
+    claim_text: str
+    context: str
+    citation_marker: str
+    search_query: str
+    keywords: List[str]
+    ai_extracted: bool = False
+
+
+class ClaimExtractor:
+    """
+    Extracts claims from document context and generates search queries.
+    
+    When a reference can't be verified (hallucinated), this helps find
+    the claim being made and generates an optimized search query for
+    SciSpace, Semantic Scholar, or PubMed.
+    """
+    
+    SEARCH_URLS = {
+        'scispace': 'https://typeset.io/search?q=',
+        'semantic_scholar': 'https://www.semanticscholar.org/search?q=',
+        'pubmed': 'https://pubmed.ncbi.nlm.nih.gov/?term=',
+        'google_scholar': 'https://scholar.google.com/scholar?q=',
+    }
+
+    def __init__(self, use_ai: bool = True, ai_endpoint: str = None):
+        """
+        Initialize the claim extractor.
+        
+        Args:
+            use_ai: Whether to use AI for better claim extraction
+            ai_endpoint: Custom AI endpoint URL (e.g., local LLM)
+        """
+        self.use_ai = use_ai
+        self.ai_endpoint = ai_endpoint or "http://localhost:11434/api/generate"  # Default: Ollama
+
+    def extract_context(self, full_text: str, citation_marker: str, 
+                       chars_before: int = 500, chars_after: int = 200) -> str:
+        """Extract context around a citation marker."""
+        escaped = re.escape(citation_marker)
+        match = re.search(escaped, full_text)
+        
+        if not match:
+            logger.warning(f"Citation marker '{citation_marker}' not found")
+            return ""
+        
+        start = max(0, match.start() - chars_before)
+        end = min(len(full_text), match.end() + chars_after)
+        
+        context = full_text[start:end]
+        
+        # Try to align to sentence boundaries
+        first_period = context.find('. ')
+        if first_period > 0 and first_period < len(context) // 4:
+            context = context[first_period + 2:]
+        
+        last_period = context.rfind('. ')
+        if last_period > len(context) * 3 // 4:
+            context = context[:last_period + 1]
+        
+        return context.strip()
+
+    def extract_claim_with_ai(self, context: str, original_ref: str = "") -> str:
+        """
+        Use AI to extract the specific claim being made.
+        
+        This calls a local LLM (Ollama) or custom endpoint to understand
+        the context and extract the precise claim.
+        """
+        prompt = f"""You are a medical research assistant. Extract the specific factual claim being made in this text that needs a citation.
+
+Context around the citation:
+"{context}"
+
+Original reference (possibly incorrect/hallucinated):
+"{original_ref}"
+
+Instructions:
+1. Identify the specific medical/scientific claim being made
+2. Express it as a concise, searchable statement
+3. Include key medical terms, conditions, treatments, or outcomes
+4. Output ONLY the claim, nothing else
+
+Claim:"""
+
+        try:
+            # Try Ollama first (local LLM)
+            response = requests.post(
+                self.ai_endpoint,
+                json={
+                    "model": "llama3.2",  # or mistral, etc.
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                claim = result.get('response', '').strip()
+                if claim:
+                    logger.info(f"AI extracted claim: {claim[:100]}...")
+                    return claim
+        except Exception as e:
+            logger.debug(f"AI extraction failed: {e}")
+        
+        # Fallback to heuristic extraction
+        return self._extract_claim_heuristic(context)
+
+    def _extract_claim_heuristic(self, context: str) -> str:
+        """Fallback heuristic claim extraction without AI."""
+        # Remove markdown formatting
+        text = re.sub(r'\*\*([^*]+)\*\*', r'\1', context)
+        text = re.sub(r'\*([^*]+)\*', r'\1', text)
+        text = re.sub(r'\[\^[^\]]+\]', '', text)  # Remove citation markers
+        text = re.sub(r'\[\d+\]', '', text)
+        
+        # Get sentences
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        # Find the most substantive sentence (likely the claim)
+        best_sentence = ""
+        best_score = 0
+        
+        medical_terms = {'treatment', 'therapy', 'risk', 'outcome', 'effect', 
+                        'increase', 'decrease', 'cause', 'associate', 'patient',
+                        'study', 'trial', 'significant', 'mortality', 'morbidity'}
+        
+        for sent in sentences:
+            words = sent.lower().split()
+            score = sum(1 for w in words if w in medical_terms)
+            score += len(sent) / 100  # Prefer longer sentences
+            
+            if score > best_score:
+                best_score = score
+                best_sentence = sent
+        
+        return best_sentence.strip()
+
+    def generate_scispace_query(self, claim: str, original_title: str = "") -> str:
+        """
+        Generate an excellent SciSpace search query from the claim.
+        
+        SciSpace works best with natural language research queries.
+        """
+        if self.use_ai:
+            return self._generate_query_with_ai(claim, original_title)
+        else:
+            return self._generate_query_heuristic(claim, original_title)
+
+    def _generate_query_with_ai(self, claim: str, original_title: str = "") -> str:
+        """Use AI to generate an optimal search query."""
+        prompt = f"""You are a medical librarian. Create an optimal search query to find peer-reviewed papers supporting this claim.
+
+Claim: "{claim}"
+Original reference title (possibly wrong): "{original_title}"
+
+Instructions:
+1. Create a focused search query using key medical/scientific terms
+2. Use natural language that works well with SciSpace
+3. Include condition names, treatments, outcomes, or mechanisms
+4. Keep it to 5-10 words maximum
+5. Output ONLY the search query, nothing else
+
+Search query:"""
+
+        try:
+            response = requests.post(
+                self.ai_endpoint,
+                json={
+                    "model": "llama3.2",
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                },
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                query = result.get('response', '').strip()
+                # Clean up - remove quotes if present
+                query = query.strip('"\'')
+                if query and len(query) < 200:
+                    logger.info(f"AI generated query: {query}")
+                    return query
+        except Exception as e:
+            logger.debug(f"AI query generation failed: {e}")
+        
+        return self._generate_query_heuristic(claim, original_title)
+
+    def _generate_query_heuristic(self, claim: str, original_title: str = "") -> str:
+        """Fallback heuristic query generation."""
+        # Extract key terms
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
+                     'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be',
+                     'have', 'has', 'had', 'this', 'that', 'these', 'those', 'it'}
+        
+        text = f"{claim} {original_title}".lower()
+        words = re.findall(r'\b[a-zA-Z]{4,}\b', text)
+        keywords = [w for w in words if w not in stop_words]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_keywords = []
+        for kw in keywords:
+            if kw not in seen:
+                seen.add(kw)
+                unique_keywords.append(kw)
+        
+        return ' '.join(unique_keywords[:8])
+
+    def open_search(self, query: str, service: str = 'scispace') -> bool:
+        """Open search in browser."""
+        if service not in self.SEARCH_URLS:
+            service = 'scispace'
+        
+        url = self.SEARCH_URLS[service] + quote_plus(query)
+        
+        try:
+            webbrowser.open(url)
+            logger.info(f"Opened {service}: {query[:50]}...")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to open browser: {e}")
+            return False
+
+    def find_verified_reference(self, full_text: str, citation_marker: str,
+                                original_ref: str = "", service: str = 'scispace') -> ExtractedClaim:
+        """
+        Complete workflow: extract claim, generate query, open search.
+        
+        Args:
+            full_text: The full document text
+            citation_marker: The citation marker (e.g., "[^1]")
+            original_ref: Original reference text (possibly hallucinated)
+            service: Which search service to use
+            
+        Returns:
+            ExtractedClaim with the extracted info
+        """
+        # Extract context
+        context = self.extract_context(full_text, citation_marker)
+        
+        # Extract claim (with AI if available)
+        if self.use_ai:
+            claim = self.extract_claim_with_ai(context, original_ref)
+            ai_used = True
+        else:
+            claim = self._extract_claim_heuristic(context)
+            ai_used = False
+        
+        # Generate search query
+        query = self.generate_scispace_query(claim, original_ref)
+        
+        # Extract keywords for reference
+        keywords = re.findall(r'\b[a-zA-Z]{4,}\b', query.lower())
+        
+        result = ExtractedClaim(
+            claim_text=claim,
+            context=context,
+            citation_marker=citation_marker,
+            search_query=query,
+            keywords=keywords[:10],
+            ai_extracted=ai_used
+        )
+        
+        # Open browser search
+        self.open_search(query, service)
+        
+        return result

@@ -465,6 +465,77 @@ def main():
         placeholders. Use this tool to manually fix them.
         """)
         
+        # === Find Verified Reference Section ===
+        with st.expander("🔍 **Find Verified Reference** (for hallucinated citations)", expanded=False):
+            st.markdown("""
+            If a citation couldn't be found (possibly hallucinated by the LLM), 
+            use AI to extract the claim and search SciSpace for real papers.
+            """)
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                claim_context = st.text_area(
+                    "Paste the context around the citation:",
+                    height=150,
+                    placeholder="Paste the paragraph containing the citation you want to verify...",
+                    help="Include 2-3 sentences before and after the citation marker"
+                )
+            with col2:
+                original_ref = st.text_input(
+                    "Original reference (optional):",
+                    placeholder="Smith J. Title...",
+                    help="The possibly incorrect reference"
+                )
+                
+                search_service = st.selectbox(
+                    "Search with:",
+                    ["SciSpace", "Semantic Scholar", "PubMed", "Google Scholar"],
+                    index=0
+                )
+            
+            if st.button("🔎 Extract Claim & Search", use_container_width=True):
+                if claim_context:
+                    with st.spinner("Extracting claim with AI..."):
+                        try:
+                            from modules.output_generator import ClaimExtractor
+                            
+                            extractor = ClaimExtractor(use_ai=True)
+                            
+                            # Extract claim
+                            claim = extractor.extract_claim_with_ai(claim_context, original_ref)
+                            query = extractor.generate_scispace_query(claim, original_ref)
+                            
+                            st.success("**Extracted Claim:**")
+                            st.info(claim)
+                            
+                            st.success("**Search Query:**")
+                            st.code(query)
+                            
+                            # Open browser
+                            service_map = {
+                                "SciSpace": "scispace",
+                                "Semantic Scholar": "semantic_scholar", 
+                                "PubMed": "pubmed",
+                                "Google Scholar": "google_scholar"
+                            }
+                            extractor.open_search(query, service_map[search_service])
+                            
+                            st.success(f"✅ Opened {search_service} in your browser!")
+                            
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                            # Fallback to simple search
+                            st.warning("AI extraction failed. Opening simple search...")
+                            import webbrowser
+                            from urllib.parse import quote_plus
+                            words = claim_context.split()[:15]
+                            query = ' '.join(words)
+                            webbrowser.open(f"https://typeset.io/search?q={quote_plus(query)}")
+                else:
+                    st.warning("Please paste the context around the citation.")
+        
+        st.divider()
+        
         if st.session_state.corrections_content:
             st.success(f"📋 A corrections template was generated with incomplete citations.")
             
