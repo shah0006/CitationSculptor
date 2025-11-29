@@ -15,9 +15,34 @@ import sys
 import os
 from pathlib import Path
 import time
+import threading
 
 # Add the project root to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
+
+
+def open_native_file_dialog() -> str:
+    """Open native macOS/Windows/Linux file dialog and return selected file path."""
+    import tkinter as tk
+    from tkinter import filedialog
+    
+    # Create hidden root window
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes('-topmost', 1)  # Bring dialog to front
+    
+    # Open file dialog
+    file_path = filedialog.askopenfilename(
+        title="Select Markdown File",
+        filetypes=[
+            ("Markdown files", "*.md"),
+            ("Text files", "*.txt"),
+            ("All files", "*.*")
+        ]
+    )
+    
+    root.destroy()
+    return file_path if file_path else ""
 
 
 def check_streamlit():
@@ -62,6 +87,8 @@ def init_session_state():
         'stats': None,
         'input_file_path': None,
         'output_folder': None,
+        'last_output_folder': None,
+        'native_file_selected': False,
         'processing_log': [],
     }
     for key, value in defaults.items():
@@ -215,14 +242,33 @@ def main():
         file_content = None
         
         if input_method == "📁 Enter file path":
-            # Direct file path input
-            default_path = st.session_state.input_file_path or ""
-            file_path_input = st.text_input(
-                "File path:",
-                value=default_path,
-                placeholder="/Users/you/Documents/your_document.md",
-                help="Enter the full path to any markdown file on your computer"
-            )
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                # Direct file path input
+                default_path = st.session_state.get('input_file_path', "")
+                file_path_input = st.text_input(
+                    "File path:",
+                    value=default_path,
+                    placeholder="/Users/you/Documents/your_document.md",
+                    help="Enter the full path to any markdown file on your computer",
+                    key="file_path_text"
+                )
+            
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("📂 Browse...", help="Open native file browser"):
+                    try:
+                        selected_path = open_native_file_dialog()
+                        if selected_path:
+                            st.session_state.input_file_path = selected_path
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not open file browser: {e}")
+            
+            # Use session state path if text input is empty but we have a stored path
+            if not file_path_input and st.session_state.get('input_file_path'):
+                file_path_input = st.session_state.input_file_path
             
             if file_path_input:
                 path = Path(file_path_input)
@@ -232,57 +278,69 @@ def main():
                         file_content = f.read()
                     st.session_state.input_file_path = file_path
                     st.success(f"✅ File loaded: {path.name} ({len(file_content):,} characters)")
+                    st.caption(f"📁 Output will be saved to: `{path.parent}`")
                 else:
                     st.error(f"❌ File not found: {file_path_input}")
         
         elif input_method == "📤 Upload file":
-            # File uploader
+            st.info("💡 **Recommended:** Use the native file browser to select your file. Output will be saved to the same folder.")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("Click the button to open your system's file browser →")
+            with col2:
+                if st.button("📂 Select File...", type="primary", use_container_width=True):
+                    try:
+                        selected_path = open_native_file_dialog()
+                        if selected_path:
+                            st.session_state.input_file_path = selected_path
+                            st.session_state.native_file_selected = True
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not open file browser: {e}")
+            
+            # Show selected file info
+            if st.session_state.get('native_file_selected') and st.session_state.get('input_file_path'):
+                selected = Path(st.session_state.input_file_path)
+                if selected.exists():
+                    file_path = str(selected)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    st.success(f"✅ Selected: **{selected.name}** ({len(file_content):,} characters)")
+                    st.caption(f"📁 Output will be saved to: `{selected.parent}`")
+            
+            st.divider()
+            st.caption("Or drag & drop a file (output folder must be specified manually):")
+            
+            # Fallback: traditional uploader
             uploaded_file = st.file_uploader(
-                "Upload a markdown file:",
+                "Drop file here:",
                 type=['md', 'markdown', 'txt'],
-                help="Upload any markdown document from your computer"
+                help="Fallback option - you'll need to specify output folder",
+                label_visibility="collapsed"
             )
             
-            # Output folder - remember last used, or suggest user's home
-            default_folder = st.session_state.get('last_output_folder', str(Path.home() / "Documents"))
-            output_folder = st.text_input(
-                "📂 Save output to folder:",
-                value=default_folder,
-                help="The formatted output will be saved to this folder. Browser uploads don't reveal source path, so please specify where to save."
-            )
-            
-            if uploaded_file:
+            if uploaded_file and not st.session_state.get('native_file_selected'):
+                # Output folder for drag-drop uploads
+                default_folder = st.session_state.get('last_output_folder', str(Path.home() / "Documents"))
+                output_folder = st.text_input(
+                    "Save output to:",
+                    value=default_folder,
+                    help="Where to save the formatted output"
+                )
+                
                 file_content = uploaded_file.getvalue().decode('utf-8')
                 
-                if output_folder:
-                    folder_path = Path(output_folder)
-                    if folder_path.exists():
-                        # Save to specified folder
-                        save_path = folder_path / uploaded_file.name
-                        with open(save_path, 'w', encoding='utf-8') as f:
-                            f.write(file_content)
-                        file_path = str(save_path)
-                        st.session_state.input_file_path = file_path
-                        st.session_state.output_folder = output_folder
-                        st.session_state.last_output_folder = output_folder  # Remember for next time
-                        st.success(f"✅ File will be processed in: `{folder_path}`")
-                    else:
-                        st.error(f"❌ Folder not found: {output_folder}")
-                        st.info("Please enter a valid folder path, e.g., /Users/yourname/Documents")
-                else:
-                    # Save to temp location (download mode)
-                    temp_dir = Path("/tmp/citationsculptor")
-                    temp_dir.mkdir(exist_ok=True)
-                    temp_path = temp_dir / uploaded_file.name
-                    
-                    with open(temp_path, 'w', encoding='utf-8') as f:
+                if output_folder and Path(output_folder).exists():
+                    save_path = Path(output_folder) / uploaded_file.name
+                    with open(save_path, 'w', encoding='utf-8') as f:
                         f.write(file_content)
-                    
-                    file_path = str(temp_path)
+                    file_path = str(save_path)
                     st.session_state.input_file_path = file_path
-                    st.session_state.output_folder = None
-                    st.success(f"✅ File uploaded: {uploaded_file.name}")
-                    st.warning("⚠️ No output folder specified - use the Download button in Results tab.")
+                    st.session_state.last_output_folder = output_folder
+                    st.success(f"✅ File saved to: `{save_path}`")
+                elif output_folder:
+                    st.error(f"❌ Folder not found: {output_folder}")
         
         else:  # Browse test samples
             # List files from test_samples and samples directories
