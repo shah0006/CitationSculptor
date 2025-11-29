@@ -45,6 +45,7 @@ class ReferenceParser:
         r'^#{1,2}\s*References\s*$',
         r'^#{1,2}\s*Sources\s*$',
         r'^#{1,2}\s*Citations\s*$',
+        r'^\*\*Sources:\*\*\s*$',  # Bold **Sources:** header (V6 format)
     ]
     
     # Pattern 1: Simple format - "1. [Title - Source](URL)"
@@ -58,6 +59,13 @@ class ReferenceParser:
     
     # Pattern 4: Footnote definition - "[^1]: Citation text..."
     FOOTNOTE_DEF_PATTERN = r'^\[\^(\d+)\]:\s*(.+)$'
+    
+    # Pattern 5: Grouped footnotes without colon - "[^1] [^2] [^3] Title text"
+    # This captures ALL [^N] groups and the remaining title
+    FOOTNOTE_NO_COLON_PATTERN = r'^(\[\^\d+\](?:\s*\[\^\d+\])*)\s+(.+)$'
+    
+    # Pattern for angle-bracket URL on separate line - "<https://...>"
+    ANGLE_BRACKET_URL_PATTERN = r'^<(https?://[^>]+)>$'
     
     # Patterns for bullet-point references
     BULLET_REF_PATTERN = r'^[-*]\s+(?:[^:]+:\s*)?\[([^\]]+)\]\(([^)]+)\)\s*$'
@@ -90,7 +98,8 @@ class ReferenceParser:
                         check_line = self.lines[j].strip()
                         if re.match(r'^\d+\.', check_line) or \
                            re.match(r'^[-*]\s+.*\[', check_line) or \
-                           re.match(r'^\[\^(\d+)\]:', check_line):
+                           re.match(r'^\[\^(\d+)\]:', check_line) or \
+                           re.match(self.FOOTNOTE_NO_COLON_PATTERN, check_line):  # V6 format
                             has_refs = True
                             break
                         if re.match(r'^#{1,2}\s+', check_line):
@@ -100,11 +109,18 @@ class ReferenceParser:
                     break
         
         if not ref_header_positions:
-            # Fallback: Look for implicit footnote section (lines starting with [^1]:)
+            # Fallback: Look for implicit footnote section (lines starting with [^1]: or [^1] without colon)
             logger.info("No reference headers found. Looking for implicit footnote section...")
             implicit_start = -1
             for i, line in enumerate(self.lines):
-                if re.match(r'^\[\^(\d+)\]:', line.strip()):
+                stripped = line.strip()
+                # Check for [^N]: format (with colon)
+                if re.match(r'^\[\^(\d+)\]:', stripped):
+                    implicit_start = i
+                    break
+                # Check for [^N] format without colon (V6 format)
+                # Must have [^N] followed by space and text (not just [^N] alone)
+                if re.match(self.FOOTNOTE_NO_COLON_PATTERN, stripped):
                     implicit_start = i
                     break
             
@@ -271,18 +287,77 @@ class ReferenceParser:
         return undefined
     
     def _parse_section_references(self, start: int, end: int, section_idx: int) -> List[ParsedReference]:
-        """Parse references from a specific section."""
-        refs = []
+        """Parse references from a specific section.
         
-        for i in range(start + 1, end):
+        Handles multi-line references where URL is on the next line (V6 format):
+            [^1] [^2] [^3] Title text here
+            
+            <https://url.here>
+        """
+        refs = []
+        i = start + 1
+        
+        while i < end:
             line = self.lines[i].strip()
             if not line:
+                i += 1
                 continue
             
+            # Check for V6 format: grouped footnotes without colon
+            v6_match = re.match(self.FOOTNOTE_NO_COLON_PATTERN, line)
+            if v6_match:
+                # Extract all [^N] numbers from the grouped line
+                footnote_ids_str = v6_match.group(1)  # e.g., "[^1] [^47] [^49]"
+                title = v6_match.group(2).strip()  # e.g., "How Much More..."
+                
+                # Parse individual numbers from the grouped footnotes
+                numbers = [int(m) for m in re.findall(r'\[\^(\d+)\]', footnote_ids_str)]
+                
+                # Look ahead for URL on next non-empty line (may be angle-bracket format)
+                url = None
+                j = i + 1
+                while j < end:
+                    next_line = self.lines[j].strip()
+                    if not next_line:
+                        j += 1
+                        continue
+                    # Check for angle-bracket URL: <https://...>
+                    url_match = re.match(self.ANGLE_BRACKET_URL_PATTERN, next_line)
+                    if url_match:
+                        url = url_match.group(1)
+                        i = j  # Skip past the URL line
+                    break
+                
+                # Extract source name from title if present (e.g., "Title | Source")
+                title_clean, source_name = self._split_title_source(title)
+                
+                # Create a ParsedReference for EACH footnote number
+                # They all share the same title/URL/source but have different numbers
+                for num in numbers:
+                    refs.append(ParsedReference(
+                        original_number=num,
+                        original_text=line,
+                        title=title_clean,
+                        url=url,
+                        source_name=source_name,
+                        line_number=i + 1,
+                        section_index=section_idx,
+                        metadata={'grouped_numbers': numbers, 'raw_title': title}
+                    ))
+                
+                if numbers:
+                    logger.debug(f"V6 format: {len(numbers)} refs ({numbers}) -> '{title_clean[:40]}...'")
+                
+                i += 1
+                continue
+            
+            # Try other patterns via _parse_single_reference
             parsed = self._parse_single_reference(line, i + 1)
             if parsed:
                 parsed.section_index = section_idx
                 refs.append(parsed)
+            
+            i += 1
         
         return refs
 
@@ -297,14 +372,12 @@ class ReferenceParser:
         self.body_content = '\n'.join(self.lines[:self.reference_section_start])
         logger.info(f"Parsing references from lines {self.reference_section_start + 1} to {self.reference_section_end}")
 
-        for i in range(self.reference_section_start + 1, self.reference_section_end):
-            line = self.lines[i].strip()
-            if not line:
-                continue
-
-            parsed = self._parse_single_reference(line, i + 1)
-            if parsed:
-                self.references.append(parsed)
+        # Use the enhanced section parser which handles V6 multi-line format
+        self.references = self._parse_section_references(
+            self.reference_section_start, 
+            self.reference_section_end, 
+            section_idx=0
+        )
 
         logger.info(f"Parsed {len(self.references)} references")
         return self.references
@@ -374,6 +447,14 @@ class ReferenceParser:
                 if url_match:
                     url = url_match.group(0).rstrip(').,')
             
+            # If no URL, check for plain text DOI and construct URL
+            if not url:
+                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,]+)', content, re.IGNORECASE)
+                if doi_match:
+                    doi = doi_match.group(1).rstrip('.,;')
+                    url = f"https://doi.org/{doi}"
+                    logger.debug(f"Extracted DOI from footnote text: {doi}")
+            
             # Extract title (best guess: typically between authors and journal)
             # If we have a URL, title is less critical as we'll lookup by ID
             # Heuristic: Take the longest segment between periods?
@@ -410,6 +491,15 @@ class ReferenceParser:
                 url_match = re.search(r'\(([^)]*https?://[^)]+)\)', content)
                 url = url_match.group(1) if url_match else None
                 
+                # If no URL, check for plain text DOI and construct URL
+                # Patterns: "doi:10.xxx", "DOI: 10.xxx", "doi: 10.xxx/yyy"
+                if not url:
+                    doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,]+)', content, re.IGNORECASE)
+                    if doi_match:
+                        doi = doi_match.group(1).rstrip('.,;')
+                        url = f"https://doi.org/{doi}"
+                        logger.debug(f"Extracted DOI from text: {doi}")
+                
                 # Extract title (first sentence or up to first period)
                 title_parts = content.split('.')
                 title = title_parts[0].strip() if title_parts else content
@@ -434,12 +524,31 @@ class ReferenceParser:
         return None
 
     def _split_title_source(self, full_title: str) -> Tuple[str, Optional[str]]:
-        """Split 'Title - Source' string."""
-        for sep in [' - ', ' | ', ' – ', ' — ']:
+        """Split 'Title - Source' string.
+        
+        Priority: ' | ' (or escaped ' \\| ') is the preferred separator since it's less ambiguous.
+        Dashes may appear within titles (e.g., "Challenges & Threats - 2025").
+        """
+        # Check for pipe separators first (both escaped and unescaped)
+        for pipe_sep in [' \\| ', ' | ']:
+            if pipe_sep in full_title:
+                parts = full_title.rsplit(pipe_sep, 1)
+                if len(parts) == 2:
+                    return parts[0].strip(), parts[1].strip()
+        
+        # Then check other dash variants (prefer rightmost)
+        for sep in [' – ', ' — ', ' - ']:
             if sep in full_title:
                 parts = full_title.rsplit(sep, 1)
                 if len(parts) == 2:
-                    return parts[0].strip(), parts[1].strip()
+                    # Only split if the right part looks like a source name
+                    # (not a year or continuation of title)
+                    right_part = parts[1].strip()
+                    # If it's just a year, don't split here
+                    if re.match(r'^\d{4}$', right_part):
+                        continue
+                    return parts[0].strip(), right_part
+        
         return full_title, None
 
     def get_body_content(self) -> str:

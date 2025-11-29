@@ -18,15 +18,32 @@ CitationSculptor is a Python tool that processes Obsidian markdown documents con
 ### Smart Detection & Filtering
 - **Citation Type Detection**: Automatically identifies journals, books, webpages, blogs, newspapers
 - **DOI Extraction**: Handles multiple publisher URL patterns (Springer, Wiley, OUP, BMC, etc.)
+- **Plain Text DOI Extraction**: Detects `doi:10.xxx` patterns in reference text
 - **Unreferenced Citation Filter**: Skips citations not actually used in document body
 - **PMC ID → PMID Conversion**: Uses NCBI ID Converter API
-- **Webpage Metadata Scraping**: Extracts `citation_*` meta tags from academic webpages
+- **Webpage Metadata Scraping**: 
+  - Extracts `citation_*` meta tags from academic webpages
+  - Parses JSON-LD structured data for publication dates
+  - Filters out CMS usernames from author fields
+  - Combines author + organization when both available
 
 ### Multi-Section Document Support
 - Handles documents with multiple independent reference sections
 - Each section processed independently with its own numbering
 - Supports mixed reference formats within the same document
 - Detects footnote definitions (`[^N]:`) and numeric references (`[N]`)
+
+### V6 Grouped Footnotes Format (NEW)
+- Handles grouped references: `[^1] [^47] [^49] Title | Source`
+- Multi-line parsing with URLs on separate lines: `<https://...>`
+- Many-to-one deduplication (multiple IDs → single citation)
+- Recognizes `**Sources:**` as reference section header
+
+### Smart Title & Organization Handling
+- **URL-based Title Recovery**: Extracts full title from URL slug when source has truncated title with `...`
+- **Smart Abbreviations**: Common organizations mapped to standard acronyms (AMA, AHA, CDC, etc.)
+- **Acronym Detection**: Short domain names automatically uppercased (CBPP, KFF, etc.)
+- **Full Names in Citations**: Abbreviation in tag `[^AMA-...]`, full name in text `American Medical Association.`
 
 ### Inline Reference Transformation
 - Converts numbered references `[1]` to mnemonic labels
@@ -39,6 +56,9 @@ CitationSculptor is a Python tool that processes Obsidian markdown documents con
 - **Retry Logic**: Automatic retry on 429 errors (5s, 10s, 20s, 40s)
 - **Mapping File**: JSON audit trail for rollback/debugging
 - **Progress Indicators**: Real-time progress bars with counts
+- **Blocked Site Detection**: Identifies Cloudflare/403 blocks with specific guidance:
+  - Tells you exactly what info to look up (author, date, organization)
+  - Distinguishes between bot protection, 403 errors, and timeouts
 
 ## Installation
 
@@ -153,7 +173,28 @@ CitationSculptor/
     └── test_*.py             # Unit tests
 ```
 
-## Recent Updates (2025-11-27)
+## Recent Updates (2025-11-28)
+
+### v0.4.0
+- **V6 Grouped Footnotes**: Support for `[^1] [^47] Title` format with multi-line URLs
+- **JSON-LD Date Extraction**: Parse publication dates from structured data (handles non-padded dates like `2023-1-2`)
+- **DOI Text Extraction**: Detect `doi:10.xxx` patterns in plain text references
+- **CrossRef Title Search**: Fallback to CrossRef when PubMed title search fails
+- **Smart Organization Handling**: 
+  - Automatic acronym detection for domain names (CBPP, AMA, etc.)
+  - Full organization names in citations, abbreviations in tags
+  - Custom meta tag support (`m_authors` for sites like Milliman)
+- **URL Title Recovery**: Extract full titles from URL slugs when source has truncated `...` titles
+- **URL Year Extraction**: Improved patterns to extract years from paths like `/2019/article-title`
+- **URL Metadata Fallback**: Extract title, date, organization from URLs when sites block scraping
+- **Ellipsis Removal**: Truncated titles cleaned up (no more `...` in citations)
+- **Social Media Handling**: Skip garbage URL-based title extraction for LinkedIn, Twitter, Facebook
+- **Author + Organization**: Include both when available in webpage citations
+- **Author Filtering**: Filter out CMS usernames from author metadata
+- **Null Placeholders**: Missing fields use searchable placeholders (`Null_Date`, `Null_Author`)
+  - Tag uses short form: `[^Org-Title-ND]`
+  - Citation text uses full form: `Org. Title. Null_Date. [Link](...)`
+  - Search for `Null_` to find all incomplete citations
 
 ### v0.3.0
 - **Webpage Metadata Scraping**: Extract `citation_*` meta tags for proper Vancouver formatting

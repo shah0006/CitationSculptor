@@ -3,7 +3,7 @@
 import json
 import re
 import time
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, Tuple
 from dataclasses import dataclass, field
 from collections import deque
 import requests
@@ -525,11 +525,21 @@ class PubMedClient:
                 return self.fetch_article_by_pmid(res.pmid)
                 
             # 2. If no PMID but DOI found, try CrossRef (Backup path)
+            # Note: Only convert to ArticleMetadata for journal-article types.
+            # For book-chapters, books, etc., return None so the caller can 
+            # use crossref_lookup_doi() directly and format appropriately.
             if res.doi:
                 logger.info(f"No PMID for {pmcid}, but found DOI: {res.doi}. Fetching from CrossRef...")
                 crossref_meta = self.crossref_lookup_doi(res.doi)
                 if crossref_meta:
-                    return self._crossref_to_article_metadata(crossref_meta, pmcid=pmcid)
+                    if crossref_meta.work_type == 'journal-article':
+                        return self._crossref_to_article_metadata(crossref_meta, pmcid=pmcid)
+                    else:
+                        # For non-journal types (book-chapter, book, etc.), 
+                        # store DOI for caller to handle via CrossRef path
+                        logger.info(f"CrossRef returned work_type='{crossref_meta.work_type}', not converting to ArticleMetadata")
+                        # Return None - caller should use crossref_lookup_doi() directly
+                        return None
         
         # 3. Fallback: Direct search (legacy, but might catch something)
         logger.info(f"ID converter failed, trying direct search for {pmcid}")
@@ -742,6 +752,110 @@ class PubMedClient:
     # CrossRef API Methods (for non-PubMed items)
     # ============================================================
 
+    def crossref_search_title(self, title: str) -> Optional[CrossRefMetadata]:
+        """
+        Search CrossRef by title and return best match.
+        
+        Uses the CrossRef REST API directly since MCP server may not have this.
+        """
+        import urllib.parse
+        
+        # Clean title for search
+        clean_title = re.sub(r'[^\w\s\-]', ' ', title)
+        clean_title = ' '.join(clean_title.split())
+        
+        # Truncate for better results
+        if len(clean_title) > 100:
+            clean_title = clean_title[:100].rsplit(' ', 1)[0]
+        
+        logger.info(f"CrossRef title search: {clean_title[:50]}...")
+        
+        try:
+            encoded_title = urllib.parse.quote(clean_title)
+            url = f"https://api.crossref.org/works?query.title={encoded_title}&rows=5"
+            
+            response = requests.get(url, headers={
+                'User-Agent': 'CitationSculptor/1.0 (mailto:support@example.com)'
+            }, timeout=15)
+            response.raise_for_status()
+            
+            data = response.json()
+            items = data.get('message', {}).get('items', [])
+            
+            if not items:
+                logger.warning(f"No CrossRef results for title: {clean_title[:40]}...")
+                return None
+            
+            # Check for title match
+            # Normalize both titles the same way - remove all non-alphanumeric except spaces
+            title_normalized = re.sub(r'[^\w\s]', '', clean_title.lower())
+            title_words = set(title_normalized.split())
+            for item in items:
+                item_title = item.get('title', [''])[0] if item.get('title') else ''
+                item_normalized = re.sub(r'[^\w\s]', '', item_title.lower())
+                item_words = set(item_normalized.split())
+                
+                if title_words and item_words:
+                    overlap = len(title_words & item_words) / len(title_words)
+                    if overlap >= 0.7:
+                        # Good match - parse it
+                        doi = item.get('DOI', '')
+                        logger.info(f"CrossRef match (overlap {overlap:.2f}): DOI {doi}")
+                        return self._parse_crossref_item(item, doi)
+            
+            logger.warning(f"No good title match in CrossRef results")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"CrossRef title search failed: {e}")
+            return None
+    
+    def _parse_crossref_item(self, item: dict, doi: str) -> CrossRefMetadata:
+        """Parse a CrossRef API item into CrossRefMetadata."""
+        title = item.get('title', [''])[0] if item.get('title') else ''
+        
+        # Authors
+        authors = []
+        for author in item.get('author', []):
+            family = author.get('family', '')
+            given = author.get('given', '')
+            if family:
+                authors.append(f"{family} {given}".strip())
+        
+        # Container (journal for articles, book title for chapters)
+        container = item.get('container-title', [])
+        container_title = container[0] if container else ''
+        
+        # Date
+        year = ''
+        date_parts = item.get('published', {}).get('date-parts', [[]])
+        if date_parts and date_parts[0]:
+            year = str(date_parts[0][0])
+        
+        # Pages
+        pages = item.get('page', '')
+        
+        # Volume/issue
+        volume = item.get('volume', '')
+        issue = item.get('issue', '')
+        
+        # Work type
+        work_type = item.get('type', 'journal-article')
+        
+        return CrossRefMetadata(
+            doi=doi,
+            title=title,
+            work_type=work_type,
+            authors=authors,
+            container_title=container_title,
+            book_title=container_title if work_type == 'book-chapter' else '',
+            publisher=item.get('publisher', ''),
+            year=year,
+            volume=volume,
+            issue=issue,
+            pages=pages,
+        )
+    
     def crossref_lookup_doi(self, doi: str) -> Optional[CrossRefMetadata]:
         """
         Look up metadata for a DOI using CrossRef API with caching.
@@ -923,6 +1037,8 @@ class WebpageMetadata:
     year: str = ""
     month: str = ""
     doi: str = ""
+    site_name: str = ""  # From og:site_name - organization/publisher name
+    published_date: str = ""  # Full date string (YYYY-MM-DD) if available
     
     @property
     def pages(self) -> str:
@@ -958,11 +1074,28 @@ class WebpageMetadata:
 
 
 class WebpageScraper:
-    """Scrapes citation metadata from academic webpages."""
+    """Scrapes citation metadata from webpages (both academic and general)."""
     
-    META_PATTERNS = {
-        'title': ['citation_title', 'dc.title', 'og:title'],
-        'author': ['citation_author', 'dc.creator', 'author'],
+    # Known news/media domains for better organization name extraction
+    KNOWN_DOMAINS = {
+        'politico.com': 'Politico',
+        'nytimes.com': 'The New York Times',
+        'washingtonpost.com': 'The Washington Post',
+        'wsj.com': 'The Wall Street Journal',
+        'reuters.com': 'Reuters',
+        'bbc.com': 'BBC',
+        'cnn.com': 'CNN',
+        'fiercehealthcare.com': 'FierceHealthcare',
+        'healthaffairs.org': 'Health Affairs',
+        'kff.org': 'Kaiser Family Foundation (KFF)',
+        'cbpp.org': 'Center on Budget and Policy Priorities (CBPP)',
+        'mckinsey.com': 'McKinsey & Company',
+    }
+    
+    # Meta tag patterns for academic pages
+    ACADEMIC_PATTERNS = {
+        'title': ['citation_title', 'dc.title'],
+        'author': ['citation_author', 'dc.creator'],
         'journal': ['citation_journal_title', 'citation_journal_abbrev', 'dc.source'],
         'volume': ['citation_volume'],
         'issue': ['citation_issue'],
@@ -973,19 +1106,164 @@ class WebpageScraper:
         'date': ['citation_publication_date', 'citation_date', 'dc.date'],
     }
     
+    # Meta tag patterns for general webpages (Open Graph, etc.)
+    GENERAL_PATTERNS = {
+        'title': ['og:title', 'twitter:title'],
+        'site_name': ['og:site_name', 'application-name'],
+        'author': ['author', 'article:author', 'm_authors', 'm_author'],
+        'date': ['article:published_time', 'article:modified_time', 'pubdate', 
+                 'publishdate', 'date', 'og:updated_time'],
+    }
+    
+    
     def __init__(self, timeout: int = 10):
         self.timeout = timeout
     
     def extract_metadata(self, url: str) -> Optional[WebpageMetadata]:
         """Extract citation metadata from a webpage's meta tags."""
+        result, _ = self.extract_metadata_with_status(url)
+        return result
+    
+    def extract_metadata_with_status(self, url: str) -> Tuple[Optional[WebpageMetadata], Optional[str]]:
+        """
+        Extract citation metadata with failure reason.
+        
+        Returns:
+            Tuple of (metadata, failure_reason)
+            - If successful: (WebpageMetadata, None)
+            - If failed: (None, "reason string")
+        """
         try:
             logger.info(f"Scraping metadata from: {url[:60]}...")
-            headers = {'User-Agent': 'Mozilla/5.0 (compatible; CitationSculptor/1.0)', 'Accept': 'text/html'}
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
             response = requests.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
-            return self._parse_html(response.text, url)
+            
+            # Check for Cloudflare or JavaScript challenge pages
+            if 'Just a moment' in response.text or 'challenge-platform' in response.text:
+                logger.warning(f"Site uses bot protection (Cloudflare): {url}")
+                # Try URL-based extraction as fallback
+                url_metadata = self._extract_metadata_from_url(url)
+                return url_metadata, "blocked_cloudflare"
+            
+            if 'Enable JavaScript' in response.text and len(response.text) < 10000:
+                logger.warning(f"Site requires JavaScript: {url}")
+                # Try URL-based extraction as fallback
+                url_metadata = self._extract_metadata_from_url(url)
+                return url_metadata, "blocked_javascript"
+            
+            metadata = self._parse_html(response.text, url)
+            return metadata, None
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                logger.warning(f"Access forbidden (403): {url}")
+                # Try URL-based extraction as fallback
+                url_metadata = self._extract_metadata_from_url(url)
+                return url_metadata, "blocked_403"
+            elif e.response.status_code == 401:
+                logger.warning(f"Authentication required (401): {url}")
+                return None, "blocked_auth"
+            else:
+                logger.warning(f"HTTP error {e.response.status_code}: {url}")
+                return None, f"http_error_{e.response.status_code}"
+        except requests.exceptions.Timeout:
+            logger.warning(f"Request timed out: {url}")
+            # Try URL-based extraction as fallback
+            url_metadata = self._extract_metadata_from_url(url)
+            return url_metadata, "timeout"
         except Exception as e:
             logger.warning(f"Failed to scrape {url}: {e}")
+            return None, "error"
+    
+    def _extract_metadata_from_url(self, url: str) -> Optional[WebpageMetadata]:
+        """
+        Extract metadata from URL patterns when page scraping fails.
+        
+        Extracts:
+        - Organization from domain (using known domains or capitalizing)
+        - Title from URL slug
+        - Date from URL path patterns (/2025/04/09/)
+        """
+        import urllib.parse
+        
+        try:
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc.lower().replace('www.', '')
+            path = parsed.path
+            
+            # Get organization name
+            site_name = ""
+            for known_domain, org_name in self.KNOWN_DOMAINS.items():
+                if known_domain in domain:
+                    site_name = org_name
+                    break
+            
+            if not site_name:
+                # Capitalize the domain name
+                domain_parts = domain.split('.')
+                if domain_parts:
+                    site_name = domain_parts[0].capitalize()
+            
+            # Extract date from URL path: /2025/04/09/ or /2025-04-09/
+            year, month, day = "", "", ""
+            date_match = re.search(r'/(\d{4})/(\d{2})/(\d{2})(?:/|$)', path)
+            if date_match:
+                year, month, day = date_match.groups()
+            else:
+                date_match = re.search(r'/(\d{4})-(\d{2})-(\d{2})(?:/|$|-)', path)
+                if date_match:
+                    year, month, day = date_match.groups()
+            
+            # Extract title from URL slug
+            title = ""
+            # Get the last meaningful path segment
+            path_parts = [p for p in path.strip('/').split('/') if p]
+            if path_parts:
+                # Skip date parts and get the slug
+                slug = path_parts[-1]
+                # Remove file extension
+                slug = re.sub(r'\.\w+$', '', slug)
+                # Remove trailing IDs (e.g., -00276442, -12345678)
+                slug = re.sub(r'[-_]\d{6,}$', '', slug)
+                # Skip if it looks like just an ID
+                if not re.match(r'^[\d-]+$', slug) and len(slug) > 5:
+                    # Convert slug to title
+                    title = slug.replace('-', ' ').replace('_', ' ')
+                    # Title case
+                    title = ' '.join(word.capitalize() for word in title.split())
+            
+            if not title and not year:
+                return None  # Nothing useful extracted
+            
+            published_date = ""
+            if year and month and day:
+                published_date = f"{year}-{month}-{day}"
+            
+            logger.info(f"Extracted from URL: title={title[:30]}..., site={site_name}, date={year}")
+            
+            return WebpageMetadata(
+                title=title,
+                url=url,
+                authors=[],
+                journal="",
+                volume="",
+                issue="",
+                first_page="",
+                last_page="",
+                year=year,
+                month=month,
+                doi="",
+                site_name=site_name,
+                published_date=published_date,
+            )
+            
+        except Exception as e:
+            logger.warning(f"URL extraction failed: {e}")
             return None
     
     def _parse_html(self, html: str, url: str) -> Optional[WebpageMetadata]:
@@ -993,12 +1271,21 @@ class WebpageScraper:
         if not meta_tags:
             return None
         
-        # Check for citation meta tags
+        # Check for academic citation meta tags
         has_citation_tags = any(k.startswith('citation_') or k.startswith('dc.') for k in meta_tags.keys())
-        if not has_citation_tags:
-            return None
         
-        title = self._get_first_value(meta_tags, self.META_PATTERNS['title'])
+        if has_citation_tags:
+            # Academic page - use academic patterns
+            return self._parse_academic_page(meta_tags, html, url)
+        else:
+            # General webpage - use general patterns
+            return self._parse_general_page(meta_tags, html, url)
+    
+    def _parse_academic_page(self, meta_tags: Dict[str, List[str]], html: str, url: str) -> Optional[WebpageMetadata]:
+        """Parse academic pages with citation_* meta tags."""
+        title = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['title'])
+        if not title:
+            title = self._get_first_value(meta_tags, ['og:title'])
         if not title:
             m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
             if m:
@@ -1006,46 +1293,249 @@ class WebpageScraper:
         if not title:
             return None
         
-        authors = self._get_all_values(meta_tags, self.META_PATTERNS['author'])
-        journal = self._get_first_value(meta_tags, self.META_PATTERNS['journal']) or ""
-        volume = self._get_first_value(meta_tags, self.META_PATTERNS['volume']) or ""
-        issue = self._get_first_value(meta_tags, self.META_PATTERNS['issue']) or ""
-        first_page = self._get_first_value(meta_tags, self.META_PATTERNS['first_page']) or ""
-        last_page = self._get_first_value(meta_tags, self.META_PATTERNS['last_page']) or ""
+        authors = self._get_all_values(meta_tags, self.ACADEMIC_PATTERNS['author'])
+        journal = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['journal']) or ""
+        volume = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['volume']) or ""
+        issue = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['issue']) or ""
+        first_page = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['first_page']) or ""
+        last_page = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['last_page']) or ""
         
-        doi = self._get_first_value(meta_tags, self.META_PATTERNS['doi']) or ""
+        doi = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['doi']) or ""
         if doi:
             doi = re.sub(r'^doi:\s*', '', doi, flags=re.IGNORECASE)
             m = re.search(r'(10\.\d{4,}/[^\s]+)', doi)
             if m:
                 doi = m.group(1)
+            else:
+                # Not a valid DOI, clear it
+                doi = ""
         
-        year = self._get_first_value(meta_tags, self.META_PATTERNS['year']) or ""
-        month = ""
-        if not year:
-            date_str = self._get_first_value(meta_tags, self.META_PATTERNS['date']) or ""
-            if date_str:
-                m = re.match(r'(\d{4})[-/]?(\d{2})?', date_str)
-                if m:
-                    year = m.group(1)
-                    month = m.group(2) or ""
+        year, month, day = self._extract_date(meta_tags, self.ACADEMIC_PATTERNS['date'])
         
-        logger.info(f"Extracted: {title[:50]}... by {len(authors)} authors")
+        site_name = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
+        
+        # Detect StatPearls content hosted on NCBI Bookshelf
+        if 'ncbi.nlm.nih.gov/books/' in url:
+            # Check if this is StatPearls content
+            if 'statpearls' in html.lower() or 'stat pearls' in html.lower():
+                journal = "StatPearls [Internet]"
+                site_name = "StatPearls Publishing"
+            elif site_name == "NCBI Bookshelf":
+                # Keep as NCBI Books but format properly
+                journal = "NCBI Bookshelf [Internet]"
+        
+        logger.info(f"Extracted academic: {title[:50]}... by {len(authors)} authors")
         return WebpageMetadata(
             title=title.strip(), url=url, authors=authors, journal=journal.strip(),
             volume=volume.strip(), issue=issue.strip(), first_page=first_page.strip(),
-            last_page=last_page.strip(), year=year.strip(), month=month.strip(), doi=doi.strip()
+            last_page=last_page.strip(), year=year, month=month, doi=doi.strip(),
+            site_name=site_name.strip(), published_date=f"{year}-{month}-{day}" if day else ""
         )
+    
+    def _parse_general_page(self, meta_tags: Dict[str, List[str]], html: str, url: str) -> Optional[WebpageMetadata]:
+        """Parse general webpages using Open Graph and other common meta tags."""
+        title = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['title'])
+        if not title:
+            m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+            if m:
+                title = m.group(1).strip()
+        if not title:
+            return None
+        
+        # Get site name from meta tags only (og:site_name, application-name)
+        site_name = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
+        
+        # Get authors (less common on general webpages)
+        # Filter out obvious non-author values (CMS usernames, system accounts, etc.)
+        raw_authors = self._get_all_values(meta_tags, self.GENERAL_PATTERNS['author'])
+        authors = [a for a in raw_authors if self._is_valid_author(a)]
+        
+        # If no authors in meta tags, try JSON-LD
+        if not authors:
+            authors = self._extract_author_from_jsonld(html)
+        
+        # Extract date from various patterns (meta tags first)
+        year, month, day = self._extract_date(meta_tags, self.GENERAL_PATTERNS['date'])
+        
+        # If no date in meta tags, try JSON-LD structured data
+        if not year:
+            year, month, day = self._extract_date_from_jsonld(html)
+        
+        # Also try to extract date from URL (e.g., /2025-05-12/ or /2025/05/12/)
+        if not year:
+            url_date = re.search(r'/(\d{4})[-/](\d{2})[-/](\d{2})(?:/|$|-)', url)
+            if url_date:
+                year = url_date.group(1)
+                month = url_date.group(2)
+                day = url_date.group(3)
+        
+        published_date = ""
+        if year and month and day:
+            published_date = f"{year}-{month}-{day}"
+        elif year and month:
+            published_date = f"{year}-{month}"
+        
+        logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}")
+        return WebpageMetadata(
+            title=title.strip(), url=url, authors=authors, journal="",
+            volume="", issue="", first_page="", last_page="",
+            year=year, month=month, doi="",
+            site_name=site_name.strip(), published_date=published_date
+        )
+    
+    def _extract_date(self, meta_tags: Dict[str, List[str]], date_keys: List[str]) -> Tuple[str, str, str]:
+        """Extract year, month, day from date meta tags."""
+        date_str = self._get_first_value(meta_tags, date_keys) or ""
+        
+        if not date_str:
+            return "", "", ""
+        
+        # Try ISO format: 2025-05-12T... or 2025-05-12
+        m = re.match(r'(\d{4})[-/](\d{2})[-/](\d{2})', date_str)
+        if m:
+            return m.group(1), m.group(2), m.group(3)
+        
+        # Try year-month format: 2025-05 or 2025/05
+        m = re.match(r'(\d{4})[-/](\d{2})', date_str)
+        if m:
+            return m.group(1), m.group(2), ""
+        
+        # Try just year: 2025
+        m = re.match(r'(\d{4})', date_str)
+        if m:
+            return m.group(1), "", ""
+        
+        return "", "", ""
+    
+    def _extract_date_from_jsonld(self, html: str) -> Tuple[str, str, str]:
+        """Extract publication date from JSON-LD structured data."""
+        data_list = self._parse_all_jsonld(html)
+        
+        for data in data_list:
+            result = self._extract_date_from_jsonld_object(data)
+            if result[0]:  # If year found
+                return result
+        
+        return "", "", ""
+    
+    def _extract_author_from_jsonld(self, html: str) -> List[str]:
+        """Extract authors from JSON-LD structured data."""
+        data_list = self._parse_all_jsonld(html)
+        authors = []
+        
+        for data in data_list:
+            if not isinstance(data, dict):
+                continue
+            
+            author_data = data.get('author')
+            if author_data:
+                if isinstance(author_data, list):
+                    for a in author_data:
+                        if isinstance(a, dict) and a.get('name'):
+                            authors.append(a['name'])
+                        elif isinstance(a, str):
+                            authors.append(a)
+                elif isinstance(author_data, dict) and author_data.get('name'):
+                    authors.append(author_data['name'])
+                elif isinstance(author_data, str):
+                    authors.append(author_data)
+            
+            # Check nested @graph
+            if '@graph' in data and isinstance(data['@graph'], list):
+                for item in data['@graph']:
+                    if isinstance(item, dict):
+                        item_author = item.get('author')
+                        if item_author:
+                            if isinstance(item_author, dict) and item_author.get('name'):
+                                authors.append(item_author['name'])
+                            elif isinstance(item_author, str):
+                                authors.append(item_author)
+        
+        # Filter and deduplicate
+        return list(dict.fromkeys([a for a in authors if self._is_valid_author(a)]))
+    
+    def _parse_all_jsonld(self, html: str) -> List[Dict]:
+        """Parse all JSON-LD blocks from HTML, handling HTML entities."""
+        import json
+        import html as html_module
+        
+        result = []
+        
+        # Find all JSON-LD script blocks
+        jsonld_pattern = r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>'
+        matches = re.findall(jsonld_pattern, html, re.DOTALL | re.IGNORECASE)
+        
+        for match in matches:
+            try:
+                # Decode HTML entities (e.g., &quot; -> ")
+                decoded = html_module.unescape(match.strip())
+                data = json.loads(decoded)
+                
+                # Handle array of objects
+                if isinstance(data, list):
+                    result.extend(data)
+                else:
+                    result.append(data)
+                        
+            except json.JSONDecodeError:
+                continue
+        
+        return result
+    
+    def _extract_date_from_jsonld_object(self, data: Dict) -> Tuple[str, str, str]:
+        """Extract date from a single JSON-LD object."""
+        if not isinstance(data, dict):
+            return "", "", ""
+        
+        # Common date fields in JSON-LD
+        date_fields = ['datePublished', 'dateCreated', 'dateModified', 'publishDate']
+        
+        for field in date_fields:
+            if field in data and data[field]:
+                date_str = str(data[field])
+                # Parse ISO format: 2021-06-07T10:38:13-0400 or 2021-06-07
+                # Also handle non-padded dates: 2023-1-2
+                m = re.match(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_str)
+                if m:
+                    logger.debug(f"Found date in JSON-LD {field}: {date_str}")
+                    # Pad month and day to 2 digits
+                    year = m.group(1)
+                    month = m.group(2).zfill(2)
+                    day = m.group(3).zfill(2)
+                    return year, month, day
+        
+        # Check nested @graph array (common in Schema.org)
+        if '@graph' in data and isinstance(data['@graph'], list):
+            for item in data['@graph']:
+                result = self._extract_date_from_jsonld_object(item)
+                if result[0]:
+                    return result
+        
+        return "", "", ""
     
     def _extract_meta_tags(self, html: str) -> Dict[str, List[str]]:
         tags: Dict[str, List[str]] = {}
-        for m in re.finditer(r'<meta\s+(?:name|property)=["\']([^"\']+)["\']\s+content=["\']([^"\']*)["\']', html, re.IGNORECASE):
-            name = m.group(1).lower()
-            content = m.group(2)
-            if name not in tags:
-                tags[name] = []
-            if content and content not in tags[name]:
-                tags[name].append(content)
+        # Match both name="..." content="..." and property="..." content="..."
+        # Also handle reversed order: content="..." name="..."
+        patterns = [
+            r'<meta\s+(?:name|property)=["\']([^"\']+)["\']\s+content=["\']([^"\']*)["\']',
+            r'<meta\s+content=["\']([^"\']*)["\'](?:\s+(?:name|property)=["\']([^"\']+)["\'])',
+        ]
+        for pattern in patterns:
+            for m in re.finditer(pattern, html, re.IGNORECASE):
+                if pattern.startswith(r'<meta\s+content'):
+                    # Reversed order
+                    content = m.group(1)
+                    name = m.group(2).lower() if m.group(2) else ""
+                else:
+                    name = m.group(1).lower()
+                    content = m.group(2)
+                
+                if name:
+                    if name not in tags:
+                        tags[name] = []
+                    if content and content not in tags[name]:
+                        tags[name].append(content)
         return tags
     
     def _get_first_value(self, tags: Dict[str, List[str]], keys: List[str]) -> Optional[str]:
@@ -1062,4 +1552,35 @@ class WebpageScraper:
                     if v and v not in values:
                         values.append(v)
         return values
+    
+    def _is_valid_author(self, author: str) -> bool:
+        """Check if an author string looks like a real person's name, not a CMS username."""
+        if not author:
+            return False
+        
+        # Reject obvious system/CMS usernames
+        invalid_patterns = [
+            r'^[a-z]+_[a-z]+$',  # underscore usernames like "kpage_drupal_sso"
+            r'^admin',  # admin accounts
+            r'@',  # email addresses
+            r'drupal|wordpress|cms|sso|system|user|guest',  # CMS terms
+            r'^\d+$',  # just numbers
+            r'^[a-z]{1,3}\d+',  # short letter + number like "u123"
+        ]
+        
+        author_lower = author.lower()
+        for pattern in invalid_patterns:
+            if re.search(pattern, author_lower):
+                return False
+        
+        # Valid authors usually have spaces (first last) or commas (last, first)
+        # Or at least look like names (capitalized, no underscores)
+        if ' ' in author or ',' in author:
+            return True
+        
+        # Single word that's capitalized and has no underscores might be okay
+        if author[0].isupper() and '_' not in author and len(author) > 2:
+            return True
+        
+        return False
 

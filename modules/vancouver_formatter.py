@@ -329,7 +329,8 @@ class VancouverFormatter:
         """Format a web article citation."""
         author_label = self._generate_author_label(author)
         brief_title = self._generate_brief_title(title)
-        label = f"[^{author_label}-{brief_title}-{year}]"
+        label_year = year if year != "Null_Date" else "ND"
+        label = f"[^{author_label}-{brief_title}-{label_year}]"
 
         title_clean = title.strip()
         if not title_clean.endswith('.'):
@@ -378,33 +379,65 @@ class VancouverFormatter:
         year: Optional[str] = None,
     ) -> FormattedCitation:
         """
-        Format a webpage citation in Vancouver style.
+        Format a webpage citation in Vancouver style (Obsidian-friendly compact format).
         
-        Format: [^Org-BriefTitle-Year]: Organization. Title. Year. [Link](URL)
+        Full Vancouver format for websites:
+        Author/Organization. Title [Internet]. Place: Publisher; Year [cited YYYY Mon DD]. 
+        Available from: URL
+        
+        Obsidian-friendly compact format (what we produce):
+        Organization. Title. Year. [Link](URL)
         """
+        # If title is truncated (contains ... or …), try to get full title from URL
+        if '...' in title or '…' in title:
+            url_title = self._extract_title_from_url(url)
+            if url_title and len(url_title) > len(title.replace('...', '').replace('…', '')):
+                title = url_title
+            else:
+                # No better title found - remove ellipses anyway (incomplete is better than ellipses)
+                title = title.replace('...', '').replace('…', '').rstrip(' -:').strip()
+        
         # Extract organization/source from source_name or URL
         org_name = self._extract_organization(source_name, url)
         org_abbrev = self._generate_org_abbreviation(org_name)
         
+        # Get full organization name (if we have abbreviation, expand it)
+        full_org_name = self._get_org_full_name(org_name) or org_name
+        
+        # Format organization name: "Full Name (ABBREV)" if abbreviation is different
+        if org_abbrev.upper() != full_org_name.upper() and len(org_abbrev) <= 6:
+            org_display = f"{full_org_name} ({org_abbrev})"
+        else:
+            org_display = full_org_name
+        
         # Extract year from title or URL if not provided
         if not year:
-            year = self._extract_year_from_text(title) or self._extract_year_from_url(url) or "n.d."
+            year = self._extract_year_from_text(title) or self._extract_year_from_url(url) or "Null_Date"
         
         # Generate brief title for label
         brief_title = self._generate_brief_title(title, max_words=2)
         
-        # Create label
-        label = f"[^{org_abbrev}-{brief_title}-{year}]"
+        # Create label (ensure abbreviation is uppercase)
+        # Use "ND" in label for missing dates, but keep Null_Date in citation text
+        org_abbrev_upper = org_abbrev.upper() if len(org_abbrev) <= 6 else org_abbrev
+        label_year = year if year != "Null_Date" else "ND"
+        label = f"[^{org_abbrev_upper}-{brief_title}-{label_year}]"
         
-        # Clean title
+        # Clean title - ensure it ends with period
         title_clean = title.strip()
         if not title_clean.endswith('.'):
             title_clean += '.'
         
-        # Build citation
-        citation_parts = [f"{org_name}.", title_clean]
-        if year and year != "n.d.":
+        # Build Obsidian-friendly compact citation
+        # Format: Organization (Abbrev). Title. Year. [Link](URL)
+        citation_parts = []
+        citation_parts.append(f"{org_display}.")
+        citation_parts.append(title_clean)
+        
+        # Always include year (Null_Date for missing dates, for searchability)
+        if year:
             citation_parts.append(f"{year}.")
+        
         citation_parts.append(f"[Link]({url})")
         
         citation_text = ' '.join(filter(None, citation_parts))
@@ -427,18 +460,18 @@ class VancouverFormatter:
         """
         Format a webpage citation using scraped metadata in Vancouver style.
         
-        This produces a proper journal-style citation when the webpage
-        has citation_* meta tags (common on academic publisher sites).
+        This produces a proper citation when the webpage has author/organization info.
         
-        Format: Authors. Title. Journal. Year;Vol(Issue):Pages. [Link](URL)
+        Format: Authors. Title. Organization/Site. Year. [Link](URL)
         """
         
         # Generate author label
         author_label = metadata.get_first_author_label()
         
         # Create label with year
-        year = metadata.year or "n.d."
-        label = f"[^{author_label}-{year}]"
+        year = metadata.year or "Null_Date"
+        label_year = year if year != "Null_Date" else "ND"
+        label = f"[^{author_label}-{label_year}]"
         
         # Format authors
         authors_str = metadata.format_authors_vancouver(self.max_authors)
@@ -453,11 +486,31 @@ class VancouverFormatter:
         
         if authors_str:
             citation_parts.append(authors_str + '.')
+        else:
+            # Use Null_Author placeholder when author is missing
+            citation_parts.append('Null_Author.')
         
         citation_parts.append(title)
         
+        # Add journal if available (academic sources)
         if metadata.journal:
-            citation_parts.append(metadata.journal + '.')
+            journal_text = metadata.journal.strip().rstrip('.')
+            citation_parts.append(journal_text + '.')
+        # Otherwise add site_name/organization
+        elif hasattr(metadata, 'site_name') and metadata.site_name:
+            # Get full organization name and abbreviation
+            site_name = metadata.site_name.strip()
+            full_org_name = self._get_org_full_name(site_name) or site_name
+            org_abbrev = self._generate_org_abbreviation(site_name)
+            
+            # Format: "Full Name (ABBREV)" if abbreviation is different and short
+            if org_abbrev.upper() != full_org_name.upper() and len(org_abbrev) <= 6:
+                org_display = f"{full_org_name} ({org_abbrev.upper()})"
+            else:
+                org_display = full_org_name
+            
+            # Always include organization (even if we have authors)
+            citation_parts.append(org_display + '.')
         
         # Date and volume/issue/pages
         date_vol_parts = []
@@ -520,32 +573,44 @@ class VancouverFormatter:
         """
         Format a newspaper article citation in Vancouver style.
         
-        Format: [^Newspaper-BriefTitle-Year]: Newspaper Name. Title. Year. [Link](URL)
+        Vancouver format for online newspapers:
+        Newspaper Name. Title [Internet]. Year [cited YYYY Mon DD]. 
+        Available from: URL
         """
+        from datetime import datetime
+        
         # Extract newspaper name from source or URL
         newspaper_name = self._extract_newspaper_name(source_name, url)
         newspaper_abbrev = self._generate_newspaper_abbreviation(newspaper_name)
         
-        # Extract year from title, URL, or default to n.d.
+        # Extract year from title, URL, or default to Null_Date
         if not year:
-            year = self._extract_year_from_text(title) or self._extract_year_from_url(url) or "n.d."
+            year = self._extract_year_from_text(title) or self._extract_year_from_url(url) or "Null_Date"
         
         # Generate brief title for label
         brief_title = self._generate_brief_title(title, max_words=2)
         
-        # Create label
-        label = f"[^{newspaper_abbrev}-{brief_title}-{year}]"
+        # Create label (use ND for missing dates in label)
+        label_year = year if year != "Null_Date" else "ND"
+        label = f"[^{newspaper_abbrev}-{brief_title}-{label_year}]"
         
-        # Clean title
-        title_clean = title.strip()
-        if not title_clean.endswith('.'):
-            title_clean += '.'
+        # Clean title - remove trailing period for [Internet] addition
+        title_clean = title.strip().rstrip('.')
         
-        # Build citation
-        citation_parts = [f"{newspaper_name}.", title_clean]
-        if year and year != "n.d.":
-            citation_parts.append(f"{year}.")
-        citation_parts.append(f"[Link]({url})")
+        # Get current date for "cited" field
+        access_date = datetime.now().strftime("%Y %b %d")
+        
+        # Build Vancouver-style newspaper citation
+        citation_parts = []
+        citation_parts.append(f"{newspaper_name}.")
+        citation_parts.append(f"{title_clean} [Internet].")
+        
+        # Always include year (Null_Date for missing dates, for searchability)
+        if year:
+            citation_parts.append(f"{year}")
+        
+        citation_parts.append(f"[cited {access_date}].")
+        citation_parts.append(f"Available from: {url}")
         
         citation_text = ' '.join(filter(None, citation_parts))
         full_citation = f"{label}: {citation_text}"
@@ -631,49 +696,226 @@ class VancouverFormatter:
                 domain = domain[4:]
             # Get first part of domain
             parts = domain.split('.')
-            if len(parts) >= 2:
-                return parts[0].title()
-            return domain.title()
+            name = parts[0] if len(parts) >= 2 else domain
+            
+            # If it looks like an acronym (short, mostly consonants), uppercase it
+            # Examples: cbpp, nih, cdc, ama, kff
+            if len(name) <= 5 and self._looks_like_acronym(name):
+                return name.upper()
+            return name.title()
         except:
             return "Unknown Source"
+    
+    def _looks_like_acronym(self, name: str) -> bool:
+        """Check if a name looks like an acronym (few vowels, short)."""
+        if len(name) > 6:
+            return False
+        vowels = set('aeiou')
+        vowel_count = sum(1 for c in name.lower() if c in vowels)
+        # Acronyms typically have 0-1 vowels (CDC, NIH, CBPP, AMA, KFF)
+        # or are very short (CDC = 3 chars with 0 vowels)
+        return vowel_count <= 1 or len(name) <= 4
 
+    def _get_org_full_name(self, org_name: str) -> Optional[str]:
+        """Get full organization name from abbreviation or partial name."""
+        # Reverse mapping: acronym -> full name
+        org_mappings = {
+            'ama': 'American Medical Association',
+            'aamc': 'Association of American Medical Colleges',
+            'aha': 'American Hospital Association',
+            'cbpp': 'Center on Budget and Policy Priorities',
+            'cdc': 'Centers for Disease Control and Prevention',
+            'cms': 'Centers for Medicare & Medicaid Services',
+            'fda': 'U.S. Food and Drug Administration',
+            'nih': 'National Institutes of Health',
+            'who': 'World Health Organization',
+            'kff': 'Kaiser Family Foundation',
+            'actuary.org': 'American Academy of Actuaries',
+            'actuary': 'American Academy of Actuaries',
+        }
+        
+        org_lower = org_name.lower().strip()
+        
+        # Check exact match first
+        if org_lower in org_mappings:
+            return org_mappings[org_lower]
+        
+        # Check if it's already a full name (contains common words)
+        if any(word in org_lower for word in ['association', 'academy', 'center', 'centers', 'institute', 'foundation']):
+            return org_name  # Already full name
+        
+        # Check partial matches
+        for abbrev, full_name in org_mappings.items():
+            if abbrev in org_lower or org_lower in abbrev:
+                return full_name
+        
+        return None
+    
     def _generate_org_abbreviation(self, org_name: str) -> str:
-        """Generate abbreviation for organization name."""
-        # Common abbreviations
+        """Generate abbreviation for organization name (always uppercase for known acronyms)."""
+        # Common abbreviations - these are well-known acronyms
         abbreviations = {
-            'florida department of health': 'FLDOH',
+            'american medical association': 'AMA',
+            'american hospital association': 'AHA',
+            'association of american medical colleges': 'AAMC',
+            'center on budget and policy priorities': 'CBPP',
             'centers for disease control': 'CDC',
-            'world health organization': 'WHO',
+            'centers for medicare': 'CMS',
+            'florida department of health': 'FLDOH',
+            'food and drug administration': 'FDA',
             'national institutes of health': 'NIH',
+            'world health organization': 'WHO',
+            'kaiser family foundation': 'KFF',
+            'commonwealth fund': 'CWF',
             'u.s. news': 'USNews',
             'america\'s health rankings': 'AHR',
             'blue zones': 'BlueZones',
+            'american academy of actuaries': 'AAA',
         }
         
         org_lower = org_name.lower()
+        
+        # Check if it's already an acronym (short, uppercase-like)
+        if len(org_name) <= 6 and org_name.isupper():
+            return org_name  # Already uppercase acronym
+        
+        # Check known abbreviations
         for key, abbrev in abbreviations.items():
             if key in org_lower:
                 return abbrev
         
+        # Check reverse mapping (if it's already abbreviated)
+        full_name = self._get_org_full_name(org_name)
+        if full_name:
+            # Find the abbreviation for the full name
+            for key, abbrev in abbreviations.items():
+                if key in full_name.lower():
+                    return abbrev
+        
         # Generate abbreviation from words
         words = re.findall(r'\w+', org_name)
-        if len(words) == 1:
-            # Single word - use as-is (capitalized, max 15 chars)
-            return org_name.replace(' ', '')[:15]
-        elif len(words) <= 3:
-            # 2-3 words - capitalize each
-            return ''.join(w.title() for w in words)[:15]
+        # Filter out common words that don't contribute to acronyms
+        stop_words = {'the', 'of', 'and', 'for', 'on', 'in', 'a', 'an', 'inc', 'llc', 'corp'}
+        significant_words = [w for w in words if w.lower() not in stop_words]
+        
+        if len(significant_words) == 0:
+            significant_words = words  # Fall back to all words
+        
+        if len(significant_words) == 1:
+            # Single word - use as-is (capitalized, max 12 chars)
+            return significant_words[0].title()[:12]
+        elif len(significant_words) == 2:
+            # 2 words - use initials if both are long, otherwise concatenate
+            if all(len(w) > 3 for w in significant_words):
+                return ''.join(w[0].upper() for w in significant_words)
+            return ''.join(w.title() for w in significant_words)[:12]
         else:
-            # 4+ words - use initials
-            return ''.join(w[0].upper() for w in words if w)[:8]
+            # 3+ words - use initials (uppercase acronym)
+            return ''.join(w[0].upper() for w in significant_words)[:8]
 
     def _extract_year_from_text(self, text: str) -> Optional[str]:
-        """Extract 4-digit year from text."""
-        match = re.search(r'\b(20\d{2}|19\d{2})\b', text)
+        """Extract 4-digit year from text, avoiding subject-matter years.
+        
+        Skips years that appear to be about subject matter rather than publication:
+        - "in 2025" (projections)
+        - "for 2025" (forecasts)  
+        - "by 2025" (deadlines)
+        - "through 2025" (time ranges)
+        """
+        # Skip years that are clearly subject matter, not publication dates
+        subject_year_patterns = [
+            r'\b(?:in|for|by|through|until|to)\s+(20\d{2})\b',
+            r'\b(20\d{2})\s*[-–—]\s*20\d{2}\b',  # Year ranges like "2025-2035"
+        ]
+        
+        text_clean = text
+        for pattern in subject_year_patterns:
+            # Remove subject-matter years from consideration
+            text_clean = re.sub(pattern, '', text_clean, flags=re.IGNORECASE)
+        
+        # Now look for remaining years
+        match = re.search(r'\b(20\d{2}|19\d{2})\b', text_clean)
         return match.group(1) if match else None
 
     def _extract_year_from_url(self, url: str) -> Optional[str]:
-        """Extract year from URL path."""
-        match = re.search(r'/(20\d{2})/', url)
-        return match.group(1) if match else None
+        """Extract year from URL path - only from date-like patterns.
+        
+        Only matches paths that look like publication dates:
+        - /2024/05/12/ (full date paths)
+        - /2024/05/ (year-month paths)
+        - /2024/ (year-only paths at start of content path)
+        - /2024-05-12/ (date in filename)
+        
+        Skips years embedded in article slugs (likely subject matter).
+        """
+        # Match date-like patterns: /2024/05/ or /2024-05-12
+        match = re.search(r'/(\d{4})/\d{2}/', url)
+        if match:
+            return match.group(1)
+        
+        match = re.search(r'/(\d{4})-\d{2}-\d{2}', url)
+        if match:
+            return match.group(1)
+        
+        # Match year-only at start of content path (e.g., /2019/external-reference...)
+        # This pattern requires the year to be followed by a content slug (not just numbers)
+        # Match patterns like: domain.com/2019/title or domain.com/news/2019/title
+        match = re.search(r'/(\d{4})/[a-z]', url, re.IGNORECASE)
+        if match:
+            year = match.group(1)
+            if 1990 <= int(year) <= 2030:  # Reasonable year range
+                return year
+        
+        return None
+    
+    def _extract_title_from_url(self, url: str) -> Optional[str]:
+        """Extract title from URL slug (last path segment)."""
+        import urllib.parse
+        try:
+            parsed = urllib.parse.urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # Skip certain domains where URL slugs produce garbage
+            skip_domains = ['linkedin.com', 'twitter.com', 'x.com', 'facebook.com']
+            if any(d in domain for d in skip_domains):
+                return None
+            
+            path = parsed.path.strip('/')
+            if not path:
+                return None
+            
+            # Get last path segment
+            slug = path.split('/')[-1]
+            
+            # Skip if slug contains obvious IDs (long numbers, UUIDs)
+            if re.search(r'\d{10,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}', slug, re.IGNORECASE):
+                return None
+            
+            # Remove file extension if present
+            slug = re.sub(r'\.\w+$', '', slug)
+            
+            # Convert slug to title (replace hyphens/underscores with spaces)
+            title = slug.replace('-', ' ').replace('_', ' ')
+            
+            # Title case, but keep short words lowercase
+            words = title.split()
+            if not words:
+                return None
+            
+            stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+            titled_words = []
+            for i, word in enumerate(words):
+                if i == 0 or word.lower() not in stop_words:
+                    titled_words.append(word.capitalize())
+                else:
+                    titled_words.append(word.lower())
+            
+            result = ' '.join(titled_words)
+            
+            # Only return if it's a reasonable title (more than 3 words)
+            if len(words) >= 3:
+                return result
+            return None
+        except:
+            return None
 

@@ -1,9 +1,74 @@
 # CitationSculptor Planning Document
 
 ## Project Status Overview
-**Current Version:** 0.3.0
-**Last Updated:** 2025-11-27
+**Current Version:** 0.4.0
+**Last Updated:** 2025-11-28
 **Status:** Active Development
+
+---
+
+## 🚀 Where We Left Off
+
+Based on our session today, here are some suggestions for what we could tackle next:
+
+### 🎯 High-Value Quick Wins
+
+#### 1. **Get the Original Pelican Bay File**
+The `pelican_bay_preventive_health_comprehensive_report.md` in `test_samples/` is already processed output. If you have the original with numbered `[1]`, `[2]` references, providing it would complete our regression test suite and let us test the V1 Simple format.
+
+#### 2. **Add BeautifulSoup to Requirements**
+The webpage scraper uses `BeautifulSoup` but it's not in `requirements.txt`. Should add it:
+```
+beautifulsoup4>=4.12.0
+```
+
+### 📋 Medium Priority (Future Sessions)
+
+#### 3. **Duplicate Citation Detection**
+Currently if the same article appears twice with different reference numbers, both get processed separately. We could:
+- Detect duplicates by PMID/DOI
+- Warn the user
+- Optionally merge them
+
+#### 4. **Better Error Recovery**
+When the MCP server is down or rate-limited, the program could:
+- Cache successful lookups to a local file
+- Resume from where it left off on retry
+- Provide a "retry failed only" mode
+
+#### 5. **Test the Pelican Bay Format**
+Once we have the original, run a full regression to ensure V1 Simple format (numeric inline refs like `[1-3]`, `[1,2]`) still works perfectly.
+
+### 🤔 Questions for Next Session
+
+1. **Do you have the original Pelican Bay file?** (Pre-processed version with numbered refs)
+2. **Any new sample documents to test?** We've been improving the system - would be good to stress-test with fresh content.
+
+### ✅ Session Accomplishments (2025-11-28)
+- V6 Grouped Footnotes format support
+- JSON-LD date extraction for webpages (handles non-padded dates like `2023-1-2`)
+- DOI text extraction from plain text references
+- CrossRef title search fallback (finds articles not in PubMed)
+- Smart organization abbreviation handling
+- URL-based title recovery for truncated titles
+- URL year extraction from paths (e.g., `/2019/article-title`)
+- URL metadata fallback for blocked sites (extracts title, date, org from URL)
+- Author + Organization combined citations
+- Ellipsis removal from truncated titles
+- Social media URL handling (skip garbage from LinkedIn/Twitter URLs)
+- Custom meta tag support (`m_authors` for Milliman, etc.)
+- Null placeholder system for missing data:
+  - `Null_Date`, `Null_Author` in citation text (searchable)
+  - `ND` in tags (compact)
+  - Eliminates manual review section for blocked sites
+- Cleaned up samples/ folder
+
+### ✅ Session Accomplishments (2025-11-27)
+- Webpage metadata scraping
+- Regression testing infrastructure
+- Housekeeping & documentation
+- All tests passing
+- GitHub updated (v0.3.0)
 
 ---
 
@@ -87,11 +152,103 @@
   - **After**: `[^ShahsavarAR-2016]: Shahsavar AR, Pourvaghar MJ. Follow-Up Alterations... Biosciences Biotechnology Research Asia. 2016;8(2):591-595.`
 - [x] **Limitations**: Some sites block scrapers (403 Forbidden), news sites often lack citation meta tags.
 
+### 13. V6 Grouped Footnotes Format (NEW - Nov 28)
+- [x] **Format**: `[^1] [^47] [^49] Title | Source` with URL on separate line `<https://...>`
+- [x] **Implementation**:
+  - Added `FOOTNOTE_NO_COLON_PATTERN` for grouped footnotes without colons
+  - Multi-line parsing for angle-bracket URLs
+  - Many-to-one deduplication (all grouped IDs → same output label)
+  - `**Sources:**` recognized as reference header
+- [x] **Result**: Document with 89 inline references → 39 unique citations processed
+
+### 14. DOI Text Extraction (NEW - Nov 28)
+- [x] **Issue**: Plain text references like `"...doi: 10.1234/xyz"` weren't being linked.
+- [x] **Solution**: Added regex extraction for `doi:10.xxx` patterns in reference text.
+- [x] **Result**: "Right Ventricular Dilation" article improved from 21 → 10 manual review items (63 more journal articles detected).
+
+### 15. Enhanced Webpage Scraping (NEW - Nov 28)
+- [x] **JSON-LD Date Extraction**: Parse `datePublished` from `<script type="application/ld+json">` blocks.
+  - **Example**: AAMC page now extracts `2021` from structured data (was `n.d.`).
+- [x] **Author Filtering**: Filter out CMS usernames (e.g., `kpage_drupal_sso`) from author fields.
+- [x] **Author + Organization**: When both author and site_name exist, include both in citation.
+  - **Example**: `Beck M. The Future of AI in Healthcare. MediPro, Inc. 2025.`
+
+### 16. Improved Organization Handling (NEW - Nov 28)
+- [x] **Smart Abbreviations**: Common organizations mapped to standard acronyms:
+  - `American Medical Association` → `AMA`
+  - `American Hospital Association` → `AHA`
+  - `Center on Budget and Policy Priorities` → `CBPP`
+- [x] **Acronym Detection**: Short domain names (≤5 chars, few vowels) uppercased automatically:
+  - `cbpp.org` → `CBPP` (not `Cbpp`)
+- [x] **Full Names in Citations**: Abbreviation in tag, full name in citation text:
+  - `[^AMA-...]: American Medical Association. Title...`
+
+### 17. URL-Based Title Extraction (NEW - Nov 28)
+- [x] **Issue**: Truncated titles with `...` from original documents.
+- [x] **Solution**: When title contains ellipsis, extract full title from URL slug.
+- [x] **Example**: `States Can Use Medicaid to Help Address Health-Related Social ...` → `States Can Use Medicaid to Help Address Health Related Social Needs`
+
+### 18. Blocked Site Detection with Guidance (NEW - Nov 28)
+- [x] **Issue**: Sites with Cloudflare/403 blocks couldn't be scraped, leaving incomplete citations.
+- [x] **Solution**: Detect blocking type and flag for manual review with specific guidance.
+- [x] **Guidance Provided**:
+  - AUTHOR (look for byline or 'Written by')
+  - PUBLICATION DATE (check article header or footer)
+  - ORGANIZATION NAME (check page header/logo)
+- [x] **Block Types Detected**: `blocked_cloudflare`, `blocked_403`, `blocked_javascript`, `timeout`
+
+### 19. Improved URL Year Extraction (NEW - Nov 28)
+- [x] **Issue**: Year in URLs like `/2019/article-title` wasn't being extracted.
+- [x] **Solution**: Added pattern to match `/YYYY/` followed by content slug.
+- [x] **Example**: Johns Hopkins URL now extracts 2019 from path.
+
+### 20. Ellipsis Removal (NEW - Nov 28)
+- [x] **Issue**: Titles with `...` from original documents looked incomplete.
+- [x] **Solution**: Strip ellipses from titles when no better alternative found.
+- [x] **Result**: Clean titles without trailing `...`
+
+### 21. Social Media URL Handling (NEW - Nov 28)
+- [x] **Issue**: LinkedIn/Twitter URL slugs produced garbage titles (e.g., `jake-pyles-8a7518_were-295800...`).
+- [x] **Solution**: Skip URL-based title extraction for social media domains.
+- [x] **Result**: LinkedIn posts now use scraped `og:title` which is clean.
+
+### 22. Non-Padded Date Parsing (NEW - Nov 28)
+- [x] **Issue**: JSON-LD dates like `2023-1-2` (no leading zeros) weren't being parsed.
+- [x] **Solution**: Updated regex to match `\d{1,2}` for month/day, then pad with `zfill(2)`.
+- [x] **Result**: Milliman article now extracts year 2023 from JSON-LD.
+
+### 23. Custom Meta Tag Support (NEW - Nov 28)
+- [x] **Issue**: Sites like Milliman use `m_authors` instead of standard `author` meta tag.
+- [x] **Solution**: Added `m_authors`, `m_author` to GENERAL_PATTERNS.
+- [x] **Result**: Milliman article now shows `Jensen B.` as author.
+
+### 24. CrossRef Title Search Fallback (NEW - Nov 28)
+- [x] **Issue**: Articles in CrossRef but not PubMed weren't being found (e.g., ScienceDirect).
+- [x] **Solution**: Added `crossref_search_title()` method with direct CrossRef API call.
+- [x] **Result**: "COVID-19 pandemic and artificial intelligence possibilities" now resolved via CrossRef.
+
+### 25. URL Metadata Fallback for Blocked Sites (NEW - Nov 28)
+- [x] **Issue**: Sites blocking scrapers (403, Cloudflare) returned no metadata.
+- [x] **Solution**: Extract title, date, and organization from URL patterns when scraping fails.
+- [x] **Features**:
+  - Known domains mapped to organization names (Politico, NYT, Reuters, etc.)
+  - Date extraction from URL paths (`/2025/04/09/`)
+  - Title extraction from URL slugs
+- [x] **Result**: Blocked Politico article now has title and date from URL.
+
+### 26. Null Placeholder System (NEW - Nov 28)
+- [x] **Issue**: Manual review section was cluttered with blocked sites.
+- [x] **Solution**: Use searchable placeholders instead of manual review:
+  - `Null_Date` in citation text (searchable with Cmd+F)
+  - `ND` in citation tags (compact)
+  - `Null_Author` when author is missing
+- [x] **Result**: Manual review reduced to 0 items; search for `Null_` to find incomplete citations.
+
 ---
 
 ## 🔄 In Progress
 
-*No tasks currently in progress.*
+*No items currently in progress.*
 
 ---
 
@@ -132,9 +289,10 @@
 ### Test Files
 | File | Format | Last Result |
 |------|--------|-------------|
-| `Right Ventricular Dilation...md` | V2 Extended + Multi-Section | ✅ PASS |
+| `Right Ventricular Dilation...md` | V2 Extended + Multi-Section | ✅ PASS (10 manual review) |
 | `Gene Therapy Approaches...md` | V3 Footnotes (DOI links) | ✅ PASS |
 | `Arrhythmogenic Cardiomyopathies - Genetics.md` | V3 Footnotes (body after refs) | ✅ PASS |
+| `Future Healthcare Delivery Models...md` | V6 Grouped Footnotes | ✅ PASS (9 blocked sites flagged) |
 | `pelican_bay...md` | V1 Simple | ⚠️ Need original |
 
 ### Running Tests
