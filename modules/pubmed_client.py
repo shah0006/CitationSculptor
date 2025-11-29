@@ -1346,6 +1346,29 @@ class WebpageScraper:
         # Get site name from meta tags only (og:site_name, application-name)
         site_name = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
         
+        # If no site_name and title contains hierarchy (» or |), extract organization
+        if not site_name and title:
+            # Pattern: "Page Title » Division » College » University" - take last parts
+            if '»' in title or '&raquo;' in title:
+                # Split by » or &raquo; and take the last 1-2 parts as organization
+                parts = re.split(r'\s*(?:»|&raquo;)\s*', title)
+                if len(parts) >= 2:
+                    # Take last part (usually the root org like "University of Florida")
+                    site_name = parts[-1].strip()
+                    # For .edu domains, try to get a fuller name
+                    if '.edu' in url and len(parts) >= 3:
+                        # Combine like "University of Florida Division of Cardiovascular Medicine"
+                        last_part = parts[-1].strip()  # e.g., "University of Florida"
+                        second_last = parts[-2].strip()  # e.g., "College of Medicine"
+                        third_last = parts[-3].strip() if len(parts) >= 3 else ""  # e.g., "Division of..."
+                        
+                        # Build organization name - prioritize Division over College
+                        if 'Division' in third_last:
+                            site_name = f"{last_part} {third_last}"
+                        elif 'Division' in second_last:
+                            site_name = f"{last_part} {second_last}"
+                        logger.debug(f"Extracted site from title hierarchy: {site_name}")
+        
         # Get authors (less common on general webpages)
         # Filter out obvious non-author values (CMS usernames, system accounts, etc.)
         raw_authors = self._get_all_values(meta_tags, self.GENERAL_PATTERNS['author'])
