@@ -832,11 +832,14 @@ class CitationSculptor:
                         # Use scraped site_name and year if available, otherwise fall back to parsed values
                         site_name = ref.source_name
                         year = None
+                        is_evergreen = False
                         if scraped_metadata:
                             if scraped_metadata.site_name:
                                 site_name = scraped_metadata.site_name
                             if scraped_metadata.year:
                                 year = scraped_metadata.year
+                            # Check if this is an evergreen page (no date expected)
+                            is_evergreen = getattr(scraped_metadata, 'is_evergreen', False)
                         
                         citation = self.formatter.format_webpage(
                             title=ref.title,
@@ -844,6 +847,7 @@ class CitationSculptor:
                             source_name=site_name,
                             original_number=ref.original_number,
                             year=year,
+                            is_evergreen=is_evergreen,
                         )
                         
                         # Note: Blocked sites now use Null_Author, Null_Date, etc. placeholders

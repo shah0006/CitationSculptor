@@ -1039,6 +1039,7 @@ class WebpageMetadata:
     doi: str = ""
     site_name: str = ""  # From og:site_name - organization/publisher name
     published_date: str = ""  # Full date string (YYYY-MM-DD) if available
+    is_evergreen: bool = False  # True for landing/service pages that typically don't have dates
     
     @property
     def pages(self) -> str:
@@ -1450,8 +1451,9 @@ class WebpageScraper:
         return WebpageMetadata(
             title=title.strip(), url=url, authors=authors, journal="",
             volume="", issue="", first_page="", last_page="",
-            year=year if year else ("" if is_evergreen else ""), month=month, doi="",
-            site_name=site_name.strip(), published_date=published_date
+            year=year, month=month, doi="",
+            site_name=site_name.strip(), published_date=published_date,
+            is_evergreen=is_evergreen
         )
     
     def _is_evergreen_page(self, url: str, title: str) -> bool:

@@ -377,6 +377,7 @@ class VancouverFormatter:
         source_name: Optional[str],
         original_number: int,
         year: Optional[str] = None,
+        is_evergreen: bool = False,
     ) -> FormattedCitation:
         """
         Format a webpage citation in Vancouver style (Obsidian-friendly compact format).
@@ -387,6 +388,9 @@ class VancouverFormatter:
         
         Obsidian-friendly compact format (what we produce):
         Organization. Title. Year. [Link](URL)
+        
+        Args:
+            is_evergreen: True for landing/service pages that legitimately don't have dates
         """
         # If title is truncated (contains ... or …), try to get full title from URL
         if '...' in title or '…' in title:
@@ -411,16 +415,19 @@ class VancouverFormatter:
             org_display = full_org_name
         
         # Extract year from title or URL if not provided
+        # For evergreen pages (landing pages, service pages), no date is expected
         if not year:
-            year = self._extract_year_from_text(title) or self._extract_year_from_url(url) or "Null_Date"
+            year = self._extract_year_from_text(title) or self._extract_year_from_url(url)
+            if not year and not is_evergreen:
+                year = "Null_Date"  # Only flag non-evergreen pages
         
         # Generate brief title for label
         brief_title = self._generate_brief_title(title, max_words=2)
         
         # Create label (ensure abbreviation is uppercase)
-        # Use "ND" in label for missing dates, but keep Null_Date in citation text
+        # Use "ND" in label for missing dates, but keep Null_Date in citation text for non-evergreen
         org_abbrev_upper = org_abbrev.upper() if len(org_abbrev) <= 6 else org_abbrev
-        label_year = year if year != "Null_Date" else "ND"
+        label_year = year if year and year != "Null_Date" else "ND"
         label = f"[^{org_abbrev_upper}-{brief_title}-{label_year}]"
         
         # Clean title - ensure it ends with period
@@ -476,8 +483,17 @@ class VancouverFormatter:
             date_match = re.match(r'(\d{4})', metadata.published_date)
             if date_match:
                 year = date_match.group(1)
-        year = year or "Null_Date"
-        label_year = year if year != "Null_Date" else "ND"
+        
+        # Check if this is an evergreen page (landing page, service page, etc.)
+        # These pages legitimately don't have dates - don't flag them
+        is_evergreen = getattr(metadata, 'is_evergreen', False)
+        if not year:
+            if is_evergreen:
+                year = ""  # Evergreen pages - no date is expected, don't flag
+            else:
+                year = "Null_Date"  # Regular pages - flag missing date
+        
+        label_year = year if year and year != "Null_Date" else "ND"
         label = f"[^{author_label}-{label_year}]"
         
         # Format authors
