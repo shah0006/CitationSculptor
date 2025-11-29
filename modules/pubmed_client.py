@@ -1346,7 +1346,11 @@ class WebpageScraper:
         # Get site name from meta tags only (og:site_name, application-name)
         site_name = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['site_name']) or ""
         
-        # If no site_name and title contains hierarchy (» or |), extract organization
+        # If no site_name, try to extract from URL (especially for .edu domains)
+        if not site_name:
+            site_name = self._extract_org_from_url(url)
+        
+        # If still no site_name and title contains hierarchy (» or |), extract organization
         if not site_name and title:
             # Pattern: "Page Title » Division » College » University" - take last parts
             if '»' in title or '&raquo;' in title:
@@ -1561,6 +1565,60 @@ class WebpageScraper:
                 logger.debug(f"Extracted author from 'by' text: {author}")
         
         return authors
+    
+    def _extract_org_from_url(self, url: str) -> str:
+        """Extract organization name from URL, especially for .edu domains."""
+        from urllib.parse import urlparse
+        
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        
+        # Known .edu domain mappings
+        edu_orgs = {
+            'ufl.edu': 'University of Florida',
+            'harvard.edu': 'Harvard University',
+            'stanford.edu': 'Stanford University',
+            'mit.edu': 'MIT',
+            'yale.edu': 'Yale University',
+            'columbia.edu': 'Columbia University',
+            'upenn.edu': 'University of Pennsylvania',
+            'jhu.edu': 'Johns Hopkins University',
+            'duke.edu': 'Duke University',
+            'unc.edu': 'University of North Carolina',
+            'ucla.edu': 'UCLA',
+            'usc.edu': 'USC',
+            'nyu.edu': 'NYU',
+            'cornell.edu': 'Cornell University',
+            'bc.edu': 'Boston College',
+            'bu.edu': 'Boston University',
+            'mayo.edu': 'Mayo Clinic',
+        }
+        
+        # Check if it's an .edu domain
+        if '.edu' in domain:
+            # Find the base .edu domain
+            for edu_domain, org_name in edu_orgs.items():
+                if domain.endswith(edu_domain) or domain == edu_domain:
+                    # Check for subdomain that indicates department/division
+                    subdomain = domain.replace(edu_domain, '').rstrip('.')
+                    if subdomain:
+                        parts = subdomain.split('.')
+                        # cardiology.medicine.ufl.edu -> ["cardiology", "medicine"]
+                        if parts:
+                            dept = parts[0].title()  # "cardiology" -> "Cardiology"
+                            if dept.lower() in ['cardiology', 'medicine', 'health', 'nursing', 
+                                                'pharmacy', 'dentistry', 'law', 'business',
+                                                'engineering', 'science', 'arts']:
+                                return f"{org_name} {dept}"
+                    return org_name
+            
+            # Generic .edu handling - extract from domain
+            # e.g., "someuniv.edu" -> "Someuniv"
+            base = domain.split('.')[0] if '.' in domain else domain
+            if base and base not in ['www', 'web']:
+                return base.replace('-', ' ').title()
+        
+        return ""
     
     def _extract_date_from_jsonld(self, html: str) -> Tuple[str, str, str]:
         """Extract publication date from JSON-LD structured data."""
