@@ -291,33 +291,64 @@ class CorrectionsHandler:
     def _find_null_citations(self, content: str) -> List[Dict]:
         """Find all citations with Null placeholders."""
         citations = []
-        pattern = r'^\[(\^[^\]]+)\]:\s*(.+?)\[Link\]\(([^)]+)\)\s*$'
+        
+        # Pattern 1: Citations with [Link](url) format
+        pattern_link = r'^\[(\^[^\]]+)\]:\s*(.+?)\[Link\]\(([^)]+)\)\s*$'
+        # Pattern 2: Citations with just URL or no URL (journal articles, etc.)
+        pattern_basic = r'^\[(\^[^\]]+)\]:\s*(.+)$'
         
         for line in content.split('\n'):
-            match = re.match(pattern, line.strip())
+            line_stripped = line.strip()
+            if not line_stripped.startswith('[^'):
+                continue
+                
+            url = ""
+            tag = ""
+            citation_text = ""
+            
+            # Try pattern with [Link] first
+            match = re.match(pattern_link, line_stripped)
             if match:
                 tag = match.group(1)
                 citation_text = match.group(2).strip()
                 url = match.group(3)
+            else:
+                # Try basic pattern
+                match = re.match(pattern_basic, line_stripped)
+                if match:
+                    tag = match.group(1)
+                    citation_text = match.group(2).strip()
+                    # Try to extract URL from citation text
+                    url_match = re.search(r'https?://[^\s\)>]+', citation_text)
+                    if url_match:
+                        url = url_match.group(0)
+            
+            if not tag:
+                continue
                 
-                missing = []
-                if 'Null_Date' in citation_text:
-                    missing.append('Date')
-                if 'Null_Author' in citation_text:
-                    missing.append('Authors')
-                if 'Null_Organization' in citation_text:
-                    missing.append('Organization')
-                if '-ND]' in f'[{tag}]' and 'Date' not in missing:
-                    missing.append('Date')
-                
-                if missing:
-                    citations.append({
-                        'tag': f'[{tag}]',
-                        'citation': citation_text,
-                        'url': url,
-                        'missing': missing
-                    })
+            missing = []
+            if 'Null_Date' in citation_text:
+                missing.append('Date')
+            if 'Null_Author' in citation_text:
+                missing.append('Authors')
+            if 'Null_Organization' in citation_text:
+                missing.append('Organization')
+            # Check for -ND in tag (indicates No Date)
+            if '-ND]' in f'[{tag}]' and 'Date' not in missing:
+                missing.append('Date')
+            # Also check for -ND- pattern (e.g., AuthorX-ND-Title)
+            if re.search(r'-ND[-\]]', f'[{tag}]') and 'Date' not in missing:
+                missing.append('Date')
+            
+            if missing:
+                citations.append({
+                    'tag': f'[{tag}]',
+                    'citation': citation_text,
+                    'url': url,
+                    'missing': missing
+                })
         
+        logger.info(f"Found {len(citations)} citations needing corrections")
         return citations
     
     def _build_template(self, citations: List[Dict]) -> str:

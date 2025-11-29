@@ -434,7 +434,8 @@ def main():
                                 st.session_state.output_content = f.read()
                             
                             # Check for Null citations and generate corrections
-                            if 'Null_' in st.session_state.output_content:
+                            # Check for Null_ placeholders OR -ND] tags (both indicate missing data)
+                            if 'Null_' in st.session_state.output_content or '-ND]' in st.session_state.output_content:
                                 handler = CorrectionsHandler()
                                 corrections_path = handler.generate_corrections_template(
                                     st.session_state.output_content,
