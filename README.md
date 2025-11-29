@@ -222,7 +222,18 @@ CitationSculptor/
     └── test_*.py             # Unit tests
 ```
 
-## Recent Updates (2025-11-28)
+## Recent Updates (2025-11-29)
+
+### v0.4.2
+- **Evergreen Page Detection**: Landing pages, service pages, about pages no longer flagged with `Null_Date`
+  - These pages legitimately don't have publication dates
+  - Reduces noise in "Need Review" count
+- **GUI Dark Mode Fix**: Metric cards now display properly in dark mode themes
+- **Processing Summary**: After processing, GUI shows detailed statistics:
+  - Citations formatted count
+  - Inline refs updated
+  - Undefined refs detected
+  - Null placeholder counts with breakdown
 
 ### v0.4.1
 - **DOI Path Date Extraction**: Extract dates from DOI-style URLs (e.g., `healthaffairs.org/do/10.1377/forefront.20201130` → 2020)

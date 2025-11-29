@@ -1,45 +1,56 @@
 # CitationSculptor Planning Document
 
 ## Project Status Overview
-**Current Version:** 0.4.1
-**Last Updated:** 2025-11-28
+**Current Version:** 0.4.2
+**Last Updated:** 2025-11-29
 **Status:** Active Development
 
 ---
 
-## 🚀 Where We Left Off
+## 🚀 Where We Left Off (Nov 29, 2025)
 
-Based on our session today, here are some suggestions for what we could tackle next:
+### Today's Session Summary
+Significant GUI and metadata extraction improvements focused on reducing false positives and improving user experience.
 
-### 🎯 High-Value Quick Wins
+### What We Accomplished
+1. **GUI Metric Card Styling** - Fixed dark mode display issues where white boxes made text unreadable
+2. **Evergreen Page Detection** - Pages that legitimately don't have dates (landing pages, service pages, about pages) no longer get flagged with `Null_Date`
+3. **Streamlit GUI Enhancements** - Added processing summary with statistics after document processing:
+   - Citations Formatted count
+   - Inline Refs Updated
+   - Undefined Refs warning
+   - Need Review (Null_* count)
+   - Missing Data Breakdown (expandable)
 
-#### 1. **Get the Original Pelican Bay File**
-The `pelican_bay_preventive_health_comprehensive_report.md` in `test_samples/` is already processed output. If you have the original with numbered `[1]`, `[2]` references, providing it would complete our regression test suite and let us test the V1 Simple format.
+### 🎯 Ready for Next Session
 
-#### 2. ~~**Add BeautifulSoup to Requirements**~~ ✅ DONE
-Added `beautifulsoup4>=4.12.0` to requirements.txt.
+#### High Priority
+1. **Test with More Documents** - The evergreen detection logic should reduce false `Null_Date` flags significantly
+2. **Browser-Assisted Lookup** - The claim extraction feature is partially built but needs polish
+3. **V7/V8 Format Testing** - New reference formats (numbered lists, Works Cited) added but need real-world testing
 
-### 📋 Medium Priority (Future Sessions)
+#### Medium Priority
+1. **Duplicate Citation Detection** - Same article with different ref numbers could be merged
+2. **Better Error Recovery** - Cache successful lookups, resume from failures
+3. **Get Original Pelican Bay File** - Need original for V1 Simple format regression testing
 
-#### 3. **Duplicate Citation Detection**
-Currently if the same article appears twice with different reference numbers, both get processed separately. We could:
-- Detect duplicates by PMID/DOI
-- Warn the user
-- Optionally merge them
+### 🤔 For Consideration
+- The GUI is now quite feature-rich - may be ready for wider testing
+- Consider adding export to other citation formats (APA, Chicago) in future
 
-#### 4. **Better Error Recovery**
-When the MCP server is down or rate-limited, the program could:
-- Cache successful lookups to a local file
-- Resume from where it left off on retry
-- Provide a "retry failed only" mode
+---
 
-#### 5. **Test the Pelican Bay Format**
-Once we have the original, run a full regression to ensure V1 Simple format (numeric inline refs like `[1-3]`, `[1,2]`) still works perfectly.
-
-### 🤔 Questions for Next Session
-
-1. **Do you have the original Pelican Bay file?** (Pre-processed version with numbered refs)
-2. **Any new sample documents to test?** We've been improving the system - would be good to stress-test with fresh content.
+### ✅ Session Accomplishments (2025-11-29)
+- **GUI Dark Mode Fix**: Metric cards now use transparent blue backgrounds readable in dark mode
+- **Evergreen Page Detection**: Added `is_evergreen` flag to WebpageMetadata
+  - Landing pages, service pages, about pages marked as evergreen
+  - Evergreen pages skip `Null_Date` flagging (no date expected)
+  - Reduces noise in "Need Review" count
+- **Processing Summary**: GUI now shows detailed statistics after processing
+  - Total formatted citations
+  - Inline refs updated
+  - Undefined refs detected
+  - Null placeholder counts with breakdown
 
 ### ✅ Session Accomplishments (2025-11-28) - Part 2
 - DOI path date extraction (e.g., `forefront.20201130` → 2020)
@@ -248,6 +259,29 @@ Once we have the original, run a full regression to ensure V1 Simple format (num
   - `ND` in citation tags (compact)
   - `Null_Author` when author is missing
 - [x] **Result**: Manual review reduced to 0 items; search for `Null_` to find incomplete citations.
+
+### 27. Evergreen Page Detection (NEW - Nov 29)
+- [x] **Issue**: Landing pages, service pages, and about pages were flagged with `Null_Date` even though they legitimately don't have publication dates.
+- [x] **Solution**: Added `is_evergreen` field to `WebpageMetadata`:
+  - Detected via URL patterns (`/about`, `/services`, `/products`, `/contact`, `/careers`)
+  - Home pages and root-level pages marked as evergreen
+  - Evergreen pages skip `Null_Date` flagging
+- [x] **Result**: Reduced false positives in "Need Review" count.
+
+### 28. GUI Dark Mode Compatibility (NEW - Nov 29)
+- [x] **Issue**: Metric cards had white backgrounds making text unreadable in dark mode.
+- [x] **Solution**: Updated CSS to use transparent blue backgrounds with proper contrast.
+- [x] **Result**: GUI now works properly in both light and dark themes.
+
+### 29. Processing Summary Statistics (NEW - Nov 29)
+- [x] **Feature**: After processing, GUI displays comprehensive statistics.
+- [x] **Metrics Shown**:
+  - Citations Formatted (successful)
+  - Inline Refs Updated
+  - Undefined Refs (used but not defined)
+  - Need Review (Null_* count)
+  - Missing Data Breakdown (expandable with dates/authors/orgs counts)
+- [x] **Result**: Users can quickly assess processing quality.
 
 ---
 
