@@ -533,6 +533,98 @@ def main():
                             webbrowser.open(f"https://scispace.com/search?q={quote_plus(query)}")
                 else:
                     st.warning("Please paste the context around the citation.")
+            
+            st.markdown("---")
+            st.markdown("### 📥 Import Found Citation")
+            st.markdown("After finding a paper in SciSpace, copy its **DOI** or **PMID** and paste it here:")
+            
+            col_doi, col_btn = st.columns([3, 1])
+            with col_doi:
+                found_identifier = st.text_input(
+                    "DOI or PMID:",
+                    placeholder="10.1016/j.xxx.2023.xxx or 12345678",
+                    help="Copy the DOI (starts with 10.) or PMID (8-digit number) from the paper you found"
+                )
+            with col_btn:
+                lookup_btn = st.button("🔎 Look Up", use_container_width=True)
+            
+            if lookup_btn and found_identifier:
+                with st.spinner("Looking up citation..."):
+                    try:
+                        from modules.pubmed_client import PubMedClient
+                        from modules.vancouver_formatter import VancouverFormatter
+                        
+                        client = PubMedClient()
+                        formatter = VancouverFormatter()
+                        identifier = found_identifier.strip()
+                        
+                        metadata = None
+                        source = ""
+                        
+                        # Detect if DOI or PMID
+                        if identifier.startswith("10.") or "doi.org" in identifier:
+                            # Extract DOI
+                            import re
+                            doi_match = re.search(r'(10\.\d{4,}/[^\s]+)', identifier)
+                            if doi_match:
+                                doi = doi_match.group(1)
+                                st.info(f"Looking up DOI: `{doi}`")
+                                metadata = client.crossref_lookup_doi(doi)
+                                source = "CrossRef"
+                        else:
+                            # Assume PMID
+                            pmid = re.sub(r'\D', '', identifier)  # Extract digits only
+                            if pmid:
+                                st.info(f"Looking up PMID: `{pmid}`")
+                                metadata = client.fetch_article_by_pmid(pmid)
+                                source = "PubMed"
+                        
+                        if metadata:
+                            st.success(f"✅ Found via {source}!")
+                            
+                            # Format the citation
+                            if hasattr(metadata, 'work_type') and metadata.work_type == 'book-chapter':
+                                citation = formatter.format_book_chapter(metadata, original_number=1)
+                            elif hasattr(metadata, 'pmid'):
+                                citation = formatter.format_journal_article(metadata, original_number=1)
+                            else:
+                                # CrossRef metadata
+                                citation = formatter.format_journal_article_from_crossref(metadata, original_number=1)
+                            
+                            st.markdown("**Formatted Citation:**")
+                            
+                            # Show citation in a copyable box
+                            citation_text = f"{citation.label}: {citation.text}"
+                            st.code(citation_text, language=None)
+                            
+                            # Store in session for easy access
+                            if 'found_citations' not in st.session_state:
+                                st.session_state.found_citations = []
+                            st.session_state.found_citations.append(citation_text)
+                            
+                            st.success("📋 Citation ready! Copy the text above and paste into your document.")
+                            
+                            # Show details
+                            with st.expander("📄 Citation Details"):
+                                if hasattr(metadata, 'title'):
+                                    st.write(f"**Title:** {metadata.title}")
+                                if hasattr(metadata, 'authors'):
+                                    st.write(f"**Authors:** {', '.join(metadata.authors[:3])}{'...' if len(metadata.authors) > 3 else ''}")
+                                if hasattr(metadata, 'journal'):
+                                    st.write(f"**Journal:** {metadata.journal}")
+                                if hasattr(metadata, 'year'):
+                                    st.write(f"**Year:** {metadata.year}")
+                                if hasattr(metadata, 'doi') and metadata.doi:
+                                    st.write(f"**DOI:** {metadata.doi}")
+                                if hasattr(metadata, 'pmid') and metadata.pmid:
+                                    st.write(f"**PMID:** {metadata.pmid}")
+                        else:
+                            st.error("❌ Could not find citation. Please check the DOI/PMID and try again.")
+                            
+                    except Exception as e:
+                        st.error(f"Error looking up citation: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
         
         st.divider()
         
