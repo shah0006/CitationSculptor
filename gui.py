@@ -145,7 +145,7 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Custom CSS
+    # Custom CSS - compatible with both light and dark modes
     st.markdown("""
         <style>
         .main-header {
@@ -161,11 +161,33 @@ def main():
             color: #6B7280;
             margin-bottom: 2rem;
         }
-        .stMetric {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-            padding: 1rem;
-            border-radius: 0.75rem;
-            border: 1px solid #e2e8f0;
+        /* Metric cards - dark mode compatible */
+        [data-testid="stMetric"] {
+            background-color: rgba(28, 131, 225, 0.1);
+            border: 1px solid rgba(28, 131, 225, 0.2);
+            padding: 15px 20px;
+            border-radius: 10px;
+        }
+        [data-testid="stMetric"] label {
+            color: inherit !important;
+        }
+        [data-testid="stMetric"] [data-testid="stMetricValue"] {
+            font-size: 2rem;
+            font-weight: 700;
+            color: inherit !important;
+        }
+        /* Dark mode specific */
+        @media (prefers-color-scheme: dark) {
+            [data-testid="stMetric"] {
+                background-color: rgba(28, 131, 225, 0.15);
+                border-color: rgba(28, 131, 225, 0.3);
+            }
+        }
+        /* Streamlit dark theme detection */
+        .stApp[data-theme="dark"] [data-testid="stMetric"],
+        [data-testid="stAppViewContainer"][style*="background-color: rgb(14, 17, 23)"] [data-testid="stMetric"] {
+            background-color: rgba(28, 131, 225, 0.2);
+            border-color: rgba(28, 131, 225, 0.4);
         }
         </style>
     """, unsafe_allow_html=True)
