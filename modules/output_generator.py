@@ -536,7 +536,7 @@ class ClaimExtractor:
     """
     
     SEARCH_URLS = {
-        'scispace': 'https://typeset.io/search?q=',
+        'scispace': 'https://scispace.com/search?q=',
         'semantic_scholar': 'https://www.semanticscholar.org/search?q=',
         'pubmed': 'https://pubmed.ncbi.nlm.nih.gov/?term=',
         'google_scholar': 'https://scholar.google.com/scholar?q=',

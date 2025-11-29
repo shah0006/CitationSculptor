@@ -530,7 +530,7 @@ def main():
                             from urllib.parse import quote_plus
                             words = claim_context.split()[:15]
                             query = ' '.join(words)
-                            webbrowser.open(f"https://typeset.io/search?q={quote_plus(query)}")
+                            webbrowser.open(f"https://scispace.com/search?q={quote_plus(query)}")
                 else:
                     st.warning("Please paste the context around the citation.")
         
