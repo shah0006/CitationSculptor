@@ -243,25 +243,32 @@ def main():
                 help="Upload any markdown document from your computer"
             )
             
-            # Output folder option
+            # Output folder - remember last used, or suggest user's home
+            default_folder = st.session_state.get('last_output_folder', str(Path.home() / "Documents"))
             output_folder = st.text_input(
-                "📂 Output folder (optional):",
-                placeholder="Leave blank to download result, or enter path like /Users/you/Documents",
-                help="Where to save the formatted output. Leave blank to use the download button instead."
+                "📂 Save output to folder:",
+                value=default_folder,
+                help="The formatted output will be saved to this folder. Browser uploads don't reveal source path, so please specify where to save."
             )
             
             if uploaded_file:
                 file_content = uploaded_file.getvalue().decode('utf-8')
                 
-                if output_folder and Path(output_folder).exists():
-                    # Save to specified folder
-                    save_path = Path(output_folder) / uploaded_file.name
-                    with open(save_path, 'w', encoding='utf-8') as f:
-                        f.write(file_content)
-                    file_path = str(save_path)
-                    st.session_state.input_file_path = file_path
-                    st.session_state.output_folder = output_folder
-                    st.success(f"✅ File saved to: {save_path}")
+                if output_folder:
+                    folder_path = Path(output_folder)
+                    if folder_path.exists():
+                        # Save to specified folder
+                        save_path = folder_path / uploaded_file.name
+                        with open(save_path, 'w', encoding='utf-8') as f:
+                            f.write(file_content)
+                        file_path = str(save_path)
+                        st.session_state.input_file_path = file_path
+                        st.session_state.output_folder = output_folder
+                        st.session_state.last_output_folder = output_folder  # Remember for next time
+                        st.success(f"✅ File will be processed in: `{folder_path}`")
+                    else:
+                        st.error(f"❌ Folder not found: {output_folder}")
+                        st.info("Please enter a valid folder path, e.g., /Users/yourname/Documents")
                 else:
                     # Save to temp location (download mode)
                     temp_dir = Path("/tmp/citationsculptor")
@@ -274,9 +281,8 @@ def main():
                     file_path = str(temp_path)
                     st.session_state.input_file_path = file_path
                     st.session_state.output_folder = None
-                    st.success(f"✅ File uploaded: {uploaded_file.name} ({len(file_content):,} characters)")
-                    if not output_folder:
-                        st.info("💡 Tip: Specify an output folder above to save directly, or use the download button in Results.")
+                    st.success(f"✅ File uploaded: {uploaded_file.name}")
+                    st.warning("⚠️ No output folder specified - use the Download button in Results tab.")
         
         else:  # Browse test samples
             # List files from test_samples and samples directories
