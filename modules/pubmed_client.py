@@ -1689,6 +1689,29 @@ Organization name:"""
         
         return "", "", ""
     
+    def _clean_author_name(self, name: str) -> str:
+        """Clean up author name by removing organization suffixes."""
+        if not name:
+            return ""
+        
+        # Remove organization suffixes like "Author Name - Organization" or "Author | Org"
+        # Common patterns: " - KFF Health News", " | Reuters", " for NPR"
+        separators = [' - ', ' | ', ' for ', ' at ', ' of ']
+        for sep in separators:
+            if sep in name:
+                parts = name.split(sep)
+                # Keep only the first part if it looks like a person name
+                first_part = parts[0].strip()
+                # Check if it looks like a person name (has First Last pattern)
+                if re.match(r'^[A-Z][a-z]+\s+[A-Z][a-z]+', first_part):
+                    name = first_part
+                    break
+        
+        # Remove trailing credentials
+        name = re.sub(r',?\s*(?:Esq|JD|MD|PhD|DO|RN|MBA)\.?\s*$', '', name, flags=re.IGNORECASE)
+        
+        return name.strip()
+    
     def _extract_author_from_jsonld(self, html: str) -> List[str]:
         """Extract authors from JSON-LD structured data."""
         data_list = self._parse_all_jsonld(html)
@@ -1703,13 +1726,13 @@ Organization name:"""
                 if isinstance(author_data, list):
                     for a in author_data:
                         if isinstance(a, dict) and a.get('name'):
-                            authors.append(a['name'])
+                            authors.append(self._clean_author_name(a['name']))
                         elif isinstance(a, str):
-                            authors.append(a)
+                            authors.append(self._clean_author_name(a))
                 elif isinstance(author_data, dict) and author_data.get('name'):
-                    authors.append(author_data['name'])
+                    authors.append(self._clean_author_name(author_data['name']))
                 elif isinstance(author_data, str):
-                    authors.append(author_data)
+                    authors.append(self._clean_author_name(author_data))
             
             # Check nested @graph
             if '@graph' in data and isinstance(data['@graph'], list):
