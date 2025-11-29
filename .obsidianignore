@@ -1,0 +1,8 @@
+# Ignore Python files from Obsidian indexing
+*.py
+*.pyc
+__pycache__/
+venv/
+*.egg-info/
+.env
+
