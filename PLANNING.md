@@ -1,7 +1,7 @@
 # CitationSculptor Planning Document
 
 ## Project Status Overview
-**Current Version:** 0.4.0
+**Current Version:** 0.4.1
 **Last Updated:** 2025-11-28
 **Status:** Active Development
 
@@ -16,11 +16,8 @@ Based on our session today, here are some suggestions for what we could tackle n
 #### 1. **Get the Original Pelican Bay File**
 The `pelican_bay_preventive_health_comprehensive_report.md` in `test_samples/` is already processed output. If you have the original with numbered `[1]`, `[2]` references, providing it would complete our regression test suite and let us test the V1 Simple format.
 
-#### 2. **Add BeautifulSoup to Requirements**
-The webpage scraper uses `BeautifulSoup` but it's not in `requirements.txt`. Should add it:
-```
-beautifulsoup4>=4.12.0
-```
+#### 2. ~~**Add BeautifulSoup to Requirements**~~ ✅ DONE
+Added `beautifulsoup4>=4.12.0` to requirements.txt.
 
 ### 📋 Medium Priority (Future Sessions)
 
@@ -44,7 +41,16 @@ Once we have the original, run a full regression to ensure V1 Simple format (num
 1. **Do you have the original Pelican Bay file?** (Pre-processed version with numbered refs)
 2. **Any new sample documents to test?** We've been improving the system - would be good to stress-test with fresh content.
 
-### ✅ Session Accomplishments (2025-11-28)
+### ✅ Session Accomplishments (2025-11-28) - Part 2
+- DOI path date extraction (e.g., `forefront.20201130` → 2020)
+- Blog scraping for author/date metadata (previously only webpages)
+- Console summary shows Null placeholder counts at end of processing
+- Published date fallback (extract year from `published_date` when `year` empty)
+- Added `beautifulsoup4` to requirements.txt
+- Manual citation editing workflow (user adds corrections → AI applies them)
+- Cleaned up samples/ and test_samples/ directories
+
+### ✅ Session Accomplishments (2025-11-28) - Part 1
 - V6 Grouped Footnotes format support
 - JSON-LD date extraction for webpages (handles non-padded dates like `2023-1-2`)
 - DOI text extraction from plain text references
@@ -61,7 +67,6 @@ Once we have the original, run a full regression to ensure V1 Simple format (num
   - `Null_Date`, `Null_Author` in citation text (searchable)
   - `ND` in tags (compact)
   - Eliminates manual review section for blocked sites
-- Cleaned up samples/ folder
 
 ### ✅ Session Accomplishments (2025-11-27)
 - Webpage metadata scraping

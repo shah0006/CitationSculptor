@@ -175,6 +175,12 @@ CitationSculptor/
 
 ## Recent Updates (2025-11-28)
 
+### v0.4.1
+- **DOI Path Date Extraction**: Extract dates from DOI-style URLs (e.g., `healthaffairs.org/do/10.1377/forefront.20201130` → 2020)
+- **Blog Scraping**: Blogs now scraped for author/date metadata (previously only webpages)
+- **Console Null Summary**: End-of-processing shows count of `Null_Date` and `Null_Author` citations
+- **Published Date Fallback**: Extract year from `published_date` field when `year` is empty
+
 ### v0.4.0
 - **V6 Grouped Footnotes**: Support for `[^1] [^47] Title` format with multi-line URLs
 - **JSON-LD Date Extraction**: Parse publication dates from structured data (handles non-padded dates like `2023-1-2`)
