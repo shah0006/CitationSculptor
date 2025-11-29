@@ -42,11 +42,18 @@ class ReferenceParser:
     """Parses reference sections from markdown documents."""
 
     REFERENCE_HEADER_PATTERNS = [
-        r'^#{1,3}\s*References\s*$',  # Include ### level for V7 format
-        r'^#{1,3}\s*Sources\s*$',
-        r'^#{1,3}\s*Citations\s*$',
+        r'^#{1,4}\s*References\s*$',  # Include #### level
+        r'^#{1,4}\s*Sources\s*$',
+        r'^#{1,4}\s*Citations\s*$',
+        r'^#{1,4}\s*Works\s+[Cc]ited\s*$',  # "Works cited" or "Works Cited"
+        r'^#{1,4}\s*Bibliography\s*$',
         r'^\*\*Sources:\*\*\s*$',  # Bold **Sources:** header (V6 format)
+        r'^\*\*References:\*\*\s*$',
+        r'^\*\*Works\s+[Cc]ited:\*\*\s*$',
     ]
+    
+    # Pattern V8: Works cited format - "1. Title, accessed date, <URL>"
+    WORKS_CITED_PATTERN = r'^(\d+)\.\s*(.+?),\s*accessed\s+.+?,\s*<(https?://[^>]+)>$'
     
     # Pattern V7: Numbered list with embedded link - "1. [Title](URL). Authors. Journal..."
     # This is a more detailed pattern that extracts all components
@@ -476,6 +483,27 @@ class ReferenceParser:
 
     def _parse_single_reference(self, line: str, line_number: int) -> Optional[ParsedReference]:
         """Parse a single reference line supporting multiple formats."""
+        
+        # Try V8 Works Cited format: "1. Title, accessed date, <URL>"
+        match = re.match(self.WORKS_CITED_PATTERN, line)
+        if match:
+            number = int(match.group(1))
+            title = match.group(2).strip()
+            url = match.group(3)
+            
+            # Clean up title - remove trailing comma if present
+            title = title.rstrip(',').strip()
+            
+            logger.debug(f"Parsed Works Cited format #{number}: {title[:50]}...")
+            return ParsedReference(
+                original_number=number,
+                original_text=line,
+                title=title,
+                url=url,
+                source_name=None,
+                line_number=line_number,
+                metadata={'format': 'works_cited'},
+            )
         
         # Try Pattern 1: Simple format "1. [Title - Source](URL)"
         match = re.match(self.SIMPLE_REF_PATTERN, line)
