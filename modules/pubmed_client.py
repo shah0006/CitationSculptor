@@ -1113,6 +1113,7 @@ class WebpageScraper:
         'author': ['author', 'article:author', 'm_authors', 'm_author'],
         'date': ['article:published_time', 'article:modified_time', 'pubdate', 
                  'publishdate', 'date', 'og:updated_time'],
+        'description': ['description', 'og:description'],
     }
     
     
@@ -1354,6 +1355,18 @@ class WebpageScraper:
         if not authors:
             authors = self._extract_author_from_jsonld(html)
         
+        # Try meta description "By: Author Name" pattern (more reliable than HTML)
+        if not authors:
+            description = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['description']) or ""
+            if description:
+                # Pattern matches "By: First Last" with optional credentials like ", Esq."
+                by_match = re.match(r'By:\s*([A-Z][a-z]+\s+[A-Z][a-z]+(?:,?\s*(?:Esq|JD|MD|PhD|DO)\.?)?)', description)
+                if by_match:
+                    author = by_match.group(1).strip().rstrip('.')  # Remove trailing period
+                    if self._is_valid_author(author):
+                        authors = [author]
+                        logger.debug(f"Extracted author from meta description: {author}")
+        
         # If still no authors, try HTML patterns (bylines, author links, etc.)
         if not authors:
             authors = self._extract_author_from_html(html)
@@ -1569,6 +1582,23 @@ class WebpageScraper:
                                 authors.append(item_author['name'])
                             elif isinstance(item_author, str):
                                 authors.append(item_author)
+                        
+                        # Check description for "By: Author Name" pattern
+                        desc = item.get('description', '')
+                        if desc and not authors:
+                            by_match = re.match(r'By:\s*([A-Z][a-z]+(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]+(?:,?\s*(?:Esq|JD|MD|PhD|DO)\.?)?)', desc)
+                            if by_match:
+                                authors.append(by_match.group(1).strip())
+                        
+                        # Check articleSection which sometimes contains author names
+                        article_section = item.get('articleSection', [])
+                        if isinstance(article_section, list) and not authors:
+                            for section in article_section:
+                                if isinstance(section, str) and re.match(r'^[A-Z][a-z]+\s+[A-Z][a-z]+$', section):
+                                    # Looks like a name (First Last)
+                                    if self._is_valid_author(section):
+                                        authors.append(section)
+                                        break
         
         # Filter and deduplicate
         return list(dict.fromkeys([a for a in authors if self._is_valid_author(a)]))
