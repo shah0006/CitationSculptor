@@ -1369,6 +1369,10 @@ class WebpageScraper:
                 month = url_date.group(2)
                 day = url_date.group(3)
         
+        # Try to extract date from common HTML patterns
+        if not year:
+            year, month, day = self._extract_date_from_html(html)
+        
         published_date = ""
         if year and month and day:
             published_date = f"{year}-{month}-{day}"
@@ -1404,6 +1408,65 @@ class WebpageScraper:
         m = re.match(r'(\d{4})', date_str)
         if m:
             return m.group(1), "", ""
+        
+        return "", "", ""
+    
+    def _extract_date_from_html(self, html: str) -> Tuple[str, str, str]:
+        """Extract date from common HTML patterns like <time> or date divs."""
+        # Month name mapping
+        months = {
+            'january': '01', 'february': '02', 'march': '03', 'april': '04',
+            'may': '05', 'june': '06', 'july': '07', 'august': '08',
+            'september': '09', 'october': '10', 'november': '11', 'december': '12',
+            'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+            'jun': '06', 'jul': '07', 'aug': '08', 'sep': '09', 
+            'oct': '10', 'nov': '11', 'dec': '12'
+        }
+        
+        # Try <time datetime="..."> first
+        time_match = re.search(r'<time[^>]*datetime=["\']([^"\']+)["\']', html, re.IGNORECASE)
+        if time_match:
+            dt = time_match.group(1)
+            m = re.match(r'(\d{4})[-/](\d{2})[-/](\d{2})', dt)
+            if m:
+                return m.group(1), m.group(2), m.group(3)
+        
+        # Try common date patterns in HTML: <div class="article-date">, <span class="date">, etc.
+        date_patterns = [
+            r'class=["\'](?:article-date|post-date|entry-date|published|date)["\'][^>]*>([^<]+)<',
+            r'class=["\'][^"\']*date[^"\']*["\'][^>]*>([^<]+)<',
+        ]
+        
+        for pattern in date_patterns:
+            match = re.search(pattern, html, re.IGNORECASE)
+            if match:
+                date_text = match.group(1).strip()
+                # Try "October 30, 2018" format
+                m = re.match(r'([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})', date_text)
+                if m:
+                    month_name = m.group(1).lower()
+                    day = m.group(2).zfill(2)
+                    year = m.group(3)
+                    month = months.get(month_name, "")
+                    if month:
+                        logger.debug(f"Extracted date from HTML: {year}-{month}-{day}")
+                        return year, month, day
+                
+                # Try "30 October 2018" format
+                m = re.match(r'(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', date_text)
+                if m:
+                    day = m.group(1).zfill(2)
+                    month_name = m.group(2).lower()
+                    year = m.group(3)
+                    month = months.get(month_name, "")
+                    if month:
+                        logger.debug(f"Extracted date from HTML: {year}-{month}-{day}")
+                        return year, month, day
+                
+                # Try ISO format in text
+                m = re.match(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_text)
+                if m:
+                    return m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
         
         return "", "", ""
     
