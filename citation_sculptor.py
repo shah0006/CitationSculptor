@@ -199,7 +199,10 @@ class CitationSculptor:
             self.gui_dialog.close()
             self.gui_dialog = None
 
-        body_content = self._step_update_inline_references(parser.get_body_content())
+        # Detect inline reference style from body content
+        body = parser.get_body_content()
+        inline_style = parser._detect_inline_style(body)
+        body_content = self._step_update_inline_references(body, style=inline_style)
 
         if not self.dry_run:
             self._step_generate_output(body_content, categorized, parser)

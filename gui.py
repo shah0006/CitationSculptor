@@ -189,7 +189,7 @@ def main():
         try:
             from modules.pubmed_client import PubMedClient
             client = PubMedClient()
-            if client.verify_connection():
+            if client.test_connection():
                 st.success("✅ PubMed MCP Server connected")
             else:
                 st.error("❌ Server not responding")
@@ -203,51 +203,84 @@ def main():
     with tab1:
         st.header("Select & Process Document")
         
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # File path input
-            default_path = st.session_state.input_file_path or ""
-            file_path_input = st.text_input(
-                "📁 File path:",
-                value=default_path,
-                placeholder="/path/to/your/document.md",
-                help="Enter the full path to your markdown file"
-            )
-        
-        with col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            # Quick access to test samples
-            if st.button("📂 Browse test_samples/"):
-                test_dir = Path(__file__).parent / "test_samples"
-                if test_dir.exists():
-                    files = list(test_dir.glob("*.md"))
-                    if files:
-                        st.session_state.available_files = [str(f) for f in files]
-        
-        # Show available files if browsed
-        if 'available_files' in st.session_state and st.session_state.available_files:
-            selected = st.selectbox(
-                "Select a test file:",
-                st.session_state.available_files,
-                format_func=lambda x: Path(x).name
-            )
-            if selected:
-                file_path_input = selected
+        # Input method selection
+        input_method = st.radio(
+            "Choose input method:",
+            ["📁 Enter file path", "📤 Upload file", "📂 Browse test samples"],
+            horizontal=True
+        )
         
         file_path = None
         file_content = None
         
-        if file_path_input:
-            path = Path(file_path_input)
-            if path.exists():
-                file_path = str(path)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    file_content = f.read()
+        if input_method == "📁 Enter file path":
+            # Direct file path input
+            default_path = st.session_state.input_file_path or ""
+            file_path_input = st.text_input(
+                "File path:",
+                value=default_path,
+                placeholder="/Users/you/Documents/your_document.md",
+                help="Enter the full path to any markdown file on your computer"
+            )
+            
+            if file_path_input:
+                path = Path(file_path_input)
+                if path.exists():
+                    file_path = str(path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    st.session_state.input_file_path = file_path
+                    st.success(f"✅ File loaded: {path.name} ({len(file_content):,} characters)")
+                else:
+                    st.error(f"❌ File not found: {file_path_input}")
+        
+        elif input_method == "📤 Upload file":
+            # File uploader
+            uploaded_file = st.file_uploader(
+                "Upload a markdown file:",
+                type=['md', 'markdown', 'txt'],
+                help="Upload any markdown document from your computer"
+            )
+            
+            if uploaded_file:
+                # Save to temp location
+                temp_dir = Path("/tmp/citationsculptor")
+                temp_dir.mkdir(exist_ok=True)
+                temp_path = temp_dir / uploaded_file.name
+                
+                file_content = uploaded_file.getvalue().decode('utf-8')
+                with open(temp_path, 'w', encoding='utf-8') as f:
+                    f.write(file_content)
+                
+                file_path = str(temp_path)
                 st.session_state.input_file_path = file_path
-                st.success(f"✅ File found: {path.name} ({len(file_content):,} characters)")
+                st.success(f"✅ File uploaded: {uploaded_file.name} ({len(file_content):,} characters)")
+        
+        else:  # Browse test samples
+            # List files from test_samples and samples directories
+            test_dir = Path(__file__).parent / "test_samples"
+            samples_dir = Path(__file__).parent / "samples"
+            
+            available_files = []
+            if test_dir.exists():
+                available_files.extend(list(test_dir.glob("*.md")))
+            if samples_dir.exists():
+                available_files.extend(list(samples_dir.glob("*.md")))
+            
+            if available_files:
+                selected = st.selectbox(
+                    "Select a file:",
+                    sorted(available_files, key=lambda x: x.name),
+                    format_func=lambda x: f"{x.parent.name}/{x.name}"
+                )
+                if selected:
+                    file_path = str(selected)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    st.session_state.input_file_path = file_path
+                    st.success(f"✅ Selected: {selected.name} ({len(file_content):,} characters)")
             else:
-                st.error(f"❌ File not found: {file_path_input}")
+                st.warning("No markdown files found in test_samples/ or samples/")
         
         # Show file preview
         if file_content:

@@ -42,11 +42,15 @@ class ReferenceParser:
     """Parses reference sections from markdown documents."""
 
     REFERENCE_HEADER_PATTERNS = [
-        r'^#{1,2}\s*References\s*$',
-        r'^#{1,2}\s*Sources\s*$',
-        r'^#{1,2}\s*Citations\s*$',
+        r'^#{1,3}\s*References\s*$',  # Include ### level for V7 format
+        r'^#{1,3}\s*Sources\s*$',
+        r'^#{1,3}\s*Citations\s*$',
         r'^\*\*Sources:\*\*\s*$',  # Bold **Sources:** header (V6 format)
     ]
+    
+    # Pattern V7: Numbered list with embedded link - "1. [Title](URL). Authors. Journal..."
+    # This is a more detailed pattern that extracts all components
+    NUMBERED_LINK_REF_PATTERN = r'^(\d+)\.\s*\[([^\]]+)\]\(([^)]+)\)\.?\s*(.*)$'
     
     # Pattern 1: Simple format - "1. [Title - Source](URL)"
     SIMPLE_REF_PATTERN = r'^(\d+)\.\s*\[([^\]]+)\]\(([^)]+)\)\s*$'
@@ -85,6 +89,9 @@ class ReferenceParser:
         Find ALL reference sections in the document.
         
         Returns list of (start_line, end_line) tuples for each reference section.
+        
+        Also detects V7 numbered list format:
+            1. [Title](URL). Authors. Journal. Year. doi:XXX.
         """
         logger.info("Searching for all reference sections...")
         
@@ -96,13 +103,18 @@ class ReferenceParser:
                     has_refs = False
                     for j in range(i + 1, min(i + 20, len(self.lines))):
                         check_line = self.lines[j].strip()
+                        # Check for V7 numbered refs with embedded links
+                        if re.match(self.NUMBERED_LINK_REF_PATTERN, check_line):
+                            has_refs = True
+                            break
+                        # Other reference formats
                         if re.match(r'^\d+\.', check_line) or \
                            re.match(r'^[-*]\s+.*\[', check_line) or \
                            re.match(r'^\[\^(\d+)\]:', check_line) or \
                            re.match(self.FOOTNOTE_NO_COLON_PATTERN, check_line):  # V6 format
                             has_refs = True
                             break
-                        if re.match(r'^#{1,2}\s+', check_line):
+                        if re.match(r'^#{1,3}\s+', check_line):
                             break  # Hit another header, no refs found
                     if has_refs:
                         ref_header_positions.append(i)
@@ -262,6 +274,67 @@ class ReferenceParser:
             return "footnote"
         return "numeric"
     
+    def _is_already_formatted_footnote(self, line: str) -> bool:
+        """
+        Check if a footnote definition is already in Vancouver format.
+        
+        Already formatted: [^AuthorY-2020-12345678]: Author Name. Title...
+        Not formatted: [^1]: Some text...
+        """
+        # Check for [^Author-Year-PMID] pattern (already processed)
+        if re.match(r'^\[\^[A-Za-z]+-\d{4}-\d+\]:', line):
+            return True
+        # Check for [^Author-Title-Year] pattern
+        if re.match(r'^\[\^[A-Za-z]+-[A-Za-z]+-\d{4}\]:', line):
+            return True
+        # Check for [^Org-Title-Year] pattern  
+        if re.match(r'^\[\^[A-Z]+-[A-Za-z]+-\d{4}\]:', line):
+            return True
+        return False
+    
+    def find_numbered_list_references(self) -> List[ParsedReference]:
+        """
+        Find and parse V7 format numbered list references.
+        
+        Format: "1. [Title](URL). Authors et al. Journal. Year. doi:XXX."
+        
+        These correspond to inline [^N] references that don't have 
+        footnote definitions but match numbered list items.
+        """
+        refs = []
+        in_numbered_section = False
+        
+        for i, line in enumerate(self.lines):
+            stripped = line.strip()
+            
+            # Check for a References header (could start numbered section)
+            if re.match(r'^#{1,3}\s*(References|Sources)\s*$', stripped, re.IGNORECASE):
+                in_numbered_section = True
+                continue
+            
+            # Skip already-formatted footnotes
+            if self._is_already_formatted_footnote(stripped):
+                continue
+            
+            # Parse V7 numbered format
+            if in_numbered_section:
+                match = re.match(self.NUMBERED_LINK_REF_PATTERN, stripped)
+                if match:
+                    parsed = self._parse_single_reference(stripped, i + 1)
+                    if parsed:
+                        refs.append(parsed)
+                elif stripped and not stripped.startswith('#'):
+                    # Still in section, but line doesn't match pattern
+                    pass
+                elif stripped.startswith('#'):
+                    # Hit another header, end of section
+                    in_numbered_section = False
+        
+        if refs:
+            logger.info(f"Found {len(refs)} V7 numbered list references")
+        
+        return refs
+    
     def find_undefined_references(self, body_content: str, defined_numbers: set, style: str = "footnote") -> set:
         """
         Find reference numbers used in body but not defined in reference list.
@@ -289,10 +362,12 @@ class ReferenceParser:
     def _parse_section_references(self, start: int, end: int, section_idx: int) -> List[ParsedReference]:
         """Parse references from a specific section.
         
-        Handles multi-line references where URL is on the next line (V6 format):
-            [^1] [^2] [^3] Title text here
-            
-            <https://url.here>
+        Handles multiple formats:
+        - V6: [^1] [^2] [^3] Title text here <URL>
+        - V7: 1. [Title](URL). Authors. Journal. Year. doi:XXX.
+        - Standard footnotes: [^1]: Citation text...
+        
+        Skips already-formatted Vancouver citations.
         """
         refs = []
         i = start + 1
@@ -300,6 +375,23 @@ class ReferenceParser:
         while i < end:
             line = self.lines[i].strip()
             if not line:
+                i += 1
+                continue
+            
+            # Skip already-formatted footnotes (don't reprocess them)
+            if self._is_already_formatted_footnote(line):
+                logger.debug(f"Skipping already-formatted footnote: {line[:50]}...")
+                i += 1
+                continue
+            
+            # Check for V7 format: numbered list with embedded link
+            v7_match = re.match(self.NUMBERED_LINK_REF_PATTERN, line)
+            if v7_match:
+                parsed = self._parse_single_reference(line, i + 1)
+                if parsed:
+                    parsed.section_index = section_idx
+                    refs.append(parsed)
+                    logger.debug(f"V7 format: #{parsed.original_number} -> '{parsed.title[:40]}...'")
                 i += 1
                 continue
             
@@ -401,7 +493,8 @@ class ReferenceParser:
                 line_number=line_number,
             )
         
-        # Try Pattern 2: Extended format "1. [Title](URL). Authors. Journal..."
+        # Try Pattern 2/V7: Extended format "1. [Title](URL). Authors. Journal..."
+        # V7 format: "1. [Title](URL). Authors et al. Journal. Year;Vol:Pages. doi:XXX."
         match = re.match(self.EXTENDED_REF_PATTERN, line)
         if match:
             number = int(match.group(1))
@@ -409,15 +502,47 @@ class ReferenceParser:
             url = match.group(3)
             extra_info = match.group(4).strip() if match.group(4) else ""
             
-            # Extract source/journal from extra info if present
+            # Parse V7 format metadata from extra_info
+            metadata = {'extra_info': extra_info, 'format': 'v7_numbered'}
             source = None
+            authors = None
+            year = None
+            doi = None
+            
             if extra_info:
-                # Try to extract journal name (usually after authors, before year)
-                # Format: "Authors. Journal Name. Year;Vol..."
-                parts = extra_info.split('.')
+                # Extract DOI if present
+                doi_match = re.search(r'doi[:\s]*(10\.\d{4,}/[^\s\.]+)', extra_info, re.IGNORECASE)
+                if doi_match:
+                    doi = doi_match.group(1).rstrip('.,;')
+                    metadata['doi'] = doi
+                
+                # Extract year (4-digit number)
+                year_match = re.search(r'\b(19|20)\d{2}\b', extra_info)
+                if year_match:
+                    year = year_match.group(0)
+                    metadata['year'] = year
+                
+                # Parse "Authors et al. Journal. Year;Vol:Pages."
+                # Split by periods but be careful with "et al."
+                # Replace "et al." temporarily to avoid splitting
+                temp_info = extra_info.replace('et al.', 'ET_AL_MARKER')
+                parts = [p.strip() for p in temp_info.split('.') if p.strip()]
+                parts = [p.replace('ET_AL_MARKER', 'et al.') for p in parts]
+                
+                if len(parts) >= 1:
+                    # First part is usually authors
+                    authors = parts[0]
+                    metadata['authors'] = authors
+                    
                 if len(parts) >= 2:
-                    # Second part is often the journal
-                    source = parts[1].strip() if parts[1].strip() else None
+                    # Second part is often the journal (might include year/vol)
+                    journal_part = parts[1]
+                    # Extract just journal name (before year or volume info)
+                    journal_match = re.match(r'^([A-Za-z][A-Za-z\s&]+)', journal_part)
+                    if journal_match:
+                        source = journal_match.group(1).strip()
+                    else:
+                        source = journal_part.split(';')[0].strip()
             
             return ParsedReference(
                 original_number=number,
@@ -426,7 +551,7 @@ class ReferenceParser:
                 url=url,
                 source_name=source,
                 line_number=line_number,
-                metadata={'extra_info': extra_info} if extra_info else {},
+                metadata=metadata,
             )
 
         # Try Pattern 4: Footnote definition "[^1]: ..."
