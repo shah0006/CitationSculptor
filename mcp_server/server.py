@@ -14,6 +14,10 @@ Or configure in Abacus Desktop MCP settings.
 import sys
 import json
 import asyncio
+import subprocess
+import socket
+import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -26,9 +30,59 @@ from mcp.types import Tool, TextContent
 
 from citation_lookup import CitationLookup, LookupResult
 
+# Configuration
+PUBMED_MCP_PORT = 3017
+PUBMED_MCP_SERVER_PATH = Path(__file__).parent.parent.parent / "PubMed Integration MCP" / "pubmed-mcp-server"
+
+
+def is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> bool:
+    """Check if a port is open (server is running)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            return sock.connect_ex((host, port)) == 0
+    except:
+        return False
+
+
+def start_pubmed_server() -> Optional[subprocess.Popen]:
+    """Start the pubmed-mcp-server in HTTP mode if not already running."""
+    if is_port_open(PUBMED_MCP_PORT):
+        return None  # Already running
+
+    if not PUBMED_MCP_SERVER_PATH.exists():
+        print(f"Warning: pubmed-mcp-server not found at {PUBMED_MCP_SERVER_PATH}", file=sys.stderr)
+        return None
+
+    # Start the server in background
+    env = os.environ.copy()
+    env["MCP_TRANSPORT_TYPE"] = "http"
+    env["MCP_LOG_LEVEL"] = "warn"
+
+    try:
+        proc = subprocess.Popen(
+            ["node", "dist/index.js"],
+            cwd=PUBMED_MCP_SERVER_PATH,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        # Wait for server to start
+        for _ in range(10):
+            time.sleep(0.5)
+            if is_port_open(PUBMED_MCP_PORT):
+                print(f"Started pubmed-mcp-server on port {PUBMED_MCP_PORT}", file=sys.stderr)
+                return proc
+        print("Warning: pubmed-mcp-server started but port not responding", file=sys.stderr)
+        return proc
+    except Exception as e:
+        print(f"Warning: Failed to start pubmed-mcp-server: {e}", file=sys.stderr)
+        return None
+
 
 # Initialize server and lookup
 server = Server("citation-lookup-mcp")
+pubmed_proc = start_pubmed_server()  # Auto-start if needed
 lookup = CitationLookup()
 
 
@@ -300,22 +354,44 @@ async def call_tool(name: str, arguments: dict):
             return [TextContent(type="text", text="\n".join(output_lines))]
 
         elif name == "citation_test_connection":
-            success = await loop.run_in_executor(None, lookup.test_connection)
-            if success:
-                return [TextContent(type="text", text="Connection OK. PubMed API is reachable.")]
-            return [TextContent(type="text", text="Connection FAILED. Check that pubmed-mcp-server is running on port 3017.")]
+            port_open = is_port_open(PUBMED_MCP_PORT)
+            api_ok = await loop.run_in_executor(None, lookup.test_connection) if port_open else False
+
+            lines = [
+                f"**Port {PUBMED_MCP_PORT}:** {'Open' if port_open else 'CLOSED'}",
+                f"**PubMed API:** {'OK' if api_ok else 'FAILED'}",
+                f"**Server path:** {PUBMED_MCP_SERVER_PATH}",
+                f"**Server exists:** {PUBMED_MCP_SERVER_PATH.exists()}",
+            ]
+            if pubmed_proc:
+                lines.append(f"**Auto-started:** Yes (PID {pubmed_proc.pid})")
+
+            if api_ok:
+                lines.insert(0, "**Status: OK**\n")
+            else:
+                lines.insert(0, "**Status: FAILED**\n")
+                if not port_open:
+                    lines.append("\n*Try restarting CitationSculptor MCP or manually start pubmed-mcp-server*")
+
+            return [TextContent(type="text", text="\n".join(lines))]
 
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
-    
+
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
 async def main():
     """Run the MCP server with stdio transport."""
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(read_stream, write_stream, server.create_initialization_options())
+    finally:
+        # Cleanup: terminate pubmed-mcp-server if we started it
+        if pubmed_proc and pubmed_proc.poll() is None:
+            pubmed_proc.terminate()
+            pubmed_proc.wait(timeout=5)
 
 
 if __name__ == "__main__":
