@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 0.6.0 | **Updated:** Dec 2025 | **Status:** Active Development
+**Version:** 1.3.0 | **Updated:** Dec 2024 | **Status:** Active Development
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -12,32 +12,31 @@
 
 ## 🎯 Current Focus
 
-**Completed: LLM-Based Webpage Metadata Extraction**
+**Completed: MCP Server - Abacus Desktop Integration**
 
-Added intelligent LLM-based extraction for webpages with non-standard metadata formats.
+Converted MCP server from HTTP to stdio transport for compatibility with Abacus Desktop.
 
 ---
 
-## ✅ Recently Completed (Dec 2025)
+## ✅ Recently Completed (Dec 2024)
 
-### Markdown Table Bracket Escaping
-- **Module:** `modules/inline_replacer.py` - Now auto-escapes brackets in table rows
-- **Rule:** In Obsidian markdown tables, `[^ref]` must be written with a single backslash: `\[^ref]`
-- **Detection:** Lines starting with `|` are identified as table rows
-- **Automatic:** CitationSculptor now handles this automatically during processing
-- **Tests:** 8 new tests in `tests/test_inline_replacer.py`
+### MCP Server Conversion (v1.3.0)
+- **Transport:** HTTP (aiohttp port 3018) → stdio (stdin/stdout)
+- **SDK:** Now uses official `mcp` Python SDK
+- **Python:** Requires 3.10+ (MCP SDK requirement)
+- **Tools:** 7 citation lookup tools available via MCP protocol
+- **Rollback:** Previous HTTP version tagged as `v1.2.0-http`
 
-### LLM Metadata Extractor
-- **New Module:** `modules/llm_extractor.py` - Uses Ollama LLM for intelligent extraction
-- **Site Rules Database:** `data/site_rules.yaml` - Stores learned patterns for domains
-- **Self-Learning:** Automatically saves successful extraction patterns for reuse
-- **WebpageScraper Integration:** Falls back to LLM when standard meta tags fail
-- **Author Section Prioritization:** Extracts "Article By:" sections for LLM analysis
-
-**Example Use Case:** LipidSpin articles (lipid.org) now correctly extract:
-- 6 authors from "Article By:" section
-- Seasonal dates from URL (spring-2024 → March 2024)
-- Organization name (National Lipid Association)
+### Abacus Desktop Configuration
+```json
+{
+  "citation-lookup": {
+    "command": "/path/to/CitationSculptor/.venv/bin/python",
+    "args": ["-m", "mcp_server.server"],
+    "cwd": "/path/to/CitationSculptor"
+  }
+}
+```
 
 ---
 
@@ -74,14 +73,21 @@ Added intelligent LLM-based extraction for webpages with non-standard metadata f
 
 ## 📝 Quick Reference
 
-### Server Requirements
-- PubMed MCP server must run on port 3017
-- Start: `cd pubmed-mcp-server && npm start`
+### MCP Server Setup
+```bash
+# Create venv with Python 3.10+
+uv venv --python 3.12
+uv pip install -r requirements.txt
+
+# Test server imports
+source .venv/bin/activate
+python -c "from mcp_server.server import server; print('OK')"
+```
 
 ### Key Commands
 ```bash
 # Activate venv
-source venv/bin/activate
+source .venv/bin/activate
 
 # Run tests
 python -m pytest tests/ -v
@@ -94,7 +100,7 @@ python citation_lookup.py --pmid 32089132
 ```
 
 ### Important Design Notes
-- `WebpageScraper` is in `pubmed_client.py` (Obsidian Sync issue)
+- MCP server uses stdio transport (not HTTP)
 - Rate limit: 2.5 req/sec (no NCBI API key)
 - Null placeholders: `Null_Date`, `Null_Author` (searchable)
 - **Table Escaping:** Inline refs in markdown tables need single backslash: `\[^ref]` (auto-handled)

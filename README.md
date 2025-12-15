@@ -73,28 +73,50 @@ CitationSculptor is a Python toolkit that processes Obsidian markdown documents 
 # Navigate to project (Mac)
 cd "/path/to/CitationSculptor"
 
-# Create virtual environment
-python -m venv venv
+# Create virtual environment with Python 3.10+ (required for MCP SDK)
+# Option 1: Using uv (recommended - faster)
+uv venv --python 3.12
+uv pip install -r requirements.txt
 
-# Activate (Mac/Linux)
-source venv/bin/activate
-
-# Activate (Windows)
-.\venv\Scripts\activate
-
-# Install dependencies
+# Option 2: Using standard venv
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ## Configuration
 
-Create a `.env` file:
+### Environment Variables (`.env` file)
 
 ```env
-PUBMED_MCP_URL=http://127.0.0.1:3017/mcp
 LOG_LEVEL=INFO
 MAX_AUTHORS=3
 ```
+
+### MCP Server for Abacus Desktop
+
+Add to your Abacus Desktop MCP configuration:
+
+```json
+{
+  "citation-lookup": {
+    "command": "/path/to/CitationSculptor/.venv/bin/python",
+    "args": ["-m", "mcp_server.server"],
+    "cwd": "/path/to/CitationSculptor"
+  }
+}
+```
+
+**Available MCP Tools:**
+| Tool | Description |
+|:-----|:------------|
+| `citation_lookup_pmid` | Look up by PubMed ID |
+| `citation_lookup_doi` | Look up by DOI |
+| `citation_lookup_pmcid` | Look up by PMC ID |
+| `citation_lookup_title` | Search by article title |
+| `citation_lookup_auto` | Auto-detect identifier type |
+| `citation_get_inline_only` | Get just the inline reference mark |
+| `citation_batch_lookup` | Look up multiple identifiers at once |
 
 ## Usage
 
@@ -216,9 +238,8 @@ Example corrections template:
 
 ## Requirements
 
-- Python 3.9+
-- PubMed MCP Server running at `http://127.0.0.1:3017/mcp`
-  - Required tools: `pubmed_search_articles`, `pubmed_fetch_contents`, `pubmed_convert_ids`, `crossref_lookup_doi`
+- Python 3.10+ (required for MCP SDK)
+- Dependencies installed via `requirements.txt`
 
 ## Project Phases
 

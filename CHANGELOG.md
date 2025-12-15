@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2024-12-15
+
+### Changed
+- **MCP Server: HTTP → stdio Transport** - Complete rewrite for Abacus Desktop compatibility
+  - Replaced aiohttp HTTP server with official MCP SDK (`mcp>=1.0.0`)
+  - Uses stdio transport (stdin/stdout) instead of HTTP port
+  - Simplified server code from 504 lines to 195 lines
+  - Removed Ollama integration tools (can be re-added if needed)
+  - Python 3.10+ now required (MCP SDK requirement)
+
+### Added
+- Uses `uv` for faster dependency management (recommended)
+
+### Migration
+- Previous HTTP server tagged as `v1.2.0-http` for rollback if needed
+- New server configured in Abacus Desktop MCP settings instead of HTTP URL
+
+---
+
 ## [0.6.0] - 2025-12
 
 ### Added
