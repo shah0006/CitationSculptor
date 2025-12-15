@@ -1,5 +1,5 @@
 # CitationSculptor Dependencies
-# Python 3.9+
+# Python 3.10+ (required for MCP SDK)
 
 requests>=2.31.0
 rich>=13.7.0
@@ -9,7 +9,6 @@ regex>=2023.12.25
 jsonschema>=4.21.1
 loguru>=0.7.2
 beautifulsoup4>=4.12.0
-aiohttp>=3.9.0
 pyyaml>=6.0.0
 
 # MCP Server
