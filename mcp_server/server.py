@@ -12,6 +12,7 @@ Or configure in Abacus Desktop MCP settings.
 """
 
 import sys
+import json
 import asyncio
 from pathlib import Path
 from typing import Optional
@@ -131,6 +132,51 @@ async def list_tools():
             }
         ),
         Tool(
+            name="citation_get_endnote_only",
+            description="Get ONLY the formatted endnote citation (no inline mark).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "description": "Any identifier to look up"}
+                },
+                "required": ["identifier"]
+            }
+        ),
+        Tool(
+            name="citation_get_metadata",
+            description="Get structured JSON metadata for an article (title, authors, journal, year, DOI, PMID, abstract).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "description": "Any identifier to look up"}
+                },
+                "required": ["identifier"]
+            }
+        ),
+        Tool(
+            name="citation_get_abstract",
+            description="Get the abstract of an article.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "identifier": {"type": "string", "description": "Any identifier to look up"}
+                },
+                "required": ["identifier"]
+            }
+        ),
+        Tool(
+            name="citation_search_pubmed",
+            description="Search PubMed and return multiple matching articles (up to 5). Use this when you want to browse results rather than get a single best match.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query (title, keywords, etc.)"},
+                    "max_results": {"type": "integer", "description": "Max results to return (1-10, default 5)", "default": 5}
+                },
+                "required": ["query"]
+            }
+        ),
+        Tool(
             name="citation_batch_lookup",
             description="Look up multiple identifiers at once. Returns all citations together.",
             inputSchema={
@@ -143,6 +189,15 @@ async def list_tools():
                     }
                 },
                 "required": ["identifiers"]
+            }
+        ),
+        Tool(
+            name="citation_test_connection",
+            description="Test connection to the PubMed API. Use this to diagnose issues.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
             }
         ),
     ]
@@ -179,11 +234,59 @@ async def call_tool(name: str, arguments: dict):
             if result.success:
                 return [TextContent(type="text", text=result.inline_mark)]
             return [TextContent(type="text", text=f"Error: {result.error}")]
-        
+
+        elif name == "citation_get_endnote_only":
+            result = await loop.run_in_executor(None, lookup.lookup_auto, arguments["identifier"])
+            if result.success:
+                return [TextContent(type="text", text=result.endnote_citation)]
+            return [TextContent(type="text", text=f"Error: {result.error}")]
+
+        elif name == "citation_get_metadata":
+            result = await loop.run_in_executor(None, lookup.lookup_auto, arguments["identifier"])
+            if result.success and result.metadata:
+                return [TextContent(type="text", text=json.dumps(result.metadata, indent=2))]
+            elif result.success:
+                return [TextContent(type="text", text="No metadata available")]
+            return [TextContent(type="text", text=f"Error: {result.error}")]
+
+        elif name == "citation_get_abstract":
+            result = await loop.run_in_executor(None, lookup.lookup_auto, arguments["identifier"])
+            if result.success and result.metadata:
+                abstract = result.metadata.get('abstract', '')
+                if abstract:
+                    return [TextContent(type="text", text=abstract)]
+                return [TextContent(type="text", text="No abstract available for this article.")]
+            return [TextContent(type="text", text=f"Error: {result.error}")]
+
+        elif name == "citation_search_pubmed":
+            max_results = min(arguments.get("max_results", 5), 10)
+            articles = await loop.run_in_executor(
+                None,
+                lookup.pubmed_client.search_by_title,
+                arguments["query"],
+                max_results
+            )
+            if not articles:
+                return [TextContent(type="text", text="No articles found.")]
+
+            lines = [f"Found {len(articles)} result(s):\n"]
+            for i, article in enumerate(articles, 1):
+                lines.append(f"**{i}. {article.title}**")
+                authors = ', '.join(article.authors[:3])
+                if len(article.authors) > 3:
+                    authors += ' et al.'
+                lines.append(f"   Authors: {authors}")
+                lines.append(f"   Journal: {article.journal_abbreviation or article.journal} ({article.year})")
+                lines.append(f"   PMID: {article.pmid}")
+                if article.doi:
+                    lines.append(f"   DOI: {article.doi}")
+                lines.append("")
+            return [TextContent(type="text", text="\n".join(lines))]
+
         elif name == "citation_batch_lookup":
             identifiers = arguments["identifiers"]
             results = await loop.run_in_executor(None, lookup.batch_lookup, identifiers)
-            
+
             output_lines = []
             for r in results:
                 if r.success:
@@ -195,7 +298,13 @@ async def call_tool(name: str, arguments: dict):
                     output_lines.append(f"**{r.identifier}**: Error - {r.error}")
                     output_lines.append("")
             return [TextContent(type="text", text="\n".join(output_lines))]
-        
+
+        elif name == "citation_test_connection":
+            success = await loop.run_in_executor(None, lookup.test_connection)
+            if success:
+                return [TextContent(type="text", text="Connection OK. PubMed API is reachable.")]
+            return [TextContent(type="text", text="Connection FAILED. Check that pubmed-mcp-server is running on port 3017.")]
+
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     
