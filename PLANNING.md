@@ -1,443 +1,100 @@
-# CitationSculptor Planning Document
+# CitationSculptor Planning
 
-## Project Status Overview
-**Current Version:** 0.4.2
-**Last Updated:** 2025-11-29
-**Status:** Active Development
+**Version:** 0.6.0 | **Updated:** Dec 2025 | **Status:** Active Development
+
+## Quick Links
+- [CHANGELOG.md](./CHANGELOG.md) - Version history
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Technical reference
+- [docs/TESTING.md](./docs/TESTING.md) - Testing guide
+- [docs/COMPLETED_FEATURES.md](./docs/COMPLETED_FEATURES.md) - Feature archive
 
 ---
 
-## 🚀 Where We Left Off (Nov 29, 2025)
+## 🎯 Current Focus
 
-### Today's Session Summary
-Significant GUI and metadata extraction improvements focused on reducing false positives and improving user experience.
+**Completed: LLM-Based Webpage Metadata Extraction**
 
-### What We Accomplished
-1. **GUI Metric Card Styling** - Fixed dark mode display issues where white boxes made text unreadable
-2. **Evergreen Page Detection** - Pages that legitimately don't have dates (landing pages, service pages, about pages) no longer get flagged with `Null_Date`
-3. **Streamlit GUI Enhancements** - Added processing summary with statistics after document processing:
-   - Citations Formatted count
-   - Inline Refs Updated
-   - Undefined Refs warning
-   - Need Review (Null_* count)
-   - Missing Data Breakdown (expandable)
+Added intelligent LLM-based extraction for webpages with non-standard metadata formats.
 
-### 🎯 Ready for Next Session
+---
 
-#### High Priority
-1. **Test with More Documents** - The evergreen detection logic should reduce false `Null_Date` flags significantly
-2. **Browser-Assisted Lookup** - The claim extraction feature is partially built but needs polish
-3. **V7/V8 Format Testing** - New reference formats (numbered lists, Works Cited) added but need real-world testing
+## ✅ Recently Completed (Dec 2025)
 
-#### Medium Priority
-1. **Duplicate Citation Detection** - Same article with different ref numbers could be merged
+### Markdown Table Bracket Escaping
+- **Module:** `modules/inline_replacer.py` - Now auto-escapes brackets in table rows
+- **Rule:** In Obsidian markdown tables, `[^ref]` must be written with a single backslash: `\[^ref]`
+- **Detection:** Lines starting with `|` are identified as table rows
+- **Automatic:** CitationSculptor now handles this automatically during processing
+- **Tests:** 8 new tests in `tests/test_inline_replacer.py`
+
+### LLM Metadata Extractor
+- **New Module:** `modules/llm_extractor.py` - Uses Ollama LLM for intelligent extraction
+- **Site Rules Database:** `data/site_rules.yaml` - Stores learned patterns for domains
+- **Self-Learning:** Automatically saves successful extraction patterns for reuse
+- **WebpageScraper Integration:** Falls back to LLM when standard meta tags fail
+- **Author Section Prioritization:** Extracts "Article By:" sections for LLM analysis
+
+**Example Use Case:** LipidSpin articles (lipid.org) now correctly extract:
+- 6 authors from "Article By:" section
+- Seasonal dates from URL (spring-2024 → March 2024)
+- Organization name (National Lipid Association)
+
+---
+
+## 📋 Next Steps (Priority Order)
+
+### High Priority - citation_lookup.py Enhancements
+1. **Interactive Mode** - Run continuously, entering identifiers one at a time
+2. **Clipboard Integration** - Copy result directly to clipboard (macOS `pbcopy`)
+3. **Obsidian Integration** - Output format optimized for pasting into Obsidian
+4. **Search Multiple** - Search multiple titles, pick best match
+5. **Cache Results** - Persistent cache to avoid repeated API calls
+
+### Medium Priority - citation_sculptor.py
+1. **Duplicate Detection** - Detect/merge same PMID with different ref numbers
 2. **Better Error Recovery** - Cache successful lookups, resume from failures
-3. **Get Original Pelican Bay File** - Need original for V1 Simple format regression testing
-
-### 🤔 For Consideration
-- The GUI is now quite feature-rich - may be ready for wider testing
-- Consider adding export to other citation formats (APA, Chicago) in future
-
----
-
-### ✅ Session Accomplishments (2025-11-29)
-- **GUI Dark Mode Fix**: Metric cards now use transparent blue backgrounds readable in dark mode
-- **Evergreen Page Detection**: Added `is_evergreen` flag to WebpageMetadata
-  - Landing pages, service pages, about pages marked as evergreen
-  - Evergreen pages skip `Null_Date` flagging (no date expected)
-  - Reduces noise in "Need Review" count
-- **Processing Summary**: GUI now shows detailed statistics after processing
-  - Total formatted citations
-  - Inline refs updated
-  - Undefined refs detected
-  - Null placeholder counts with breakdown
-
-### ✅ Session Accomplishments (2025-11-28) - Part 2
-- DOI path date extraction (e.g., `forefront.20201130` → 2020)
-- Blog scraping for author/date metadata (previously only webpages)
-- Console summary shows Null placeholder counts at end of processing
-- Published date fallback (extract year from `published_date` when `year` empty)
-- Added `beautifulsoup4` to requirements.txt
-- Manual citation editing workflow (user adds corrections → AI applies them)
-- Cleaned up samples/ and test_samples/ directories
-
-### ✅ Session Accomplishments (2025-11-28) - Part 1
-- V6 Grouped Footnotes format support
-- JSON-LD date extraction for webpages (handles non-padded dates like `2023-1-2`)
-- DOI text extraction from plain text references
-- CrossRef title search fallback (finds articles not in PubMed)
-- Smart organization abbreviation handling
-- URL-based title recovery for truncated titles
-- URL year extraction from paths (e.g., `/2019/article-title`)
-- URL metadata fallback for blocked sites (extracts title, date, org from URL)
-- Author + Organization combined citations
-- Ellipsis removal from truncated titles
-- Social media URL handling (skip garbage from LinkedIn/Twitter URLs)
-- Custom meta tag support (`m_authors` for Milliman, etc.)
-- Null placeholder system for missing data:
-  - `Null_Date`, `Null_Author` in citation text (searchable)
-  - `ND` in tags (compact)
-  - Eliminates manual review section for blocked sites
-
-### ✅ Session Accomplishments (2025-11-27)
-- Webpage metadata scraping
-- Regression testing infrastructure
-- Housekeeping & documentation
-- All tests passing
-- GitHub updated (v0.3.0)
-
----
-
-## ✅ Completed Tasks
-
-### 1. Mac Environment Setup
-- [x] Migrated codebase from Windows to Mac.
-- [x] Created fresh `venv` (Python 3.9.6).
-- [x] Installed all dependencies (`requests`, `rich`, `loguru`, `regex`, etc.).
-- [x] Verified MCP server connection (local port 3017).
-
-### 2. Core Functionality Improvements
-- [x] **ID Conversion**: Integrated `pubmed_convert_ids` tool for robust PMC ID → PMID conversion.
-- [x] **DOI Extraction**: 
-    - Fixed regex to handle complex URLs (Wiley, Springer, OUP).
-    - Added logic to strip query parameters and trailing article IDs.
-- [x] **Metadata Parsing**: 
-    - Enhanced to handle nested `journalInfo` (volume, issue, pages).
-    - Added support for `book-chapter` and `book` types via CrossRef.
-- [x] **Unreferenced Filtering**: Implemented logic to identify and skip citations not used in the body text.
-- [x] **Mapping File**: Added generation of `_mapping.json` for audit trails and rollback capability.
-- [x] **Rate Limiting**: Implemented `RateLimiter` with exponential backoff to handle NCBI API limits (429 errors).
-
-### 3. Multi-Section Document Support
-- [x] **Parser Update**: 
-    - Added `multi_section=True` mode to `ReferenceParser`.
-    - Successfully parses documents with multiple independent reference sections.
-    - **NEW**: Handles body content that appears AFTER reference definitions (mid-document footnotes).
-- [x] **Processing Logic**: 
-    - Updated `CitationSculptor` to process each section independently.
-    - Ensures inline reference replacements (`[^1]`) are scoped to their specific section.
-
-### 4. Text-Only / Unknown Citation Handling
-- [x] **Parser Update**:
-    - Added support for text-only citations (e.g., "1. Title. Authors. Journal.").
-    - Improved title extraction to handle "Title – Author" separators.
-- [x] **Processing Logic**:
-    - Configured system to attempt PubMed/CrossRef lookup for `CitationType.UNKNOWN` items instead of skipping them.
-
-### 5. Footnote Definition Support
-- [x] **Parser Update**:
-    - Added `FOOTNOTE_DEF_PATTERN` to recognize `[^N]: Citation...` syntax.
-    - Updated section detection to accept footnotes as valid reference content.
-    - Added implicit section detection (footnotes without headers).
-
-### 6. PMC ID Fallback to CrossRef (NEW - Nov 27)
-- [x] **Issue**: Some PMC articles (e.g., PMC10206993) have no PMID but do have a DOI.
-- [x] **Solution**: Updated `fetch_article_by_pmcid` to check for DOI when PMID is missing, then fetch metadata from CrossRef.
-- [x] **Result**: Citation 14 in test document now resolves automatically (0 manual review items).
-
-### 7. Alphabetical Reference Sorting (NEW - Nov 27)
-- [x] **Feature**: References in output are now sorted alphabetically by citation label (author name).
-- [x] **Implementation**: Added `sorted(result['processed'], key=lambda c: c.label.lower())` to `_format_section_references`.
-
-### 8. Undefined Reference Detection (NEW - Nov 27)
-- [x] **Feature**: System now detects and flags citations used in text but never defined in reference list.
-- [x] **Console Output**: `[!] Warning: 2 undefined reference(s): [10, 18]`
-- [x] **Output File**: Adds `### ⚠️ Undefined References` section listing missing definitions.
-- [x] **Implementation**: Added `find_undefined_references()` method to `ReferenceParser`.
-
-### 9. PDF Document Processing via PubMed (NEW - Nov 27)
-- [x] **Issue**: PDF links (e.g., from `openaccess.sgul.ac.uk`, `sads.org`) were being formatted as generic webpages instead of proper journal citations.
-- [x] **Solution**: PDF documents are now treated as potential journal articles and searched on PubMed by title.
-- [x] **Result**: PDFs with PubMed-indexed content get full Vancouver citations with authors, journal, volume, pages, DOI, and PMID.
-
-### 10. Long Title Search Fix (NEW - Nov 27)
-- [x] **Issue**: PubMed searches with titles >200 characters were returning 0 results.
-- [x] **Solution**: Truncated search queries to ~100 characters at word boundaries.
-- [x] **Result**: "Standards and guidelines for the interpretation of sequence variants..." (PMID 25741868) now found successfully.
-
-### 11. Full Metadata Fetch After Title Match (NEW - Nov 27)
-- [x] **Issue**: When finding articles via title search, only limited metadata was returned (missing journal, volume, pages).
-- [x] **Solution**: After a title match is verified, the system now fetches full metadata using `fetch_article_by_pmid`.
-- [x] **Result**: All title-matched citations now have complete Vancouver formatting.
-
-### 12. Webpage Metadata Scraping (NEW - Nov 27)
-- [x] **Goal**: For webpages not found in PubMed, scrape `citation_*` meta tags from the HTML to extract proper metadata.
-- [x] **Implementation**: Added `WebpageScraper` class to `pubmed_client.py` (originally separate file, but Obsidian Sync kept deleting it).
-- [x] **Result**: Academic webpages like `biotech-asia.org` now get proper Vancouver citations:
-  - **Before**: `[^BiotechAsia-FollowUp-n.d.]: Biotech-Asia. Follow-Up Alterations...`
-  - **After**: `[^ShahsavarAR-2016]: Shahsavar AR, Pourvaghar MJ. Follow-Up Alterations... Biosciences Biotechnology Research Asia. 2016;8(2):591-595.`
-- [x] **Limitations**: Some sites block scrapers (403 Forbidden), news sites often lack citation meta tags.
-
-### 13. V6 Grouped Footnotes Format (NEW - Nov 28)
-- [x] **Format**: `[^1] [^47] [^49] Title | Source` with URL on separate line `<https://...>`
-- [x] **Implementation**:
-  - Added `FOOTNOTE_NO_COLON_PATTERN` for grouped footnotes without colons
-  - Multi-line parsing for angle-bracket URLs
-  - Many-to-one deduplication (all grouped IDs → same output label)
-  - `**Sources:**` recognized as reference header
-- [x] **Result**: Document with 89 inline references → 39 unique citations processed
-
-### 14. DOI Text Extraction (NEW - Nov 28)
-- [x] **Issue**: Plain text references like `"...doi: 10.1234/xyz"` weren't being linked.
-- [x] **Solution**: Added regex extraction for `doi:10.xxx` patterns in reference text.
-- [x] **Result**: "Right Ventricular Dilation" article improved from 21 → 10 manual review items (63 more journal articles detected).
-
-### 15. Enhanced Webpage Scraping (NEW - Nov 28)
-- [x] **JSON-LD Date Extraction**: Parse `datePublished` from `<script type="application/ld+json">` blocks.
-  - **Example**: AAMC page now extracts `2021` from structured data (was `n.d.`).
-- [x] **Author Filtering**: Filter out CMS usernames (e.g., `kpage_drupal_sso`) from author fields.
-- [x] **Author + Organization**: When both author and site_name exist, include both in citation.
-  - **Example**: `Beck M. The Future of AI in Healthcare. MediPro, Inc. 2025.`
-
-### 16. Improved Organization Handling (NEW - Nov 28)
-- [x] **Smart Abbreviations**: Common organizations mapped to standard acronyms:
-  - `American Medical Association` → `AMA`
-  - `American Hospital Association` → `AHA`
-  - `Center on Budget and Policy Priorities` → `CBPP`
-- [x] **Acronym Detection**: Short domain names (≤5 chars, few vowels) uppercased automatically:
-  - `cbpp.org` → `CBPP` (not `Cbpp`)
-- [x] **Full Names in Citations**: Abbreviation in tag, full name in citation text:
-  - `[^AMA-...]: American Medical Association. Title...`
-
-### 17. URL-Based Title Extraction (NEW - Nov 28)
-- [x] **Issue**: Truncated titles with `...` from original documents.
-- [x] **Solution**: When title contains ellipsis, extract full title from URL slug.
-- [x] **Example**: `States Can Use Medicaid to Help Address Health-Related Social ...` → `States Can Use Medicaid to Help Address Health Related Social Needs`
-
-### 18. Blocked Site Detection with Guidance (NEW - Nov 28)
-- [x] **Issue**: Sites with Cloudflare/403 blocks couldn't be scraped, leaving incomplete citations.
-- [x] **Solution**: Detect blocking type and flag for manual review with specific guidance.
-- [x] **Guidance Provided**:
-  - AUTHOR (look for byline or 'Written by')
-  - PUBLICATION DATE (check article header or footer)
-  - ORGANIZATION NAME (check page header/logo)
-- [x] **Block Types Detected**: `blocked_cloudflare`, `blocked_403`, `blocked_javascript`, `timeout`
-
-### 19. Improved URL Year Extraction (NEW - Nov 28)
-- [x] **Issue**: Year in URLs like `/2019/article-title` wasn't being extracted.
-- [x] **Solution**: Added pattern to match `/YYYY/` followed by content slug.
-- [x] **Example**: Johns Hopkins URL now extracts 2019 from path.
-
-### 20. Ellipsis Removal (NEW - Nov 28)
-- [x] **Issue**: Titles with `...` from original documents looked incomplete.
-- [x] **Solution**: Strip ellipses from titles when no better alternative found.
-- [x] **Result**: Clean titles without trailing `...`
-
-### 21. Social Media URL Handling (NEW - Nov 28)
-- [x] **Issue**: LinkedIn/Twitter URL slugs produced garbage titles (e.g., `jake-pyles-8a7518_were-295800...`).
-- [x] **Solution**: Skip URL-based title extraction for social media domains.
-- [x] **Result**: LinkedIn posts now use scraped `og:title` which is clean.
-
-### 22. Non-Padded Date Parsing (NEW - Nov 28)
-- [x] **Issue**: JSON-LD dates like `2023-1-2` (no leading zeros) weren't being parsed.
-- [x] **Solution**: Updated regex to match `\d{1,2}` for month/day, then pad with `zfill(2)`.
-- [x] **Result**: Milliman article now extracts year 2023 from JSON-LD.
-
-### 23. Custom Meta Tag Support (NEW - Nov 28)
-- [x] **Issue**: Sites like Milliman use `m_authors` instead of standard `author` meta tag.
-- [x] **Solution**: Added `m_authors`, `m_author` to GENERAL_PATTERNS.
-- [x] **Result**: Milliman article now shows `Jensen B.` as author.
-
-### 24. CrossRef Title Search Fallback (NEW - Nov 28)
-- [x] **Issue**: Articles in CrossRef but not PubMed weren't being found (e.g., ScienceDirect).
-- [x] **Solution**: Added `crossref_search_title()` method with direct CrossRef API call.
-- [x] **Result**: "COVID-19 pandemic and artificial intelligence possibilities" now resolved via CrossRef.
-
-### 25. URL Metadata Fallback for Blocked Sites (NEW - Nov 28)
-- [x] **Issue**: Sites blocking scrapers (403, Cloudflare) returned no metadata.
-- [x] **Solution**: Extract title, date, and organization from URL patterns when scraping fails.
-- [x] **Features**:
-  - Known domains mapped to organization names (Politico, NYT, Reuters, etc.)
-  - Date extraction from URL paths (`/2025/04/09/`)
-  - Title extraction from URL slugs
-- [x] **Result**: Blocked Politico article now has title and date from URL.
-
-### 26. Null Placeholder System (NEW - Nov 28)
-- [x] **Issue**: Manual review section was cluttered with blocked sites.
-- [x] **Solution**: Use searchable placeholders instead of manual review:
-  - `Null_Date` in citation text (searchable with Cmd+F)
-  - `ND` in citation tags (compact)
-  - `Null_Author` when author is missing
-- [x] **Result**: Manual review reduced to 0 items; search for `Null_` to find incomplete citations.
-
-### 27. Evergreen Page Detection (NEW - Nov 29)
-- [x] **Issue**: Landing pages, service pages, and about pages were flagged with `Null_Date` even though they legitimately don't have publication dates.
-- [x] **Solution**: Added `is_evergreen` field to `WebpageMetadata`:
-  - Detected via URL patterns (`/about`, `/services`, `/products`, `/contact`, `/careers`)
-  - Home pages and root-level pages marked as evergreen
-  - Evergreen pages skip `Null_Date` flagging
-- [x] **Result**: Reduced false positives in "Need Review" count.
-
-### 28. GUI Dark Mode Compatibility (NEW - Nov 29)
-- [x] **Issue**: Metric cards had white backgrounds making text unreadable in dark mode.
-- [x] **Solution**: Updated CSS to use transparent blue backgrounds with proper contrast.
-- [x] **Result**: GUI now works properly in both light and dark themes.
-
-### 29. Processing Summary Statistics (NEW - Nov 29)
-- [x] **Feature**: After processing, GUI displays comprehensive statistics.
-- [x] **Metrics Shown**:
-  - Citations Formatted (successful)
-  - Inline Refs Updated
-  - Undefined Refs (used but not defined)
-  - Need Review (Null_* count)
-  - Missing Data Breakdown (expandable with dates/authors/orgs counts)
-- [x] **Result**: Users can quickly assess processing quality.
-
----
-
-## 🔄 In Progress
-
-*No items currently in progress.*
-
----
-
-## 📋 Backlog / Future Tasks
-
-### High Priority
-- [ ] **Duplicate Detection**: Detect when multiple references point to the same PMID and merge/warn.
-
-### Medium Priority
-- [ ] **Better Title Search Fallback**: 
-    - If exact title match fails, try fuzzy matching or searching by author + year.
-- [ ] **GUI Improvements**:
-    - Fix `tkinter` crash on macOS (requires newer Tcl/Tk or switching to a web-based/CLI-only UI).
-    - Currently using Rich CLI progress bars (working well).
-- [ ] **Refine CrossRef Formatting**:
-    - Ensure non-PubMed journal articles (found via CrossRef) match Vancouver style perfectly.
-- [ ] **Test Suite Expansion**:
-    - Add unit tests for the new `multi_section` parser logic.
-    - Add tests for `UNKNOWN` type detection and handling.
+3. **V7/V8 Format Testing** - Real-world testing of new formats
 
 ### Low Priority
-- [ ] **Configurable Output Path**:
-    - Allow user to specify exact output filename (currently auto-generated).
-- [ ] **Performance Optimization**:
-    - Parallelize API calls for even faster processing (careful with rate limits).
-
-### Future Roadmap (from README)
-- [ ] **Phase 5: Batch Processing**: Support processing multiple documents in a folder.
-- [ ] **Phase 6: Obsidian Plugin**: Wrap this logic into a native Obsidian plugin for seamless usage.
-
----
-
-## 🧪 Regression Testing
-
-### Test Samples Location
-`test_samples/` folder contains original test documents for backward compatibility testing.
-
-### Test Files
-| File | Format | Last Result |
-|------|--------|-------------|
-| `Right Ventricular Dilation...md` | V2 Extended + Multi-Section | ✅ PASS (10 manual review) |
-| `Gene Therapy Approaches...md` | V3 Footnotes (DOI links) | ✅ PASS |
-| `Arrhythmogenic Cardiomyopathies - Genetics.md` | V3 Footnotes (body after refs) | ✅ PASS |
-| `Future Healthcare Delivery Models...md` | V6 Grouped Footnotes | ✅ PASS (9 blocked sites flagged) |
-| `pelican_bay...md` | V1 Simple | ⚠️ Need original |
-
-### Running Tests
-```bash
-# Quick smoke test (dry-run all files)
-python citation_sculptor.py "test_samples/Right Ventricular Dilation...md" --multi-section --dry-run
-python citation_sculptor.py "test_samples/Gene Therapy Approaches...md" --multi-section --dry-run
-python citation_sculptor.py "test_samples/Arrhythmogenic Cardiomyopathies - Genetics.md" --multi-section --dry-run
-```
-
-See `test_samples/TEST_MANIFEST.md` for detailed test specifications.
+- Configurable output path
+- Performance optimization (parallel API calls)
+- Batch folder processing
+- Obsidian plugin
 
 ---
 
 ## 🐛 Known Issues
-- **Tkinter Crash**: The `--gui` flag causes a crash on macOS due to system Python version mismatch. *Workaround: Use CLI progress bars (default).*
-- **Duplicate Citations**: If the original document has multiple references to the same article (different ref numbers), they may appear as duplicates in output.
-- **Pelican Bay Original Missing**: The `pelican_bay` file in test_samples is already-processed output, not the original input.
+
+| Issue | Workaround |
+|-------|------------|
+| Tkinter crash on macOS | Use CLI mode (default) |
+| Duplicate citations in output | Manual dedup needed |
 
 ---
 
-## 📝 Notes
-- **Server**: PubMed MCP server must be running on port 3017.
-- **Rate Limits**: NCBI rate limits are stricter without an API key. Current delay is set to 200ms/request.
-- **Empty PMID Fix**: Citations from CrossRef (no PMID) no longer show empty `[PMID: ]` links.
+## 📝 Quick Reference
 
----
+### Server Requirements
+- PubMed MCP server must run on port 3017
+- Start: `cd pubmed-mcp-server && npm start`
 
-## 📜 Development Log & Retrospective
+### Key Commands
+```bash
+# Activate venv
+source venv/bin/activate
 
-### Session: Nov 27, 2025 (Continued)
+# Run tests
+python -m pytest tests/ -v
 
-#### 1. Citation 14 Resolution (PMC10206993)
-- **Problem**: PMC10206993 had no PMID in NCBI's ID converter, causing it to be flagged for manual review.
-- **Discovery**: The ID converter DID return a DOI (`10.1093/europace/euad122.519`).
-- **Fix**: Updated `fetch_article_by_pmcid` to fall back to CrossRef when PMID is missing but DOI is available.
-- **Result**: Citation 14 now resolves automatically with full metadata from CrossRef.
+# Process document
+python citation_sculptor.py "document.md" --multi-section
 
-#### 2. Body Content After References
-- **Problem**: Document "Arrhythmogenic Cardiomyopathies - Genetics.md" had body text AFTER the reference definitions (lines 72-88), but this text wasn't being processed for inline replacements.
-- **Fix**: Updated `parse_multi_section` to detect and include body content after references using a `<!-- REF_SECTION_MARKER -->` approach.
-- **Result**: All inline references throughout the document are now replaced correctly.
+# Single lookup
+python citation_lookup.py --pmid 32089132
+```
 
-#### 3. PDF Documents to PubMed
-- **Problem**: PDF links were being formatted as generic webpages with labels like `[^Openaccess-StandardsGuidelines-n.d.]`.
-- **Discovery**: These PDFs are often PubMed-indexed journal articles (e.g., PMID 25741868).
-- **Fix**: Changed PDF handling from "treat as webpage" to "treat as potential journal article" and attempt PubMed title search.
-- **Result**: Both PDF references in test document now have full Vancouver citations.
-
-#### 4. Long Title Search Bug
-- **Problem**: The title "Standards and guidelines for the interpretation of sequence variants: a joint consensus recommendation..." was too long (200+ chars) and caused PubMed search to return 0 results.
-- **Fix**: Truncated search queries to ~100 characters at word boundaries.
-- **Result**: Search now finds PMID 25741868 successfully.
-
-#### 5. Incomplete Metadata from Title Search
-- **Problem**: When finding articles via title search, the returned metadata was incomplete (authors showed as "J, a, m" instead of proper names).
-- **Root Cause**: `verify_article_exists` was returning the limited search result metadata instead of fetching full article details.
-- **Fix**: After title match verification, now calls `fetch_article_by_pmid` to get complete metadata.
-- **Result**: All title-matched citations have proper author names, journal, volume, pages, DOI.
-
-#### 6. Webpage Metadata Scraping
-- **Problem**: Webpages not in PubMed were getting generic labels like `[^BiotechAsia-FollowUp-n.d.]`.
-- **Solution**: Added `WebpageScraper` class that extracts `citation_*` meta tags from HTML.
-- **Challenge**: Original `webpage_scraper.py` file kept getting deleted by Obsidian Sync. Moved code into `pubmed_client.py`.
-- **Result**: `biotech-asia.org` citation now formatted as proper Vancouver with authors, journal, volume, issue, pages.
-
-#### 7. Test Results Summary
-**Document: Arrhythmogenic Cardiomyopathies - Genetics.md**
-| Metric | Before Fixes | After Fixes |
-|--------|--------------|-------------|
-| Journal Articles | 2 | **4** (includes 2 PDFs) |
-| Webpages w/ Scraped Metadata | 0 | **1** |
-| Manual Review | 1 | **0** |
-| Inline Replacements | 15 | **36** |
-| Undefined Refs Flagged | 0 | **2** (`[^10]`, `[^18]`) |
-
----
-
-### Previous Session: Nov 27, 2025 (Morning)
-
-#### 1. Environment Migration (Windows → Mac)
-- Deleted old Windows `venv`, created fresh Python 3.9.6 environment.
-- Created new `.env` file for local configuration.
-
-#### 2. Rate Limiting & API Stability
-- Implemented `RateLimiter` class (2.5 requests/sec).
-- Added exponential backoff retry logic (up to 4 attempts).
-- Server delay increased to 200ms.
-
-#### 3. Metadata Quality & Parsing
-- Fixed nested `journalInfo` parsing.
-- Added CrossRef integration for books/chapters.
-- Fixed DOI extraction for complex URLs.
-
-#### 4. Handling "Text-Only" Citations
-- `UNKNOWN` citations now attempt title-based lookup.
-- Improved title extraction with dash separator handling.
-
-#### 5. Multi-Section Document Architecture
-- Rewrote parser to detect multiple `# References` headers.
-- Created Multi-Section Mode for independent processing.
-
-#### 6. Footnote Definition Support
-- Added `FOOTNOTE_DEF_PATTERN` for `[^N]:` syntax.
-- Added implicit section detection (no header required).
-
-#### 7. Search Tool Troubleshooting
-- Fixed server's `fetchBriefSummaries` default (0 → 3).
-- Updated client parsing for `briefSummaries` field.
+### Important Design Notes
+- `WebpageScraper` is in `pubmed_client.py` (Obsidian Sync issue)
+- Rate limit: 2.5 req/sec (no NCBI API key)
+- Null placeholders: `Null_Date`, `Null_Author` (searchable)
+- **Table Escaping:** Inline refs in markdown tables need single backslash: `\[^ref]` (auto-handled)

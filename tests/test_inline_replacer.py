@@ -92,3 +92,90 @@ class TestInlineReplacer:
         assert any("[1]" in p[0] for p in previews)
         assert any("[2]" in p[0] for p in previews)
 
+
+class TestTableEscaping:
+    """Test cases for markdown table escaping."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.mapping = {
+            1: "[^SmithA-2024-12345678]",
+            2: "[^JonesB-2023-87654321]",
+        }
+        self.replacer = InlineReplacer(self.mapping)
+
+    def test_is_table_row(self):
+        """Test detection of markdown table rows."""
+        assert self.replacer._is_table_row("| Column 1 | Column 2 |")
+        assert self.replacer._is_table_row("  | Column 1 | Column 2 |")  # With leading space
+        assert not self.replacer._is_table_row("This is normal text")
+        assert not self.replacer._is_table_row("Text with | pipe symbol")
+
+    def test_escape_for_table(self):
+        """Test bracket escaping for table context."""
+        assert self.replacer._escape_for_table("[^SmithA-2024]") == "\\[^SmithA-2024]"
+        assert self.replacer._escape_for_table("plain text") == "plain text"
+
+    def test_table_row_reference_escaped(self):
+        """Test that references in table rows get escaped brackets."""
+        content = "| Data | More data [1] |"
+        result = self.replacer.replace_all(content)
+
+        # Should have escaped bracket in table
+        assert "\\[^SmithA-2024-12345678]" in result.modified_text
+        assert result.replacements_made == 1
+
+    def test_non_table_reference_not_escaped(self):
+        """Test that references outside tables are NOT escaped."""
+        content = "Normal text with a citation [1]."
+        result = self.replacer.replace_all(content)
+
+        # Should NOT have escaped bracket outside table
+        assert "[^SmithA-2024-12345678]" in result.modified_text
+        assert "\\[^SmithA-2024-12345678]" not in result.modified_text
+
+    def test_mixed_table_and_text(self):
+        """Test document with both table and non-table references."""
+        content = """Normal paragraph with citation [1].
+
+| Category | Details |
+| :--- | :--- |
+| Row 1 | Data with citation [2] |
+
+Another paragraph with [1] citation."""
+        
+        result = self.replacer.replace_all(content)
+
+        # Table row should have escaped bracket
+        assert "\\[^JonesB-2023-87654321]" in result.modified_text
+        # Non-table rows should have unescaped brackets
+        lines = result.modified_text.split('\n')
+        paragraph_lines = [l for l in lines if not l.strip().startswith('|') and '[^SmithA' in l]
+        for line in paragraph_lines:
+            assert "\\[^SmithA" not in line
+
+    def test_table_range_reference_escaped(self):
+        """Test that range references in tables get escaped."""
+        content = "| Data [1-2] |"
+        result = self.replacer.replace_all(content)
+
+        # Both expanded labels should be escaped
+        assert "\\[^SmithA-2024-12345678]" in result.modified_text
+        assert "\\[^JonesB-2023-87654321]" in result.modified_text
+
+    def test_table_comma_reference_escaped(self):
+        """Test that comma-separated references in tables get escaped."""
+        content = "| Data [1,2] |"
+        result = self.replacer.replace_all(content)
+
+        # Both labels should be escaped
+        assert "\\[^SmithA-2024-12345678]" in result.modified_text
+        assert "\\[^JonesB-2023-87654321]" in result.modified_text
+
+    def test_footnote_style_in_table(self):
+        """Test footnote-style references in tables get escaped."""
+        replacer = InlineReplacer({1: "[^SmithA-2024]"}, style="footnote")
+        content = "| Data [^1] |"
+        result = replacer.replace_all(content)
+
+        assert "\\[^SmithA-2024]" in result.modified_text

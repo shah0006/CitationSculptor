@@ -20,7 +20,7 @@ class ProgressDialog:
         self._cancelled = False
         self._thread: Optional[threading.Thread] = None
         
-    def show(self, total: int, task_name: str = "Processing..."):
+    def show(self, total: int, task_name: str = "Processing...") -> None:
         """Show the progress dialog."""
         self.root = tk.Tk()
         self.root.title(self.title)
@@ -75,7 +75,7 @@ class ProgressDialog:
         # Start the event loop in a separate thread if needed
         self.root.update()
         
-    def update(self, current: int, status: str = ""):
+    def update(self, current: int, status: str = "") -> None:
         """Update the progress dialog."""
         if self.root is None:
             return
@@ -94,14 +94,14 @@ class ProgressDialog:
             # Window was closed
             pass
     
-    def set_task(self, task_name: str):
+    def set_task(self, task_name: str) -> None:
         """Update the task name."""
         if self.task_var:
             self.task_var.set(task_name)
             if self.root:
                 self.root.update()
     
-    def close(self):
+    def close(self) -> None:
         """Close the progress dialog."""
         if self.root:
             try:
@@ -110,7 +110,7 @@ class ProgressDialog:
                 pass
             self.root = None
     
-    def _on_close(self):
+    def _on_close(self) -> None:
         """Handle window close button."""
         self._cancelled = True
         self.close()
@@ -131,7 +131,7 @@ class MultiTaskProgressDialog:
         self._current_task = 0
         self._tasks = []
         
-    def show(self, tasks: list):
+    def show(self, tasks: list) -> None:
         """
         Show the multi-task progress dialog.
         
@@ -191,7 +191,7 @@ class MultiTaskProgressDialog:
         self._total_items = total_items
         self.root.update()
         
-    def start_task(self, task_index: int):
+    def start_task(self, task_index: int) -> None:
         """Start a new task."""
         if task_index < len(self._tasks):
             task_name, total = self._tasks[task_index]
@@ -209,7 +209,7 @@ class MultiTaskProgressDialog:
             if self.root:
                 self.root.update()
     
-    def update_task(self, current: int, status: str = ""):
+    def update_task(self, current: int, status: str = "") -> None:
         """Update current task progress."""
         if self.root is None:
             return
@@ -237,7 +237,7 @@ class MultiTaskProgressDialog:
         except tk.TclError:
             pass
     
-    def close(self):
+    def close(self) -> None:
         """Close the dialog."""
         if self.root:
             try:
@@ -246,7 +246,8 @@ class MultiTaskProgressDialog:
                 pass
             self.root = None
     
-    def _on_close(self):
+    def _on_close(self) -> None:
+        """Handle window close button."""
         self._cancelled = True
         self.close()
     

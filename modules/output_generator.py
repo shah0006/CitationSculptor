@@ -159,7 +159,7 @@ class OutputGenerator:
             processing_notes=self.processing_notes,
         )
 
-    def add_processing_note(self, note: str):
+    def add_processing_note(self, note: str) -> None:
         """Add a processing note."""
         self.processing_notes.append(note)
         logger.info(f"Note: {note}")

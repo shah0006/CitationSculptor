@@ -21,7 +21,7 @@ class SimpleCache:
         """Get value from cache."""
         return self._cache.get(key)
     
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         """Set value in cache, evicting oldest if at capacity."""
         if len(self._cache) >= self._max_size:
             # Remove first item (oldest)
@@ -33,7 +33,7 @@ class SimpleCache:
         """Check if key exists in cache."""
         return key in self._cache
     
-    def clear(self):
+    def clear(self) -> None:
         """Clear the cache."""
         self._cache.clear()
 
@@ -54,7 +54,7 @@ class RateLimiter:
         self.last_request_time = 0.0
         self._request_times: deque = deque(maxlen=10)  # Track last 10 requests
     
-    def wait_if_needed(self):
+    def wait_if_needed(self) -> None:
         """Wait if necessary to stay within rate limits."""
         now = time.time()
         elapsed = now - self.last_request_time
@@ -1441,6 +1441,22 @@ class WebpageScraper:
             # Don't flag as Null_Date - use empty string (formatter will handle)
             logger.debug(f"Evergreen page detected, not flagging for missing date: {url[:60]}")
         
+        # If key metadata is missing, try LLM-based extraction
+        needs_llm = (not authors) or (not year and not is_evergreen)
+        if needs_llm:
+            llm_metadata = self._extract_with_llm(url, html)
+            if llm_metadata:
+                # Use LLM results to fill gaps
+                if not authors and llm_metadata.authors:
+                    authors = llm_metadata.authors
+                    logger.debug(f"LLM provided {len(authors)} authors")
+                if not year and llm_metadata.year:
+                    year = llm_metadata.year
+                    month = llm_metadata.month or month
+                    logger.debug(f"LLM provided date: {year}-{month}")
+                if not site_name and llm_metadata.organization:
+                    site_name = llm_metadata.organization
+        
         published_date = ""
         if year and month and day:
             published_date = f"{year}-{month}-{day}"
@@ -1693,6 +1709,35 @@ class WebpageScraper:
                 return base.replace('-', ' ').title()
         
         return ""
+    
+    def _extract_with_llm(self, url: str, html: str) -> Optional['ExtractedMetadata']:
+        """
+        Use LLM to extract full metadata from webpage content.
+        
+        This is used as a fallback when standard meta tag extraction
+        doesn't find authors or dates.
+        
+        Returns:
+            ExtractedMetadata from llm_extractor module, or None
+        """
+        try:
+            from .llm_extractor import LLMMetadataExtractor
+            
+            extractor = LLMMetadataExtractor()
+            metadata = extractor.extract_metadata(url, html)
+            
+            if metadata:
+                # Optionally learn from successful extraction
+                extractor.learn_from_extraction(url, metadata, html)
+            
+            return metadata
+            
+        except ImportError:
+            logger.debug("LLM extractor module not available")
+            return None
+        except Exception as e:
+            logger.debug(f"LLM extraction failed: {e}")
+            return None
     
     def _extract_org_with_llm(self, title: str, url: str) -> str:
         """Use local Ollama LLM to extract organization name from title/URL."""

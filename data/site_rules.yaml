@@ -1,0 +1,48 @@
+_default:
+  instructions: "Extract the following metadata from the webpage:\n1. Title: The main\
+    \ article or page title (without site name suffix)\n2. Authors: Look for bylines,\
+    \ \"By:\", \"Article By:\", author sections, or contributor info\n3. Date: Look\
+    \ for publication date, posted date, or last updated date\n   - Check URL path\
+    \ for date patterns (e.g., /2024/03/15/ or /spring-2024/)\n4. Organization: The\
+    \ website name or publisher\n5. Publication Name: Specific publication name if\
+    \ different from organization\n\nFor authors:\n- Remove credentials (MD, PhD,\
+    \ etc.) from names\n- Format as \"First Last\" or \"First M. Last\"\n- List multiple\
+    \ authors separated by commas\n\nFor dates:\n- Extract year at minimum\n- Include\
+    \ month if available\n- Seasonal dates (Spring 2024) are acceptable\n\nIf information\
+    \ is not found, return null for that field.\n"
+lipid.org:
+  organization: National Lipid Association
+  publication_name: LipidSpin
+  publication_type: professional_magazine
+  instructions: 'This is LipidSpin, the National Lipid Association''s member magazine.
+
+
+    Authors: Look for the "Article By:" section heading (usually an h2 tag).
+
+    Multiple authors are listed, each on their own line with credentials (MD, PhD,
+    FNLA, etc.) after their name.
+
+    Institution/affiliation appears on the line below each author.
+
+    Extract ALL author names - there are typically 4-6 authors per article.
+
+
+    Date: The date is in the URL path as season-year format (e.g., /spring-2024/ =
+    Spring 2024).
+
+    Map seasons: spring=March, summer=June, fall=September, winter=December.
+
+    '
+  learned: true
+  date_added: '2025-12-14T23:24:23.688600'
+uclahealth.org:
+  organization: UCLA Health
+  publication_name: ''
+  instructions: 'Organization: UCLA Health
+
+    Authors: Found 1 author(s)
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-14T23:29:16.044325'
+  publication_type: organization

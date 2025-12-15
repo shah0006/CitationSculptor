@@ -4,7 +4,14 @@
 
 ## Overview
 
-CitationSculptor is a Python tool that processes Obsidian markdown documents containing LLM-generated reference sections and reformats them according to Vancouver citation standards. It integrates with PubMed and CrossRef APIs (via MCP server) to fetch accurate metadata for journal articles, book chapters, books, and more.
+CitationSculptor is a Python toolkit that processes Obsidian markdown documents containing LLM-generated reference sections and reformats them according to Vancouver citation standards. It integrates with PubMed and CrossRef APIs (via MCP server) to fetch accurate metadata for journal articles, book chapters, books, and more.
+
+### Two Tools, Two Workflows
+
+| Tool | Purpose | Best For |
+|:-----|:--------|:---------|
+| **`citation_lookup.py`** | Generate single citations from identifiers | Creating atomic notes, looking up specific references |
+| **`citation_sculptor.py`** | Batch process entire documents | Documents with many inline `[1]` or `[^1]` references |
 
 ## Features
 
@@ -91,7 +98,47 @@ MAX_AUTHORS=3
 
 ## Usage
 
-### Graphical Interface (Recommended)
+### Citation Lookup (Single Citations) ⭐ NEW
+
+Generate Vancouver-style citations from PMID, DOI, PMC ID, or article title:
+
+```bash
+# Look up by PMID
+python citation_lookup.py --pmid 32089132
+
+# Look up by DOI
+python citation_lookup.py --doi "10.1186/s12968-020-00607-1"
+
+# Search by title
+python citation_lookup.py --title "Lake Louise Criteria myocarditis"
+
+# Auto-detect identifier type
+python citation_lookup.py --auto "32089132"
+
+# Batch processing from file (one identifier per line)
+python citation_lookup.py --batch identifiers.txt --output citations.md
+```
+
+**Output Formats:**
+| Format | Description |
+|:-------|:------------|
+| `--format full` | Both inline mark and endnote (default) |
+| `--format inline` | Just `[^KramerC-2020-32089132]` |
+| `--format endnote` | Just the full endnote citation |
+| `--format json` | Full metadata as JSON |
+
+**Example Output:**
+```
+Inline: [^KramerC-2020-32089132]
+
+[^KramerC-2020-32089132]: Kramer CM, Barkhausen J, Bucciarelli-Ducci C, et al. 
+Standardized cardiovascular magnetic resonance imaging (CMR) protocols: 2020 update. 
+J Cardiovasc Magn Reson. 2020 Feb;22(1):17. 
+[DOI](https://doi.org/10.1186/s12968-020-00607-1). 
+[PMID: 32089132](https://pubmed.ncbi.nlm.nih.gov/32089132/)
+```
+
+### Graphical Interface (For Batch Processing)
 
 ```bash
 # Launch the web-based GUI

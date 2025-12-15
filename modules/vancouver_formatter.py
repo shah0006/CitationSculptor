@@ -726,7 +726,8 @@ class VancouverFormatter:
             if len(name) <= 5 and self._looks_like_acronym(name):
                 return name.upper()
             return name.title()
-        except:
+        except (ValueError, AttributeError, IndexError) as e:
+            # URL parsing failed - return generic source name
             return "Unknown Source"
     
     def _looks_like_acronym(self, name: str) -> bool:
@@ -951,6 +952,7 @@ class VancouverFormatter:
             if len(words) >= 3:
                 return result
             return None
-        except:
+        except (ValueError, AttributeError, IndexError) as e:
+            # URL parsing or title extraction failed
             return None
 
