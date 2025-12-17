@@ -296,18 +296,20 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 ## 📊 Source Type Support
 
+**Legend:** ✅ Fully supported | ⚠️ Partial support | 📋 Planned
+
 | Source | Detection | Lookup | Format | Status |
 |--------|-----------|--------|--------|--------|
-| PubMed Articles | ✅ | ✅ | ✅ | Complete |
-| CrossRef Articles | ✅ | ✅ | ✅ | Complete |
-| Book Chapters | ✅ | ✅ | ✅ | Complete |
-| Books (ISBN) | ⚠️ | 📋 | ✅ | v1.7 |
-| Webpages | ✅ | ✅ | ✅ | Complete |
-| News Articles | ✅ | ✅ | ✅ | Complete |
-| Blogs | ✅ | ✅ | ✅ | Complete |
-| PDFs | ⚠️ | 📋 | ✅ | v1.8 |
-| arXiv | 📋 | 📋 | 📋 | v1.7 |
-| bioRxiv/medRxiv | 📋 | 📋 | 📋 | v1.7 |
+| PubMed Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| CrossRef Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| Book Chapters | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| Books (ISBN) | ⚠️ Partial | 📋 Planned | ✅ Supported | v1.7 |
+| Webpages | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| News Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| Blogs | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| PDFs | ⚠️ Partial | 📋 Planned | ✅ Supported | v1.8 |
+| arXiv | 📋 Planned | 📋 Planned | 📋 Planned | v1.7 |
+| bioRxiv/medRxiv | 📋 Planned | 📋 Planned | 📋 Planned | v1.7 |
 
 ---
 
