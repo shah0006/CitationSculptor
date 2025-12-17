@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 1.5.0 | **Updated:** Jun 2025 | **Status:** Active Development
+**Version:** 1.5.2 | **Updated:** Jun 2025 | **Status:** Active Development
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -17,6 +17,21 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ---
 
 ## ✅ Recently Completed
+
+### v1.5.2 - Web UI & Enhanced Styles (Jun 2025)
+- **Beautiful Web UI**: Modern browser interface at `http://127.0.0.1:3019`
+  - Quick Lookup, PubMed Search, Batch Lookup, Recent History tabs
+  - Dark theme with gradient accents, responsive design
+  - One-click copy, live server status indicator
+- **Enhanced Obsidian Plugin Styles**: Polished CSS with better visual hierarchy
+- **Documentation**: Added "Why Unique Reference Tags?" section explaining semantic tag benefits
+
+### v1.5.1 - HTTP Server & Obsidian Integration (Jun 2025)
+- **HTTP Server**: Lightweight API server for Obsidian plugin
+  - Eliminates CLI process spawning overhead
+  - CORS-enabled, all endpoints exposed
+- **macOS LaunchAgent**: Auto-start HTTP server on login
+- **Improved Obsidian Plugin**: HTTP API integration with CLI fallback
 
 ### v1.5.0 - Interactive Mode & Obsidian Plugin (Jun 2025)
 - **Interactive Mode**: `--interactive` / `-i` flag for REPL-style continuous lookups
@@ -227,4 +242,7 @@ python citation_sculptor.py "document.md" --multi-section
 | test_reference_parser.py | 48 | ✅ |
 | test_type_detector.py | 10 | ✅ |
 | test_vancouver_formatter.py | 52 | ✅ |
-| **Total** | **174** | ✅ |
+| test_citation_lookup.py | 20 | ✅ |
+| test_mcp_server.py | 21 | ✅ |
+| test_http_server.py | 11 | ✅ |
+| **Total** | **226** | ✅ |
