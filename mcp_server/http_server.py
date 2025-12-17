@@ -814,9 +814,17 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             backup_path = data.get('backup_path')
             target_path = data.get('target_path')
             
+            logger.info(f"Restore request - backup: {backup_path}, target: {target_path}")
+            
             if not backup_path:
                 self._send_json({'error': 'Missing backup_path'}, 400)
                 return
+            
+            # Resolve backup path (might be relative to vault)
+            resolved_backup = Path(backup_path)
+            if not resolved_backup.is_absolute() and config.OBSIDIAN_VAULT_PATH:
+                resolved_backup = Path(config.OBSIDIAN_VAULT_PATH) / backup_path
+            backup_path = str(resolved_backup)
             
             # If target_path not provided, infer it from backup_path
             # Backup format: filename_backup_YYYYMMDD_HHMMSS.ext
@@ -828,11 +836,18 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     target_path = match.group(1) + match.group(2)
                     logger.info(f"Inferred target path from backup: {target_path}")
                 else:
-                    self._send_json({'error': 'Could not determine target path from backup filename. Please provide target_path.'}, 400)
+                    logger.error(f"Could not parse backup filename: {backup_path}")
+                    self._send_json({'error': f'Could not determine target path from backup filename: {backup_path}'}, 400)
                     return
+            else:
+                # Resolve target path if relative
+                resolved_target = Path(target_path)
+                if not resolved_target.is_absolute() and config.OBSIDIAN_VAULT_PATH:
+                    target_path = str(Path(config.OBSIDIAN_VAULT_PATH) / target_path)
             
             try:
                 # Verify backup exists
+                logger.info(f"Checking backup exists: {backup_path}")
                 if not os.path.exists(backup_path):
                     self._send_json({'error': f'Backup file not found: {backup_path}'}, 404)
                     return
@@ -1918,6 +1933,10 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         number_to_label_map = {}
         failed_refs = []
         
+        # Deduplication tracking - prevent same citation from appearing multiple times
+        seen_identifiers = {}  # identifier -> inline_mark
+        seen_full_citations = {}  # full_citation hash -> inline_mark
+        
         # Process each reference
         for ref in parser.references:
             result = self._process_single_reference(ref)
@@ -1926,15 +1945,38 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 # Create a FormattedCitation-like structure for inline replacement
                 # Keep the full inline mark format for proper replacement (e.g., [^SmithJA-2024-12345])
                 inline_mark = result.get('inline_mark', '')
+                full_citation = result.get('full_citation', '')
+                identifier = result.get('identifier', '')
+                
+                # Check for duplicates by identifier (DOI, PMID, etc.)
+                if identifier and identifier in seen_identifiers:
+                    # Reuse existing citation's inline mark
+                    inline_mark = seen_identifiers[identifier]
+                    logger.debug(f"Dedup: Reusing {inline_mark} for duplicate identifier {identifier}")
+                else:
+                    # Check for duplicates by full citation text (for fallback citations)
+                    citation_key = full_citation[:100].lower().strip()
+                    if citation_key in seen_full_citations:
+                        inline_mark = seen_full_citations[citation_key]
+                        logger.debug(f"Dedup: Reusing {inline_mark} for duplicate citation")
+                    else:
+                        # New unique citation - track it
+                        if identifier:
+                            seen_identifiers[identifier] = inline_mark
+                        seen_full_citations[citation_key] = inline_mark
+                        
+                        # Only add to processed_citations if it's new
+                        processed_citations.append({
+                            'original_number': ref.original_number,
+                            'title': ref.title,
+                            'inline_mark': inline_mark,
+                            'full_citation': full_citation,
+                            'identifier': identifier,
+                            'identifier_type': result.get('identifier_type', ''),
+                        })
+                
+                # Always map the original number to the (possibly reused) inline mark
                 number_to_label_map[ref.original_number] = inline_mark
-                processed_citations.append({
-                    'original_number': ref.original_number,
-                    'title': ref.title,
-                    'inline_mark': inline_mark,
-                    'full_citation': result.get('full_citation', ''),
-                    'identifier': result.get('identifier', ''),
-                    'identifier_type': result.get('identifier_type', ''),
-                })
             else:
                 # Provide detailed error information
                 error_detail = self._get_detailed_error(ref, result)
@@ -2173,12 +2215,24 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 pass
         
         # Use scraped data if available (with defensive error handling)
+        # Filter out bad metadata values
+        BAD_ORG_NAMES = [
+            'authors not specified', '(authors not specified)', 'author not specified',
+            'unknown', 'n/a', 'none', 'null', 'undefined', ''
+        ]
+        
         if scraped_metadata:
             try:
                 if getattr(scraped_metadata, 'title', None) and len(scraped_metadata.title) > len(title):
-                    title = scraped_metadata.title
+                    scraped_title = scraped_metadata.title.strip()
+                    # Don't use generic titles
+                    if scraped_title.lower() not in ['home', 'welcome', 'error', '404', 'page not found']:
+                        title = scraped_title
                 if getattr(scraped_metadata, 'site_name', None):
-                    org_name = scraped_metadata.site_name
+                    site = scraped_metadata.site_name.strip()
+                    # Only use site_name if it's a real organization name
+                    if site.lower() not in BAD_ORG_NAMES and len(site) > 2:
+                        org_name = site
                 if getattr(scraped_metadata, 'year', None):
                     year = scraped_metadata.year
                 elif getattr(scraped_metadata, 'published_date', None):
@@ -2206,9 +2260,31 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             title = title[:147] + '...'
         
         # Create inline label based on organization and year
-        # Format: [^OrgName-Year] or [^OrgName-Title-Year]
-        label_org = org_name.replace(' ', '')[:10] if org_name else 'Web'
-        title_part = ''.join(c for c in title[:20] if c.isalnum())[:10]
+        # Format: [^OrgName-TitlePart-Year] - must be unique and meaningful
+        
+        # Clean org_name - remove spaces and bad characters, take first meaningful word
+        if org_name and org_name.lower() not in BAD_ORG_NAMES:
+            # Take first meaningful word from org name
+            org_words = [w for w in org_name.split() if len(w) > 2 and w.lower() not in ['the', 'and', 'of', 'for']]
+            label_org = ''.join(c for c in (org_words[0] if org_words else org_name) if c.isalnum())[:12]
+        else:
+            # Use domain name instead
+            if domain:
+                label_org = domain.split('.')[0].title()[:12]
+            else:
+                label_org = 'Web'
+        
+        # Create title part from actual title (not "Authors not specified")
+        title_words = [w for w in title.split() if len(w) > 3 and w.lower() not in ['the', 'and', 'for', 'with', 'from', 'authors', 'not', 'specified']]
+        if title_words:
+            title_part = ''.join(c for c in title_words[0] if c.isalnum())[:10]
+        else:
+            title_part = ''.join(c for c in title[:15] if c.isalnum())[:10]
+        
+        # Ensure we have meaningful parts
+        if not label_org or label_org.lower() in ['web', 'unknown', 'authors']:
+            label_org = domain.split('.')[0].title()[:12] if domain else 'Ref'
+        
         inline_label = f"[^{label_org}-{title_part}-{year}]"
         
         # Format the full citation based on type
