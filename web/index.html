@@ -636,56 +636,60 @@
 
         /* About/Documentation Styles */
         .markdown-content {
-            line-height: 1.7;
-            font-size: 14px;
+            line-height: 1.5;
+            font-size: 13px;
         }
 
         .markdown-content h1 {
-            font-size: 1.75rem;
-            margin: 32px 0 16px;
-            padding-bottom: 8px;
+            font-size: 1.5rem;
+            margin: 20px 0 8px;
+            padding-bottom: 6px;
             border-bottom: 1px solid var(--border);
             color: var(--accent);
         }
 
+        .markdown-content h1:first-child {
+            margin-top: 0;
+        }
+
         .markdown-content h2 {
-            font-size: 1.35rem;
-            margin: 28px 0 12px;
-            padding-bottom: 6px;
+            font-size: 1.2rem;
+            margin: 18px 0 6px;
+            padding-bottom: 4px;
             border-bottom: 1px solid var(--border);
         }
 
         .markdown-content h3 {
-            font-size: 1.1rem;
-            margin: 20px 0 10px;
+            font-size: 1rem;
+            margin: 14px 0 4px;
             color: var(--text-primary);
         }
 
         .markdown-content h4 {
-            font-size: 1rem;
-            margin: 16px 0 8px;
+            font-size: 0.9rem;
+            margin: 10px 0 4px;
             color: var(--text-secondary);
         }
 
         .markdown-content p {
-            margin: 12px 0;
+            margin: 6px 0;
         }
 
         .markdown-content ul, .markdown-content ol {
-            margin: 12px 0;
-            padding-left: 24px;
+            margin: 6px 0;
+            padding-left: 20px;
         }
 
         .markdown-content li {
-            margin: 6px 0;
+            margin: 2px 0;
         }
 
         .markdown-content code {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            padding: 2px 6px;
+            font-size: 12px;
+            padding: 1px 5px;
             background: var(--bg-base);
-            border-radius: 4px;
+            border-radius: 3px;
             color: var(--accent);
         }
 
@@ -693,9 +697,11 @@
             background: var(--bg-base);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            padding: 16px;
+            padding: 10px 12px;
             overflow-x: auto;
-            margin: 16px 0;
+            margin: 8px 0;
+            font-size: 12px;
+            line-height: 1.4;
         }
 
         .markdown-content pre code {
@@ -707,12 +713,12 @@
         .markdown-content table {
             width: 100%;
             border-collapse: collapse;
-            margin: 16px 0;
-            font-size: 13px;
+            margin: 8px 0;
+            font-size: 12px;
         }
 
         .markdown-content th, .markdown-content td {
-            padding: 10px 12px;
+            padding: 6px 10px;
             text-align: left;
             border: 1px solid var(--border);
         }
@@ -723,15 +729,16 @@
         }
 
         .markdown-content tr:nth-child(even) {
-            background: var(--bg-elevated);
+            background: rgba(255,255,255,0.02);
         }
 
         .markdown-content blockquote {
-            margin: 16px 0;
-            padding: 12px 16px;
-            border-left: 4px solid var(--accent);
+            margin: 8px 0;
+            padding: 8px 12px;
+            border-left: 3px solid var(--accent);
             background: var(--accent-muted);
             border-radius: 0 var(--radius) var(--radius) 0;
+            font-size: 12px;
         }
 
         .markdown-content a {
@@ -746,34 +753,36 @@
         .markdown-content hr {
             border: none;
             border-top: 1px solid var(--border);
-            margin: 32px 0;
+            margin: 16px 0;
         }
 
         .markdown-content img {
             max-width: 100%;
             border-radius: var(--radius);
+            height: 20px;
+            vertical-align: middle;
         }
 
         /* Quick links at top of about page */
         .about-quick-links {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 24px;
-            padding-bottom: 20px;
+            gap: 8px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
             border-bottom: 1px solid var(--border);
         }
 
         .about-quick-links a {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 8px 14px;
+            gap: 4px;
+            padding: 5px 10px;
             background: var(--bg-elevated);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             color: var(--text-secondary);
-            font-size: 13px;
+            font-size: 12px;
             text-decoration: none;
             transition: all 0.15s ease;
         }
@@ -782,6 +791,12 @@
             background: var(--accent-muted);
             border-color: var(--accent);
             color: var(--accent);
+        }
+
+        /* Compact card for about page */
+        #aboutContent.card {
+            max-height: calc(100vh - 200px);
+            overflow-y: auto;
         }
 
         /* Responsive */
@@ -1888,79 +1903,163 @@
         }
 
         function renderMarkdown(md) {
-            // Simple markdown renderer
-            let html = md;
+            // Process markdown into HTML
+            let lines = md.split('\n');
+            let html = [];
+            let inCodeBlock = false;
+            let codeContent = [];
+            let codeLang = '';
+            let inTable = false;
+            let tableRows = [];
+            let inList = false;
+            let listItems = [];
             
-            // Code blocks (must be first to prevent interference)
-            html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-                return `<pre><code class="language-${lang || ''}">${escHtml(code.trim())}</code></pre>`;
-            });
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i];
+                
+                // Code blocks
+                if (line.startsWith('```')) {
+                    if (inCodeBlock) {
+                        html.push(`<pre><code class="language-${codeLang}">${escHtml(codeContent.join('\n'))}</code></pre>`);
+                        codeContent = [];
+                        codeLang = '';
+                        inCodeBlock = false;
+                    } else {
+                        inCodeBlock = true;
+                        codeLang = line.slice(3).trim();
+                    }
+                    continue;
+                }
+                
+                if (inCodeBlock) {
+                    codeContent.push(line);
+                    continue;
+                }
+                
+                // Tables
+                if (line.startsWith('|') && line.endsWith('|')) {
+                    const cells = line.split('|').filter(c => c.trim());
+                    if (cells.every(c => /^[-:\s]+$/.test(c))) {
+                        continue; // Skip separator row
+                    }
+                    if (!inTable) {
+                        inTable = true;
+                        tableRows = [];
+                    }
+                    tableRows.push(cells.map(c => c.trim()));
+                    continue;
+                } else if (inTable) {
+                    // End table
+                    let tableHtml = '<table>';
+                    tableRows.forEach((row, idx) => {
+                        const tag = idx === 0 ? 'th' : 'td';
+                        tableHtml += '<tr>' + row.map(c => `<${tag}>${processInline(c)}</${tag}>`).join('') + '</tr>';
+                    });
+                    tableHtml += '</table>';
+                    html.push(tableHtml);
+                    inTable = false;
+                    tableRows = [];
+                }
+                
+                // Lists
+                if (line.match(/^[-*] .+/) || line.match(/^\d+\. .+/)) {
+                    const content = line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '');
+                    if (!inList) {
+                        inList = true;
+                        listItems = [];
+                    }
+                    listItems.push(processInline(content));
+                    continue;
+                } else if (inList && line.trim() === '') {
+                    html.push('<ul>' + listItems.map(li => `<li>${li}</li>`).join('') + '</ul>');
+                    inList = false;
+                    listItems = [];
+                    continue;
+                } else if (inList) {
+                    html.push('<ul>' + listItems.map(li => `<li>${li}</li>`).join('') + '</ul>');
+                    inList = false;
+                    listItems = [];
+                }
+                
+                // Skip empty lines (we'll handle spacing via CSS)
+                if (line.trim() === '') continue;
+                
+                // Horizontal rules
+                if (line.match(/^---+$/)) {
+                    html.push('<hr>');
+                    continue;
+                }
+                
+                // Headers
+                if (line.startsWith('#### ')) {
+                    html.push(`<h4>${processInline(line.slice(5))}</h4>`);
+                    continue;
+                }
+                if (line.startsWith('### ')) {
+                    html.push(`<h3>${processInline(line.slice(4))}</h3>`);
+                    continue;
+                }
+                if (line.startsWith('## ')) {
+                    const title = line.slice(3);
+                    const id = title.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+                    html.push(`<h2 id="${id}">${processInline(title)}</h2>`);
+                    continue;
+                }
+                if (line.startsWith('# ')) {
+                    html.push(`<h1>${processInline(line.slice(2))}</h1>`);
+                    continue;
+                }
+                
+                // Blockquotes
+                if (line.startsWith('> ')) {
+                    html.push(`<blockquote>${processInline(line.slice(2))}</blockquote>`);
+                    continue;
+                }
+                
+                // Regular paragraph
+                html.push(`<p>${processInline(line)}</p>`);
+            }
             
-            // Inline code
-            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Close any remaining open blocks
+            if (inList) {
+                html.push('<ul>' + listItems.map(li => `<li>${li}</li>`).join('') + '</ul>');
+            }
+            if (inTable) {
+                let tableHtml = '<table>';
+                tableRows.forEach((row, idx) => {
+                    const tag = idx === 0 ? 'th' : 'td';
+                    tableHtml += '<tr>' + row.map(c => `<${tag}>${processInline(c)}</${tag}>`).join('') + '</tr>';
+                });
+                tableHtml += '</table>';
+                html.push(tableHtml);
+            }
             
-            // Headers (process from h4 to h1 to avoid conflicts)
-            html = html.replace(/^#### (.+)$/gm, '<h4 id="$1">$1</h4>');
-            html = html.replace(/^### (.+)$/gm, '<h3 id="$1">$1</h3>');
-            html = html.replace(/^## (.+)$/gm, (_, title) => {
-                const id = title.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
-                return `<h2 id="${id}">${title}</h2>`;
-            });
-            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            return html.join('\n');
+        }
+        
+        function processInline(text) {
+            // Process inline markdown elements
+            let result = text;
             
-            // Bold and italic
-            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Images first (before links)
+            result = result.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
             
             // Links
-            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+            result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
             
-            // Images (badges)
-            html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+            // Bold + italic
+            result = result.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
             
-            // Horizontal rules
-            html = html.replace(/^---$/gm, '<hr>');
+            // Bold
+            result = result.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
             
-            // Tables
-            html = html.replace(/^\|(.+)\|$/gm, (match) => {
-                const cells = match.split('|').filter(c => c.trim());
-                if (cells.every(c => /^[-:\s]+$/.test(c))) {
-                    return '<!-- table separator -->';
-                }
-                const isHeader = !html.includes('<!-- table separator -->') || 
-                               html.indexOf(match) < html.indexOf('<!-- table separator -->');
-                const tag = 'td';
-                const row = cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('');
-                return `<tr>${row}</tr>`;
-            });
-            html = html.replace(/<!-- table separator -->/g, '');
-            html = html.replace(/(<tr>[\s\S]*?<\/tr>[\s\n]*)+/g, (match) => {
-                // Convert first row to headers
-                const rows = match.match(/<tr>[\s\S]*?<\/tr>/g);
-                if (rows && rows.length > 0) {
-                    rows[0] = rows[0].replace(/<td>/g, '<th>').replace(/<\/td>/g, '</th>');
-                }
-                return `<table>${rows ? rows.join('') : match}</table>`;
-            });
+            // Italic
+            result = result.replace(/\*([^*]+)\*/g, '<em>$1</em>');
             
-            // Lists
-            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-            html = html.replace(/(<li>[\s\S]*?<\/li>[\s\n]*)+/g, '<ul>$&</ul>');
+            // Inline code
+            result = result.replace(/`([^`]+)`/g, '<code>$1</code>');
             
-            // Numbered lists
-            html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-            
-            // Blockquotes
-            html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-            
-            // Paragraphs (wrap remaining text blocks)
-            html = html.replace(/^(?!<[a-z]|$)(.+)$/gm, '<p>$1</p>');
-            
-            // Clean up multiple newlines
-            html = html.replace(/\n{3,}/g, '\n\n');
-            
-            return html;
+            return result;
         }
 
         // Init
