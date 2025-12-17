@@ -49,3 +49,6 @@ run_output.txt
 # Cache directory
 .cache/
 
+
+# Local data directory
+.data/

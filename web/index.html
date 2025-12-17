@@ -3,32 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CitationSculptor</title>
+    <title>CitationSculptor v2.0</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0f;
-            --bg-secondary: #12121a;
-            --bg-tertiary: #1a1a24;
-            --bg-card: #16161f;
-            --text-primary: #f0f0f5;
-            --text-secondary: #a0a0b0;
-            --text-muted: #6b6b7b;
-            --accent: #6366f1;
-            --accent-hover: #818cf8;
-            --accent-glow: rgba(99, 102, 241, 0.25);
-            --success: #10b981;
+            --bg-base: #09090b;
+            --bg-surface: #18181b;
+            --bg-elevated: #27272a;
+            --bg-hover: #3f3f46;
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-muted: #71717a;
+            --accent: #8b5cf6;
+            --accent-hover: #a78bfa;
+            --accent-muted: rgba(139, 92, 246, 0.15);
+            --success: #22c55e;
             --error: #ef4444;
             --warning: #f59e0b;
-            --border: rgba(255, 255, 255, 0.08);
-            --border-hover: rgba(255, 255, 255, 0.15);
-            --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
-            --gradient-2: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
-            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            --radius: 12px;
-            --radius-lg: 16px;
+            --border: #27272a;
+            --border-hover: #3f3f46;
+            --radius: 8px;
+            --radius-lg: 12px;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
         }
 
         * {
@@ -38,141 +36,142 @@
         }
 
         body {
-            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-base);
             color: var(--text-primary);
             min-height: 100vh;
-            line-height: 1.6;
+            line-height: 1.5;
         }
 
-        /* Background pattern */
-        body::before {
-            content: '';
+        /* Layout */
+        .app {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: var(--bg-surface);
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+            display: flex;
+            flex-direction: column;
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: 
-                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent),
-                radial-gradient(ellipse 60% 40% at 100% 0%, rgba(139, 92, 246, 0.1), transparent);
-            pointer-events: none;
-            z-index: -1;
-        }
-
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 40px 24px;
-        }
-
-        /* Header */
-        header {
-            text-align: center;
-            margin-bottom: 48px;
+            height: 100vh;
+            overflow-y: auto;
         }
 
         .logo {
-            display: inline-flex;
+            display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 12px;
+            padding: 0 20px 24px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
         }
 
         .logo-icon {
-            width: 48px;
-            height: 48px;
-            background: var(--gradient-1);
-            border-radius: 14px;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent) 0%, #c084fc 100%);
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
-            box-shadow: 0 8px 32px rgba(99, 102, 241, 0.3);
+            font-size: 20px;
         }
 
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            background: var(--gradient-1);
+        .logo h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent) 0%, #c084fc 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
 
-        .tagline {
-            color: var(--text-secondary);
-            font-size: 1.1rem;
+        .logo-version {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
         }
 
-        /* Status indicator */
-        .status {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: var(--bg-secondary);
-            border-radius: 100px;
-            margin-top: 16px;
-            font-size: 13px;
-            color: var(--text-secondary);
+        .nav-section {
+            padding: 0 12px;
+            margin-bottom: 20px;
         }
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--error);
+        .nav-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 8px;
+            margin-bottom: 4px;
         }
 
-        .status-dot.connected {
-            background: var(--success);
-            box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
-        }
-
-        /* Tabs */
-        .tabs {
+        .nav-item {
             display: flex;
-            gap: 4px;
-            background: var(--bg-secondary);
-            padding: 6px;
-            border-radius: var(--radius-lg);
-            margin-bottom: 32px;
-            justify-content: center;
-        }
-
-        .tab {
-            padding: 12px 24px;
-            background: transparent;
-            border: none;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
             border-radius: var(--radius);
             color: var(--text-secondary);
-            font-family: inherit;
-            font-size: 14px;
-            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
+            font-size: 14px;
         }
 
-        .tab:hover {
+        .nav-item:hover {
+            background: var(--bg-elevated);
             color: var(--text-primary);
-            background: var(--bg-tertiary);
         }
 
-        .tab.active {
-            background: var(--accent);
-            color: white;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        .nav-item.active {
+            background: var(--accent-muted);
+            color: var(--accent);
         }
 
-        /* Tab content */
-        .tab-content {
+        .nav-item-icon {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .status-badge {
+            margin-left: auto;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        .status-badge.online {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .status-badge.offline {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--error);
+        }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            margin-left: 260px;
+            padding: 32px 40px;
+            max-width: 1000px;
+        }
+
+        .page {
             display: none;
         }
 
-        .tab-content.active {
+        .page.active {
             display: block;
-            animation: fadeIn 0.3s ease;
+            animation: fadeIn 0.2s ease;
         }
 
         @keyframes fadeIn {
@@ -180,91 +179,102 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
         /* Cards */
         .card {
-            background: var(--bg-card);
+            background: var(--bg-surface);
             border: 1px solid var(--border);
             border-radius: var(--radius-lg);
-            padding: 28px;
-            margin-bottom: 24px;
+            padding: 24px;
+            margin-bottom: 20px;
         }
 
         .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             margin-bottom: 20px;
         }
 
         .card-title {
-            font-size: 1rem;
-            font-weight: 600;
+            font-size: 14px;
+            font-weight: 500;
             color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
         }
 
-        /* Form elements */
-        .input-group {
+        /* Form Elements */
+        .form-group {
             margin-bottom: 20px;
         }
 
-        .input-group label {
+        .form-label {
             display: block;
             font-size: 13px;
-            color: var(--text-muted);
+            font-weight: 500;
+            color: var(--text-secondary);
             margin-bottom: 8px;
         }
 
-        input[type="text"],
-        textarea {
-            width: 100%;
-            padding: 14px 18px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 15px;
-            transition: all 0.2s ease;
-        }
-
-        input[type="text"]:focus,
-        textarea:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 4px var(--accent-glow);
-        }
-
-        input[type="text"]::placeholder,
-        textarea::placeholder {
-            color: var(--text-muted);
-        }
-
-        textarea {
-            min-height: 150px;
-            resize: vertical;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-        }
-
-        .input-row {
+        .form-row {
             display: flex;
             gap: 12px;
-            align-items: flex-end;
         }
 
-        .input-row .input-group {
+        .form-row .form-group {
             flex: 1;
             margin-bottom: 0;
         }
 
+        input[type="text"],
+        input[type="file"],
+        textarea,
         select {
-            padding: 14px 18px;
-            background: var(--bg-secondary);
+            width: 100%;
+            padding: 12px 14px;
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             color: var(--text-primary);
             font-family: inherit;
             font-size: 14px;
+            transition: all 0.15s ease;
+        }
+
+        input[type="text"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-muted);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
+        select {
             cursor: pointer;
         }
 
@@ -274,161 +284,269 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            padding: 14px 28px;
+            padding: 10px 20px;
             background: var(--accent);
             color: white;
             border: none;
             border-radius: var(--radius);
             font-family: inherit;
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
         }
 
         .btn:hover {
             background: var(--accent-hover);
-            transform: translateY(-1px);
-            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
-        }
-
-        .btn:active {
-            transform: translateY(0);
         }
 
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            transform: none;
         }
 
         .btn-secondary {
-            background: var(--bg-tertiary);
+            background: var(--bg-elevated);
             color: var(--text-primary);
         }
 
         .btn-secondary:hover {
-            background: var(--border-hover);
-            box-shadow: none;
+            background: var(--bg-hover);
         }
 
-        .btn-small {
-            padding: 8px 16px;
-            font-size: 13px;
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
         }
 
         .btn-group {
             display: flex;
-            gap: 12px;
+            gap: 10px;
         }
 
         /* Results */
-        .result-card {
-            background: var(--bg-secondary);
+        .result-box {
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             overflow: hidden;
-            margin-top: 24px;
+            margin-top: 20px;
         }
 
         .result-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 16px 20px;
-            background: var(--bg-tertiary);
+            padding: 12px 16px;
+            background: var(--bg-base);
             border-bottom: 1px solid var(--border);
         }
 
-        .result-title {
-            font-size: 13px;
+        .result-label {
+            font-size: 11px;
             font-weight: 600;
-            color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            color: var(--text-muted);
         }
 
-        .result-body {
-            padding: 20px;
-        }
-
-        .inline-mark {
-            display: block;
+        .result-content {
             padding: 16px;
-            background: var(--bg-primary);
-            border-radius: var(--radius);
+        }
+
+        .result-text {
             font-family: 'JetBrains Mono', monospace;
-            font-size: 14px;
-            color: var(--accent);
-            margin-bottom: 16px;
-            user-select: all;
-        }
-
-        .full-citation {
-            padding: 16px;
-            background: var(--bg-primary);
-            border-radius: var(--radius);
-            font-size: 14px;
-            line-height: 1.7;
+            font-size: 13px;
+            line-height: 1.6;
             color: var(--text-primary);
             user-select: all;
         }
 
-        /* Search results list */
-        .search-list {
+        .result-text.inline {
+            color: var(--accent);
+        }
+
+        /* Search Results */
+        .search-results {
             display: flex;
             flex-direction: column;
             gap: 12px;
-            max-height: 500px;
-            overflow-y: auto;
+            margin-top: 20px;
         }
 
         .search-item {
-            padding: 20px;
-            background: var(--bg-secondary);
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            transition: all 0.2s ease;
+            padding: 16px;
+            transition: all 0.15s ease;
         }
 
         .search-item:hover {
             border-color: var(--border-hover);
-            background: var(--bg-tertiary);
         }
 
         .search-item-title {
             font-weight: 500;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             line-height: 1.4;
         }
 
         .search-item-meta {
             font-size: 13px;
-            color: var(--text-muted);
-            margin-bottom: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
         }
 
         .search-item-ids {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             margin-bottom: 12px;
         }
 
-        .search-item-ids code {
+        .id-badge {
             font-family: 'JetBrains Mono', monospace;
             font-size: 11px;
             padding: 4px 8px;
-            background: var(--bg-primary);
-            border-radius: 6px;
+            background: var(--bg-base);
+            border-radius: 4px;
             color: var(--text-secondary);
         }
 
-        .search-item-actions {
-            display: flex;
-            gap: 8px;
+        /* Library */
+        .library-grid {
+            display: grid;
+            gap: 16px;
         }
 
-        /* Loading state */
+        .citation-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+        }
+
+        .citation-title {
+            font-weight: 500;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .citation-meta {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .citation-tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .tag {
+            font-size: 11px;
+            padding: 3px 8px;
+            background: var(--accent-muted);
+            color: var(--accent);
+            border-radius: 12px;
+        }
+
+        /* File Upload */
+        .file-drop {
+            border: 2px dashed var(--border);
+            border-radius: var(--radius-lg);
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .file-drop:hover,
+        .file-drop.dragover {
+            border-color: var(--accent);
+            background: var(--accent-muted);
+        }
+
+        .file-drop-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .file-drop-text {
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .file-drop-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-base);
+            padding: 4px;
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+        }
+
+        .tab.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* Messages */
+        .message {
+            padding: 14px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .message.success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+
+        .message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        .message.info {
+            background: var(--accent-muted);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            color: var(--accent);
+        }
+
+        /* Loading */
         .loading {
             display: flex;
             align-items: center;
@@ -451,58 +569,7 @@
             to { transform: rotate(360deg); }
         }
 
-        /* Messages */
-        .message {
-            padding: 16px 20px;
-            border-radius: var(--radius);
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .message.success {
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.2);
-            color: var(--success);
-        }
-
-        .message.error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            color: var(--error);
-        }
-
-        /* Recent lookups */
-        .recent-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .recent-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 14px 18px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-        }
-
-        .recent-item code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            color: var(--accent);
-        }
-
-        .recent-item-date {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-left: 12px;
-        }
-
-        /* Empty state */
+        /* Empty State */
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -512,212 +579,460 @@
         .empty-state-icon {
             font-size: 48px;
             margin-bottom: 16px;
-            opacity: 0.5;
+            opacity: 0.4;
         }
 
-        /* Footer */
-        footer {
-            text-align: center;
-            padding: 40px 24px;
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 14px 24px;
+            background: var(--success);
+            color: white;
+            border-radius: var(--radius);
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: var(--shadow);
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 12px;
             color: var(--text-muted);
-            font-size: 13px;
-        }
-
-        footer a {
-            color: var(--accent);
-            text-decoration: none;
-        }
-
-        footer a:hover {
-            text-decoration: underline;
         }
 
         /* Responsive */
-        @media (max-width: 640px) {
-            .container {
-                padding: 24px 16px;
+        @media (max-width: 900px) {
+            .sidebar {
+                width: 200px;
             }
-
-            h1 {
-                font-size: 1.8rem;
+            .main {
+                margin-left: 200px;
+                padding: 24px;
             }
+        }
 
-            .tabs {
-                flex-wrap: wrap;
+        @media (max-width: 700px) {
+            .sidebar {
+                position: static;
+                width: 100%;
+                height: auto;
             }
-
-            .tab {
-                flex: 1 1 45%;
-                text-align: center;
+            .main {
+                margin-left: 0;
             }
-
-            .input-row {
+            .app {
                 flex-direction: column;
             }
-
-            .btn-group {
+            .form-row {
                 flex-direction: column;
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
             <div class="logo">
                 <div class="logo-icon">📚</div>
-                <h1>CitationSculptor</h1>
+                <div>
+                    <h1>CitationSculptor</h1>
+                    <div class="logo-version">v2.0.0</div>
+                </div>
             </div>
-            <p class="tagline">Generate Vancouver-style citations from any identifier</p>
-            <div class="status">
-                <span class="status-dot" id="statusDot"></span>
-                <span id="statusText">Checking server...</span>
+
+            <nav class="nav-section">
+                <div class="nav-section-title">Citation Tools</div>
+                <div class="nav-item active" data-page="lookup">
+                    <span class="nav-item-icon">🔍</span>
+                    Quick Lookup
+                </div>
+                <div class="nav-item" data-page="search">
+                    <span class="nav-item-icon">📚</span>
+                    Search
+                </div>
+                <div class="nav-item" data-page="batch">
+                    <span class="nav-item-icon">📋</span>
+                    Batch Process
+                </div>
+                <div class="nav-item" data-page="pdf">
+                    <span class="nav-item-icon">📄</span>
+                    PDF Extract
+                </div>
+            </nav>
+
+            <nav class="nav-section">
+                <div class="nav-section-title">Library</div>
+                <div class="nav-item" data-page="library">
+                    <span class="nav-item-icon">🗃️</span>
+                    My Citations
+                </div>
+                <div class="nav-item" data-page="bibliography">
+                    <span class="nav-item-icon">📝</span>
+                    Bibliography
+                </div>
+            </nav>
+
+            <nav class="nav-section">
+                <div class="nav-section-title">Import / Export</div>
+                <div class="nav-item" data-page="import">
+                    <span class="nav-item-icon">📥</span>
+                    Import
+                </div>
+                <div class="nav-item" data-page="export">
+                    <span class="nav-item-icon">📤</span>
+                    Export
+                </div>
+            </nav>
+
+            <nav class="nav-section" style="margin-top: auto;">
+                <div class="nav-item">
+                    <span class="nav-item-icon">⚡</span>
+                    Server
+                    <span class="status-badge" id="serverStatus">...</span>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Quick Lookup Page -->
+            <div class="page active" id="lookup">
+                <div class="page-header">
+                    <h2 class="page-title">Quick Lookup</h2>
+                    <p class="page-subtitle">Enter any identifier: PMID, DOI, PMC ID, arXiv ID, ISBN, or article title</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Identifier</label>
+                        <input type="text" id="lookupInput" placeholder="e.g., 37622666, 10.1093/eurheartj/ehad195, arXiv:2301.00001, 978-0-123456-78-9">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Citation Style</label>
+                            <select id="styleSelect">
+                                <option value="vancouver">Vancouver</option>
+                                <option value="apa">APA 7th</option>
+                                <option value="mla">MLA 9th</option>
+                                <option value="chicago">Chicago</option>
+                                <option value="harvard">Harvard</option>
+                                <option value="ieee">IEEE</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Format</label>
+                            <select id="formatSelect">
+                                <option value="full">Full Citation</option>
+                                <option value="inline">Inline Only</option>
+                                <option value="endnote">Endnote Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="doLookup()">🔍 Look Up</button>
+                        <button class="btn btn-secondary" onclick="copyResult()">📋 Copy</button>
+                        <button class="btn btn-secondary" onclick="saveCitation()">💾 Save</button>
+                    </div>
+                    <div id="lookupResult"></div>
+                </div>
             </div>
-        </header>
 
-        <div class="tabs">
-            <button class="tab active" data-tab="lookup">🔍 Quick Lookup</button>
-            <button class="tab" data-tab="search">📚 PubMed Search</button>
-            <button class="tab" data-tab="batch">📋 Batch Lookup</button>
-            <button class="tab" data-tab="recent">🕐 Recent</button>
-        </div>
+            <!-- Search Page -->
+            <div class="page" id="search">
+                <div class="page-header">
+                    <h2 class="page-title">Search</h2>
+                    <p class="page-subtitle">Search across PubMed, OpenAlex, and Semantic Scholar</p>
+                </div>
 
-        <!-- Quick Lookup Tab -->
-        <div class="tab-content active" id="lookup">
-            <div class="card">
-                <div class="input-group">
-                    <label>Enter PMID, DOI, PMC ID, or article title</label>
-                    <div class="input-row">
-                        <input type="text" id="lookupInput" placeholder="e.g., 37622666, 10.1093/eurheartj/ehad195, or ESC heart failure guidelines">
-                        <select id="styleSelect" title="Citation Style">
-                            <option value="vancouver">Vancouver</option>
-                            <option value="apa">APA 7th</option>
-                            <option value="mla">MLA 9th</option>
-                            <option value="chicago">Chicago</option>
-                            <option value="harvard">Harvard</option>
-                            <option value="ieee">IEEE</option>
-                        </select>
-                        <select id="formatSelect" title="Output Format">
-                            <option value="full">Full</option>
-                            <option value="inline">Inline Only</option>
-                            <option value="endnote">Endnote Only</option>
-                        </select>
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Search Query</label>
+                        <input type="text" id="searchInput" placeholder="e.g., heart failure guidelines 2023">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Source</label>
+                            <select id="searchSource">
+                                <option value="pubmed">PubMed</option>
+                                <option value="openalex">OpenAlex</option>
+                                <option value="semantic_scholar">Semantic Scholar</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Max Results</label>
+                            <select id="searchMax">
+                                <option value="5">5</option>
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn" onclick="doSearch()">🔎 Search</button>
+                    <div id="searchResults"></div>
+                </div>
+            </div>
+
+            <!-- Batch Page -->
+            <div class="page" id="batch">
+                <div class="page-header">
+                    <h2 class="page-title">Batch Process</h2>
+                    <p class="page-subtitle">Process multiple identifiers at once</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Enter identifiers (one per line)</label>
+                        <textarea id="batchInput" placeholder="37622666&#10;10.1093/eurheartj/ehad195&#10;PMC7039045"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Citation Style</label>
+                            <select id="batchStyle">
+                                <option value="vancouver">Vancouver</option>
+                                <option value="apa">APA 7th</option>
+                                <option value="mla">MLA 9th</option>
+                                <option value="chicago">Chicago</option>
+                                <option value="harvard">Harvard</option>
+                                <option value="ieee">IEEE</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="doBatch()">📋 Process Batch</button>
+                        <button class="btn btn-secondary" onclick="copyBatchResult()">📋 Copy All</button>
+                    </div>
+                    <div id="batchResults"></div>
+                </div>
+            </div>
+
+            <!-- PDF Extract Page -->
+            <div class="page" id="pdf">
+                <div class="page-header">
+                    <h2 class="page-title">PDF Extraction</h2>
+                    <p class="page-subtitle">Extract citation metadata from PDF files</p>
+                </div>
+
+                <div class="card">
+                    <div class="file-drop" id="pdfDrop" onclick="document.getElementById('pdfFile').click()">
+                        <div class="file-drop-icon">📄</div>
+                        <div class="file-drop-text">Drop PDF here or click to upload</div>
+                        <div class="file-drop-hint">Extracts DOI, PMID, arXiv ID, title, and authors</div>
+                        <input type="file" id="pdfFile" accept=".pdf" style="display: none" onchange="handlePdfUpload(event)">
+                    </div>
+                    <div id="pdfResult"></div>
+                </div>
+
+                <div class="message info">
+                    <span>💡</span>
+                    PDF extraction requires PyMuPDF. Install with: <code>pip install PyMuPDF</code>
+                </div>
+            </div>
+
+            <!-- Library Page -->
+            <div class="page" id="library">
+                <div class="page-header">
+                    <h2 class="page-title">My Citations</h2>
+                    <p class="page-subtitle">Your saved citation library with full-text search</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <input type="text" id="librarySearch" placeholder="Search your citations...">
+                        </div>
+                        <button class="btn" onclick="searchLibrary()">🔍 Search</button>
+                        <button class="btn btn-secondary" onclick="loadLibrary()">↻ Refresh</button>
                     </div>
                 </div>
-                <div class="btn-group">
-                    <button class="btn" onclick="doLookup()">
-                        <span>🔍</span> Look Up
-                    </button>
-                    <button class="btn btn-secondary" onclick="copyResult()">
-                        <span>📋</span> Copy
-                    </button>
-                </div>
-                <div id="lookupResult"></div>
-            </div>
-        </div>
 
-        <!-- PubMed Search Tab -->
-        <div class="tab-content" id="search">
-            <div class="card">
-                <div class="input-group">
-                    <label>Search PubMed for articles</label>
-                    <div class="input-row">
-                        <input type="text" id="searchInput" placeholder="e.g., ESC heart failure guidelines 2023">
-                        <select id="maxResults">
-                            <option value="5">5 results</option>
-                            <option value="10" selected>10 results</option>
-                            <option value="20">20 results</option>
-                        </select>
+                <div class="stats-grid" id="libraryStats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotal">-</div>
+                        <div class="stat-label">Total Citations</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTags">-</div>
+                        <div class="stat-label">Tags</div>
                     </div>
                 </div>
-                <button class="btn" onclick="doSearch()">
-                    <span>🔎</span> Search PubMed
-                </button>
-                <div id="searchResults"></div>
-            </div>
-        </div>
 
-        <!-- Batch Lookup Tab -->
-        <div class="tab-content" id="batch">
-            <div class="card">
-                <div class="input-group">
-                    <label>Enter multiple identifiers (one per line)</label>
-                    <textarea id="batchInput" placeholder="37622666&#10;10.1093/eurheartj/ehad195&#10;PMC7039045&#10;..."></textarea>
-                </div>
-                <div class="btn-group">
-                    <button class="btn" onclick="doBatch()">
-                        <span>📋</span> Process Batch
-                    </button>
-                    <button class="btn btn-secondary" onclick="copyBatchResult()">
-                        <span>📋</span> Copy All
-                    </button>
-                </div>
-                <div id="batchResults"></div>
-            </div>
-        </div>
-
-        <!-- Recent Tab -->
-        <div class="tab-content" id="recent">
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Recent Lookups</div>
-                </div>
-                <div id="recentList">
+                <div id="libraryResults">
                     <div class="empty-state">
-                        <div class="empty-state-icon">📭</div>
-                        <p>No recent lookups yet</p>
+                        <div class="empty-state-icon">🗃️</div>
+                        <p>Your citation library is empty</p>
+                        <p style="font-size: 13px; margin-top: 8px;">Save citations from the Quick Lookup page</p>
                     </div>
                 </div>
-                <button class="btn btn-secondary btn-small" onclick="clearRecent()" style="margin-top: 16px;">
-                    Clear History
-                </button>
             </div>
-        </div>
+
+            <!-- Bibliography Page -->
+            <div class="page" id="bibliography">
+                <div class="page-header">
+                    <h2 class="page-title">Bibliography Generator</h2>
+                    <p class="page-subtitle">Generate formatted bibliographies from identifiers</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Enter identifiers (one per line)</label>
+                        <textarea id="bibInput" placeholder="Enter PMIDs, DOIs, or other identifiers..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Citation Style</label>
+                            <select id="bibStyle">
+                                <option value="vancouver">Vancouver</option>
+                                <option value="apa">APA 7th</option>
+                                <option value="mla">MLA 9th</option>
+                                <option value="chicago">Chicago</option>
+                                <option value="harvard">Harvard</option>
+                                <option value="ieee">IEEE</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Sort Order</label>
+                            <select id="bibSort">
+                                <option value="alphabetical">Alphabetical</option>
+                                <option value="appearance">Order of Appearance</option>
+                                <option value="year">By Year (newest first)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="generateBibliography()">📝 Generate</button>
+                        <button class="btn btn-secondary" onclick="copyBibliography()">📋 Copy</button>
+                    </div>
+                    <div id="bibResult"></div>
+                </div>
+            </div>
+
+            <!-- Import Page -->
+            <div class="page" id="import">
+                <div class="page-header">
+                    <h2 class="page-title">Import Citations</h2>
+                    <p class="page-subtitle">Import from BibTeX or RIS format</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchImportTab('bibtex')">BibTeX</button>
+                    <button class="tab" onclick="switchImportTab('ris')">RIS</button>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label" id="importLabel">Paste BibTeX content</label>
+                        <textarea id="importInput" placeholder="@article{...}"></textarea>
+                    </div>
+                    <button class="btn" onclick="doImport()">📥 Import</button>
+                    <div id="importResult"></div>
+                </div>
+            </div>
+
+            <!-- Export Page -->
+            <div class="page" id="export">
+                <div class="page-header">
+                    <h2 class="page-title">Export Citations</h2>
+                    <p class="page-subtitle">Export your library to BibTeX or RIS format</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Select citations to export (by ID, comma-separated)</label>
+                        <input type="text" id="exportIds" placeholder="e.g., 1, 2, 3 (leave empty for all)">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Export Format</label>
+                            <select id="exportFormat">
+                                <option value="bibtex">BibTeX (.bib)</option>
+                                <option value="ris">RIS (.ris)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="btn" onclick="doExport()">📤 Export</button>
+                </div>
+            </div>
+        </main>
     </div>
 
-    <footer>
-        <p>CitationSculptor v2.0.0 · <a href="https://github.com/shah0006/CitationSculptor">GitHub</a></p>
-        <p>Server: <code id="serverUrl">http://127.0.0.1:3019</code></p>
-    </footer>
-
     <script>
-        const API_URL = 'http://127.0.0.1:3019';
-        let recentLookups = JSON.parse(localStorage.getItem('recentLookups') || '[]');
+        const API = 'http://127.0.0.1:3019';
         let lastResult = null;
-        let lastBatchResults = null;
+        let lastBatch = null;
+        let lastBibliography = null;
+        let currentImportType = 'bibtex';
 
-        // Tab switching
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(tab.dataset.tab).classList.add('active');
+        // Navigation
+        document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                item.classList.add('active');
+                document.getElementById(item.dataset.page).classList.add('active');
             });
         });
 
         // Enter key handlers
-        document.getElementById('lookupInput').addEventListener('keypress', e => {
-            if (e.key === 'Enter') doLookup();
-        });
-        document.getElementById('searchInput').addEventListener('keypress', e => {
-            if (e.key === 'Enter') doSearch();
+        document.getElementById('lookupInput').addEventListener('keypress', e => { if (e.key === 'Enter') doLookup(); });
+        document.getElementById('searchInput').addEventListener('keypress', e => { if (e.key === 'Enter') doSearch(); });
+        document.getElementById('librarySearch').addEventListener('keypress', e => { if (e.key === 'Enter') searchLibrary(); });
+
+        // PDF Drop Zone
+        const pdfDrop = document.getElementById('pdfDrop');
+        pdfDrop.addEventListener('dragover', e => { e.preventDefault(); pdfDrop.classList.add('dragover'); });
+        pdfDrop.addEventListener('dragleave', () => pdfDrop.classList.remove('dragover'));
+        pdfDrop.addEventListener('drop', e => {
+            e.preventDefault();
+            pdfDrop.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                processPdfFile(e.dataTransfer.files[0]);
+            }
         });
 
         // Check server status
         async function checkServer() {
-            const dot = document.getElementById('statusDot');
-            const text = document.getElementById('statusText');
+            const badge = document.getElementById('serverStatus');
             try {
-                const res = await fetch(`${API_URL}/health`);
+                const res = await fetch(`${API}/health`);
                 const data = await res.json();
                 if (data.status === 'ok') {
-                    dot.classList.add('connected');
-                    text.textContent = `Connected (v${data.version})`;
+                    badge.textContent = 'Online';
+                    badge.className = 'status-badge online';
                 }
             } catch (e) {
-                dot.classList.remove('connected');
-                text.textContent = 'Server offline - start with: python -m mcp_server.http_server';
+                badge.textContent = 'Offline';
+                badge.className = 'status-badge offline';
             }
         }
 
@@ -731,37 +1046,73 @@
             container.innerHTML = '<div class="loading"><div class="spinner"></div>Looking up...</div>';
 
             try {
-                const res = await fetch(`${API_URL}/api/lookup?id=${encodeURIComponent(input)}&style=${style}`);
+                const res = await fetch(`${API}/api/lookup?id=${encodeURIComponent(input)}&style=${style}`);
                 const data = await res.json();
                 lastResult = data;
 
                 if (data.success) {
-                    addToRecent(input, data.inline_mark);
                     container.innerHTML = `
-                        <div class="result-card">
+                        <div class="result-box">
                             <div class="result-header">
-                                <span class="result-title">Inline Reference</span>
-                                <button class="btn btn-small btn-secondary" onclick="copyText('${data.inline_mark.replace(/'/g, "\\'")}')">Copy</button>
+                                <span class="result-label">Inline Reference</span>
+                                <button class="btn btn-sm btn-secondary" onclick="copyText('${esc(data.inline_mark)}')">Copy</button>
                             </div>
-                            <div class="result-body">
-                                <div class="inline-mark">${escapeHtml(data.inline_mark)}</div>
+                            <div class="result-content">
+                                <div class="result-text inline">${escHtml(data.inline_mark)}</div>
                             </div>
                         </div>
-                        <div class="result-card">
+                        <div class="result-box">
                             <div class="result-header">
-                                <span class="result-title">Full Citation</span>
-                                <button class="btn btn-small btn-secondary" onclick="copyText(\`${data.full_citation.replace(/`/g, "\\`")}\`)">Copy</button>
+                                <span class="result-label">Full Citation</span>
+                                <button class="btn btn-sm btn-secondary" onclick="copyText(\`${esc(data.full_citation)}\`)">Copy</button>
                             </div>
-                            <div class="result-body">
-                                <div class="full-citation">${escapeHtml(data.full_citation)}</div>
+                            <div class="result-content">
+                                <div class="result-text">${escHtml(data.full_citation)}</div>
                             </div>
                         </div>
                     `;
                 } else {
-                    container.innerHTML = `<div class="message error">❌ ${escapeHtml(data.error || 'Not found')}</div>`;
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error || 'Not found')}</div>`;
                 }
             } catch (e) {
-                container.innerHTML = `<div class="message error">❌ Server error: ${escapeHtml(e.message)}</div>`;
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        // Save citation to library
+        async function saveCitation() {
+            if (!lastResult || !lastResult.success) {
+                showToast('No citation to save', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API}/api/library/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        citation: {
+                            identifier_type: lastResult.identifier_type,
+                            identifier: lastResult.identifier,
+                            title: lastResult.metadata?.title || '',
+                            authors: lastResult.metadata?.authors || [],
+                            year: lastResult.metadata?.year || '',
+                            style: document.getElementById('styleSelect').value,
+                            inline_mark: lastResult.inline_mark,
+                            full_citation: lastResult.full_citation,
+                            metadata: lastResult.metadata,
+                            tags: [],
+                        }
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Citation saved to library!');
+                } else {
+                    showToast(data.error || 'Save failed', 'error');
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
             }
         }
 
@@ -770,32 +1121,34 @@
             const query = document.getElementById('searchInput').value.trim();
             if (!query) return;
 
-            const max = document.getElementById('maxResults').value;
+            const source = document.getElementById('searchSource').value;
+            const max = document.getElementById('searchMax').value;
             const container = document.getElementById('searchResults');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Searching PubMed...</div>';
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Searching...</div>';
 
             try {
-                const res = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}&max=${max}`);
+                const res = await fetch(`${API}/api/search?q=${encodeURIComponent(query)}&source=${source}&max=${max}`);
                 const data = await res.json();
 
                 if (data.results && data.results.length > 0) {
                     container.innerHTML = `
-                        <div style="margin-top: 20px; margin-bottom: 12px; color: var(--text-secondary);">
-                            Found ${data.count} result(s)
+                        <div style="margin-top: 16px; color: var(--text-secondary); font-size: 13px;">
+                            Found ${data.count} result(s) from ${source}
                         </div>
-                        <div class="search-list">
+                        <div class="search-results">
                             ${data.results.map((r, i) => `
                                 <div class="search-item">
-                                    <div class="search-item-title">${i + 1}. ${escapeHtml(r.title)}</div>
+                                    <div class="search-item-title">${i + 1}. ${escHtml(r.title || 'Untitled')}</div>
                                     <div class="search-item-meta">
-                                        ${escapeHtml((r.authors || []).slice(0, 2).join(', '))}${r.authors?.length > 2 ? ' et al.' : ''} · ${escapeHtml(r.journal)} (${r.year})
+                                        ${escHtml((r.authors || []).slice(0, 2).join(', '))}${r.authors?.length > 2 ? ' et al.' : ''} · ${escHtml(r.journal || '')} (${r.year || 'n.d.'})
                                     </div>
                                     <div class="search-item-ids">
-                                        <code>PMID: ${r.pmid}</code>
-                                        ${r.doi ? `<code>DOI: ${escapeHtml(r.doi)}</code>` : ''}
+                                        ${r.pmid ? `<span class="id-badge">PMID: ${r.pmid}</span>` : ''}
+                                        ${r.doi ? `<span class="id-badge">DOI: ${escHtml(r.doi)}</span>` : ''}
+                                        ${r.citation_count ? `<span class="id-badge">Cited: ${r.citation_count}</span>` : ''}
                                     </div>
-                                    <div class="search-item-actions">
-                                        <button class="btn btn-small" onclick="getCitation('${r.pmid}')">Get Citation</button>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm" onclick="getCitation('${r.pmid || r.doi || ''}')">Get Citation</button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -805,14 +1158,13 @@
                     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No results found</p></div>';
                 }
             } catch (e) {
-                container.innerHTML = `<div class="message error">❌ Search error: ${escapeHtml(e.message)}</div>`;
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
             }
         }
 
-        // Get citation from search result
-        async function getCitation(pmid) {
-            document.getElementById('lookupInput').value = pmid;
-            document.querySelector('[data-tab="lookup"]').click();
+        async function getCitation(id) {
+            document.getElementById('lookupInput').value = id;
+            document.querySelector('[data-page="lookup"]').click();
             await doLookup();
         }
 
@@ -822,63 +1174,308 @@
             if (!input) return;
 
             const identifiers = input.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+            const style = document.getElementById('batchStyle').value;
             const container = document.getElementById('batchResults');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing batch...</div>';
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing...</div>';
 
             try {
-                const res = await fetch(`${API_URL}/api/batch`, {
+                const res = await fetch(`${API}/api/batch`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ identifiers })
+                    body: JSON.stringify({ identifiers, style })
                 });
                 const data = await res.json();
-                lastBatchResults = data.results;
+                lastBatch = data.results;
 
                 const successful = data.results.filter(r => r.success);
                 const failed = data.results.filter(r => !r.success);
 
-                let html = `
-                    <div style="margin-top: 20px; margin-bottom: 16px;">
+                container.innerHTML = `
+                    <div style="margin-top: 16px; color: var(--text-secondary);">
                         <span style="color: var(--success);">✓ ${successful.length} successful</span>
                         ${failed.length > 0 ? `<span style="color: var(--error); margin-left: 16px;">✗ ${failed.length} failed</span>` : ''}
                     </div>
-                `;
-
-                if (successful.length > 0) {
-                    html += `
-                        <div class="result-card">
+                    ${successful.length > 0 ? `
+                        <div class="result-box" style="margin-top: 16px;">
                             <div class="result-header">
-                                <span class="result-title">Citations</span>
+                                <span class="result-label">Citations</span>
                             </div>
-                            <div class="result-body">
-                                <textarea readonly style="width: 100%; min-height: 200px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 16px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${successful.map(r => r.full_citation).join('\n\n')}</textarea>
-                            </div>
-                        </div>
-                    `;
-                }
-
-                if (failed.length > 0) {
-                    html += `
-                        <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
-                            <div class="result-header" style="background: rgba(239, 68, 68, 0.1);">
-                                <span class="result-title" style="color: var(--error);">Failed</span>
-                            </div>
-                            <div class="result-body">
-                                <ul style="color: var(--error); font-size: 13px; padding-left: 20px;">
-                                    ${failed.map(r => `<li>${escapeHtml(r.identifier)}: ${escapeHtml(r.error)}</li>`).join('')}
-                                </ul>
+                            <div class="result-content">
+                                <textarea readonly style="width: 100%; min-height: 200px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${successful.map(r => r.full_citation).join('\n\n')}</textarea>
                             </div>
                         </div>
-                    `;
-                }
-
-                container.innerHTML = html;
+                    ` : ''}
+                    ${failed.length > 0 ? `
+                        <div class="message error" style="margin-top: 16px;">
+                            Failed: ${failed.map(r => escHtml(r.identifier)).join(', ')}
+                        </div>
+                    ` : ''}
+                `;
             } catch (e) {
-                container.innerHTML = `<div class="message error">❌ Batch error: ${escapeHtml(e.message)}</div>`;
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
             }
         }
 
-        // Copy functions
+        function copyBatchResult() {
+            if (!lastBatch) return;
+            const text = lastBatch.filter(r => r.success).map(r => r.full_citation).join('\n\n');
+            copyText(text);
+        }
+
+        // PDF Upload
+        function handlePdfUpload(event) {
+            const file = event.target.files[0];
+            if (file) processPdfFile(file);
+        }
+
+        async function processPdfFile(file) {
+            const container = document.getElementById('pdfResult');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Extracting metadata...</div>';
+
+            try {
+                const base64 = await fileToBase64(file);
+                const res = await fetch(`${API}/api/pdf/extract`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pdf_base64: base64 })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    const m = data.metadata;
+                    container.innerHTML = `
+                        <div class="result-box">
+                            <div class="result-header">
+                                <span class="result-label">Extracted Metadata</span>
+                            </div>
+                            <div class="result-content">
+                                <p><strong>Title:</strong> ${escHtml(m.title || 'Not found')}</p>
+                                <p><strong>Authors:</strong> ${escHtml((m.authors || []).join(', ') || 'Not found')}</p>
+                                <p><strong>DOI:</strong> ${escHtml(m.doi || 'Not found')}</p>
+                                <p><strong>PMID:</strong> ${escHtml(m.pmid || 'Not found')}</p>
+                                <p><strong>arXiv ID:</strong> ${escHtml(m.arxiv_id || 'Not found')}</p>
+                                <p><strong>Pages:</strong> ${m.page_count || 'Unknown'}</p>
+                            </div>
+                        </div>
+                        ${data.citation ? `
+                            <div class="result-box">
+                                <div class="result-header">
+                                    <span class="result-label">Generated Citation</span>
+                                    <button class="btn btn-sm btn-secondary" onclick="copyText(\`${esc(data.citation.full_citation)}\`)">Copy</button>
+                                </div>
+                                <div class="result-content">
+                                    <div class="result-text">${escHtml(data.citation.full_citation)}</div>
+                                </div>
+                            </div>
+                        ` : `
+                            <div class="message info">No identifier found. Try searching by title.</div>
+                        `}
+                    `;
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Library
+        async function loadLibrary() {
+            const container = document.getElementById('libraryResults');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+
+            try {
+                const [libRes, tagsRes] = await Promise.all([
+                    fetch(`${API}/api/library`),
+                    fetch(`${API}/api/library/tags`)
+                ]);
+                const libData = await libRes.json();
+                const tagsData = await tagsRes.json();
+
+                document.getElementById('statTotal').textContent = libData.total || 0;
+                document.getElementById('statTags').textContent = (tagsData.tags || []).length;
+
+                if (libData.citations && libData.citations.length > 0) {
+                    container.innerHTML = `
+                        <div class="library-grid">
+                            ${libData.citations.map(c => `
+                                <div class="citation-card">
+                                    <div class="citation-title">${escHtml(c.title || 'Untitled')}</div>
+                                    <div class="citation-meta">${escHtml((c.authors || []).slice(0, 2).join(', '))}${c.authors?.length > 2 ? ' et al.' : ''} (${c.year || 'n.d.'})</div>
+                                    ${c.tags && c.tags.length ? `
+                                        <div class="citation-tags">
+                                            ${c.tags.map(t => `<span class="tag">${escHtml(t)}</span>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-secondary" onclick="copyText(\`${esc(c.full_citation)}\`)">Copy</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="deleteCitation(${c.id})">Delete</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🗃️</div><p>Your library is empty</p></div>';
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        async function searchLibrary() {
+            const query = document.getElementById('librarySearch').value.trim();
+            if (!query) { loadLibrary(); return; }
+
+            const container = document.getElementById('libraryResults');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Searching...</div>';
+
+            try {
+                const res = await fetch(`${API}/api/library/search?q=${encodeURIComponent(query)}`);
+                const data = await res.json();
+
+                if (data.citations && data.citations.length > 0) {
+                    container.innerHTML = `
+                        <div class="library-grid">
+                            ${data.citations.map(c => `
+                                <div class="citation-card">
+                                    <div class="citation-title">${escHtml(c.title || 'Untitled')}</div>
+                                    <div class="citation-meta">${escHtml((c.authors || []).join(', '))} (${c.year})</div>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-secondary" onclick="copyText(\`${esc(c.full_citation)}\`)">Copy</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No citations match your search</p></div>';
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        async function deleteCitation(id) {
+            if (!confirm('Delete this citation?')) return;
+            try {
+                await fetch(`${API}/api/library/delete?id=${id}`, { method: 'DELETE' });
+                showToast('Citation deleted');
+                loadLibrary();
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        // Bibliography
+        async function generateBibliography() {
+            const input = document.getElementById('bibInput').value.trim();
+            if (!input) return;
+
+            const identifiers = input.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+            const style = document.getElementById('bibStyle').value;
+            const sort = document.getElementById('bibSort').value;
+            const container = document.getElementById('bibResult');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Generating bibliography...</div>';
+
+            try {
+                const res = await fetch(`${API}/api/bibliography/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identifiers, style, sort })
+                });
+                const data = await res.json();
+                lastBibliography = data.bibliography;
+
+                container.innerHTML = `
+                    <div style="margin-top: 16px; color: var(--text-secondary); font-size: 13px;">
+                        Generated ${data.entries} citations ${data.failed > 0 ? `(${data.failed} failed)` : ''}
+                    </div>
+                    <div class="result-box" style="margin-top: 16px;">
+                        <div class="result-header">
+                            <span class="result-label">Bibliography</span>
+                        </div>
+                        <div class="result-content">
+                            <textarea readonly style="width: 100%; min-height: 300px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${escHtml(data.bibliography)}</textarea>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        function copyBibliography() {
+            if (lastBibliography) copyText(lastBibliography);
+        }
+
+        // Import
+        function switchImportTab(type) {
+            currentImportType = type;
+            document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tabs .tab:${type === 'bibtex' ? 'first-child' : 'last-child'}`).classList.add('active');
+            document.getElementById('importLabel').textContent = `Paste ${type === 'bibtex' ? 'BibTeX' : 'RIS'} content`;
+            document.getElementById('importInput').placeholder = type === 'bibtex' ? '@article{...}' : 'TY  - JOUR\n...';
+        }
+
+        async function doImport() {
+            const input = document.getElementById('importInput').value.trim();
+            if (!input) return;
+
+            const container = document.getElementById('importResult');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Importing...</div>';
+
+            try {
+                const res = await fetch(`${API}/api/import/${currentImportType}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ [currentImportType]: input })
+                });
+                const data = await res.json();
+
+                if (data.imported > 0) {
+                    container.innerHTML = `
+                        <div class="message success">✓ Imported ${data.imported} citation(s)</div>
+                        <div class="search-results">
+                            ${data.results.map(r => `
+                                <div class="search-item">
+                                    <div class="search-item-title">${escHtml(r.inline_mark || r.identifier)}</div>
+                                    <div class="result-text" style="font-size: 12px; margin-top: 8px;">${escHtml(r.full_citation || '')}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error || 'No valid entries found')}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        // Export
+        async function doExport() {
+            const ids = document.getElementById('exportIds').value.trim();
+            const format = document.getElementById('exportFormat').value;
+
+            if (!ids) {
+                showToast('Please enter citation IDs to export', 'error');
+                return;
+            }
+
+            window.open(`${API}/api/export/${format}?ids=${encodeURIComponent(ids)}`, '_blank');
+        }
+
+        // Utilities
         function copyText(text) {
             navigator.clipboard.writeText(text);
             showToast('Copied to clipboard!');
@@ -894,89 +1491,31 @@
             copyText(text);
         }
 
-        function copyBatchResult() {
-            if (!lastBatchResults) return;
-            const text = lastBatchResults.filter(r => r.success).map(r => r.full_citation).join('\n\n');
-            copyText(text);
-        }
-
-        // Recent lookups
-        function addToRecent(identifier, inlineMark) {
-            recentLookups = recentLookups.filter(r => r.identifier !== identifier);
-            recentLookups.unshift({ identifier, inline_mark: inlineMark, timestamp: Date.now() });
-            recentLookups = recentLookups.slice(0, 20);
-            localStorage.setItem('recentLookups', JSON.stringify(recentLookups));
-            renderRecent();
-        }
-
-        function renderRecent() {
-            const container = document.getElementById('recentList');
-            if (recentLookups.length === 0) {
-                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><p>No recent lookups yet</p></div>';
-                return;
-            }
-            container.innerHTML = `
-                <div class="recent-list">
-                    ${recentLookups.map(r => `
-                        <div class="recent-item">
-                            <div>
-                                <code>${escapeHtml(r.inline_mark)}</code>
-                                <span class="recent-item-date">${new Date(r.timestamp).toLocaleDateString()}</span>
-                            </div>
-                            <div>
-                                <button class="btn btn-small btn-secondary" onclick="copyText('${r.inline_mark.replace(/'/g, "\\'")}')">Copy</button>
-                                <button class="btn btn-small" onclick="lookupAgain('${r.identifier.replace(/'/g, "\\'")}')">Look Up</button>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        function lookupAgain(identifier) {
-            document.getElementById('lookupInput').value = identifier;
-            document.querySelector('[data-tab="lookup"]').click();
-            doLookup();
-        }
-
-        function clearRecent() {
-            recentLookups = [];
-            localStorage.removeItem('recentLookups');
-            renderRecent();
-        }
-
-        // Toast notification
-        function showToast(message) {
+        function showToast(message, type = 'success') {
             const toast = document.createElement('div');
-            toast.style.cssText = `
-                position: fixed;
-                bottom: 24px;
-                right: 24px;
-                padding: 14px 24px;
-                background: var(--success);
-                color: white;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: 500;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-                z-index: 1000;
-                animation: slideIn 0.3s ease;
-            `;
+            toast.className = 'toast';
+            toast.style.background = type === 'error' ? 'var(--error)' : 'var(--success)';
             toast.textContent = message;
             document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 2000);
+            setTimeout(() => toast.remove(), 2500);
         }
 
-        function escapeHtml(text) {
+        function escHtml(text) {
             if (!text) return '';
-            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function esc(text) {
+            if (!text) return '';
+            return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/`/g, '\\`').replace(/\$/g, '\\$');
         }
 
         // Init
         checkServer();
-        renderRecent();
         setInterval(checkServer, 30000);
+
+        // Load library when that page is opened
+        document.querySelector('[data-page="library"]').addEventListener('click', loadLibrary);
     </script>
 </body>
 </html>
-
