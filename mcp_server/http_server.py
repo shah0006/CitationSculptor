@@ -60,6 +60,7 @@ from modules.document_intelligence import (
     suggest_document_citations,
     check_citation_compliance,
 )
+from modules.config import config, resolve_vault_path
 
 from loguru import logger
 
@@ -228,6 +229,17 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     'plagiarism_check': True,
                     'llm_extraction': True,
                 },
+                'obsidian_vault_path': config.OBSIDIAN_VAULT_PATH or None,
+            })
+            return
+        
+        # === Vault Configuration ===
+        if path == '/api/config/vault':
+            vault_path = config.OBSIDIAN_VAULT_PATH
+            self._send_json({
+                'configured': bool(vault_path),
+                'path': vault_path or None,
+                'hint': 'Set OBSIDIAN_VAULT_PATH environment variable or add to .env file',
             })
             return
         
@@ -811,7 +823,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = os.path.expanduser(file_path)
+                    file_path = resolve_vault_path(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                     
@@ -856,7 +868,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = os.path.expanduser(file_path)
+                    file_path = resolve_vault_path(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                 except FileNotFoundError:
@@ -892,7 +904,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = os.path.expanduser(file_path)
+                    file_path = resolve_vault_path(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                 except Exception as e:
@@ -931,7 +943,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = os.path.expanduser(file_path)
+                    file_path = resolve_vault_path(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                 except Exception as e:
@@ -963,7 +975,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = os.path.expanduser(file_path)
+                    file_path = resolve_vault_path(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                 except Exception as e:

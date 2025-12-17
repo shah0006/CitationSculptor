@@ -181,6 +181,16 @@ class Config:
     ))
     
     # ==========================================================================
+    # Obsidian Vault Settings
+    # ==========================================================================
+    
+    # Path to your Obsidian vault (for relative path resolution)
+    # Set via environment variable OBSIDIAN_VAULT_PATH or in .env file
+    OBSIDIAN_VAULT_PATH: str = field(default_factory=lambda: _get_env(
+        "OBSIDIAN_VAULT_PATH", ""
+    ))
+    
+    # ==========================================================================
     # Output Settings
     # ==========================================================================
     
@@ -284,8 +294,47 @@ config = Config()
 # Version Information
 # ==========================================================================
 
-VERSION = "0.5.1"
+VERSION = "2.1.0"
 VERSION_DATE = "2025-12"
 
-__all__ = ['config', 'Config', 'VERSION', 'VERSION_DATE']
+
+# ==========================================================================
+# Path Resolution Helper
+# ==========================================================================
+
+def resolve_vault_path(file_path: str) -> str:
+    """
+    Resolve a file path, supporting both absolute and relative paths.
+    
+    If OBSIDIAN_VAULT_PATH is set and the path is relative (doesn't start with / or ~),
+    the vault path is prepended.
+    
+    Args:
+        file_path: Path to resolve (can be absolute or relative to vault)
+        
+    Returns:
+        Resolved absolute path
+    """
+    if not file_path:
+        return file_path
+    
+    # Expand ~ to home directory
+    file_path = os.path.expanduser(file_path)
+    
+    # If already absolute, return as-is
+    if os.path.isabs(file_path):
+        return file_path
+    
+    # If vault path is configured, prepend it
+    vault_path = config.OBSIDIAN_VAULT_PATH
+    if vault_path:
+        vault_path = os.path.expanduser(vault_path)
+        resolved = os.path.join(vault_path, file_path)
+        return resolved
+    
+    # No vault configured, return as-is (will likely fail)
+    return file_path
+
+
+__all__ = ['config', 'Config', 'VERSION', 'VERSION_DATE', 'resolve_vault_path']
 

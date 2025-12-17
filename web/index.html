@@ -1042,9 +1042,9 @@
                             <label class="form-label">Enter the path to your Markdown file</label>
                             <input type="text" id="docFilePath" placeholder="/Users/you/Documents/my-document.md">
                         </div>
-                        <div class="message info" style="margin-top: 12px;">
+                        <div class="message info" style="margin-top: 12px;" id="vault-path-hint">
                             <span>💡</span>
-                            <span>You can use relative paths from your Obsidian vault or absolute paths</span>
+                            <span id="vault-hint-text">Loading vault configuration...</span>
                         </div>
                     </div>
                     <div class="form-row" style="margin-top: 16px;">
@@ -2071,6 +2071,24 @@
 
         // Load about when that page is opened
         document.querySelector('[data-page="about"]').addEventListener('click', loadAbout);
+        
+        // Load vault configuration on page load
+        async function loadVaultConfig() {
+            try {
+                const res = await fetch(`${API}/api/config/vault`);
+                const data = await res.json();
+                const hintEl = document.getElementById('vault-hint-text');
+                if (data.configured && data.path) {
+                    hintEl.innerHTML = `Vault: <code>${data.path}</code> — relative paths are supported`;
+                } else {
+                    hintEl.innerHTML = `Set <code>OBSIDIAN_VAULT_PATH</code> in <code>.env</code> file to use relative paths, or use absolute paths`;
+                }
+            } catch (e) {
+                const hintEl = document.getElementById('vault-hint-text');
+                hintEl.textContent = 'Use absolute paths (server not reachable for config)';
+            }
+        }
+        loadVaultConfig();
     </script>
 </body>
 </html>
