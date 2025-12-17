@@ -770,6 +770,9 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             content = data.get('content')
             file_path = data.get('file_path')
             style = data.get('style', 'vancouver')
+            create_backup = data.get('create_backup', True)  # Default: create backup when file_path provided
+            
+            backup_path = None
             
             # Get content from file or direct input
             if file_path:
@@ -777,6 +780,11 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     file_path = os.path.expanduser(file_path)
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
+                    
+                    # Create backup before processing (safety feature)
+                    if create_backup:
+                        backup_path = self._create_backup(file_path, content)
+                        
                 except FileNotFoundError:
                     self._send_json({'error': f'File not found: {file_path}'}, 404)
                     return
@@ -790,9 +798,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             
             try:
                 result = self._process_document_content(content, style)
+                # Include backup path in response
+                if backup_path:
+                    result['backup_path'] = backup_path
                 self._send_json(result)
             except Exception as e:
-                self._send_json({'error': str(e)}, 500)
+                error_response = {'error': str(e)}
+                if backup_path:
+                    error_response['backup_path'] = backup_path
+                    error_response['message'] = f'Processing failed, but backup is available at: {backup_path}'
+                self._send_json(error_response, 500)
             return
         
         # Default: 404
@@ -838,6 +853,30 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'notes': citation.notes,
             'created_at': citation.created_at,
         }
+    
+    def _create_backup(self, file_path: str, content: str) -> str:
+        """
+        Create a timestamped backup of a file before processing.
+        
+        Args:
+            file_path: Original file path
+            content: Original file content
+            
+        Returns:
+            Path to the backup file
+        """
+        from datetime import datetime
+        
+        path = Path(file_path)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{path.stem}_backup_{timestamp}{path.suffix}"
+        backup_path = path.parent / backup_name
+        
+        with open(backup_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Created backup: {backup_path}")
+        return str(backup_path)
     
     def _process_document_content(self, content: str, style: str = 'vancouver') -> Dict[str, Any]:
         """

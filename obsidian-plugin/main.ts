@@ -31,6 +31,9 @@ interface CitationSculptorSettings {
   // HTTP API settings (preferred for efficiency)
   useHttpApi: boolean;
   httpApiUrl: string;
+  // Safety settings
+  createBackupBeforeProcessing: boolean;
+  lastBackupPath: string;
 }
 
 interface RecentLookup {
@@ -52,6 +55,9 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   // HTTP API settings (preferred for efficiency)
   useHttpApi: true,
   httpApiUrl: "http://127.0.0.1:3019",
+  // Safety settings
+  createBackupBeforeProcessing: true,
+  lastBackupPath: "",
 };
 
 // ============================================================================
@@ -1028,6 +1034,33 @@ class CitationSculptorSettingTab extends PluginSettingTab {
         })
       );
 
+    // Safety section
+    containerEl.createEl("h3", { text: "Safety" });
+
+    new Setting(containerEl)
+      .setName("Create Backup Before Processing")
+      .setDesc("Automatically create a timestamped backup of your note before processing citations (highly recommended)")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.createBackupBeforeProcessing).onChange(async (value) => {
+          this.plugin.settings.createBackupBeforeProcessing = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    if (this.plugin.settings.lastBackupPath) {
+      new Setting(containerEl)
+        .setName("Last Backup")
+        .setDesc(`Last backup: ${this.plugin.settings.lastBackupPath}`)
+        .addButton((button) =>
+          button.setButtonText("Clear").onClick(async () => {
+            this.plugin.settings.lastBackupPath = "";
+            await this.plugin.saveSettings();
+            this.display();
+            new Notice("Backup path cleared");
+          })
+        );
+    }
+
     // Cache section
     containerEl.createEl("h3", { text: "Cache & History" });
 
@@ -1195,24 +1228,82 @@ export default class CitationSculptorPlugin extends Plugin {
         const confirmed = await this.confirmProcessNote();
         if (!confirmed) return;
         
+        // Create backup before processing (safety feature)
+        let backupPath: string | null = null;
+        if (this.settings.createBackupBeforeProcessing && view.file) {
+          try {
+            backupPath = await this.createBackup(view.file, content);
+            new Notice(`📋 Backup created: ${backupPath}`);
+          } catch (backupError: any) {
+            const proceed = await this.confirmProceedWithoutBackup(backupError.message);
+            if (!proceed) return;
+          }
+        }
+        
         new Notice("Processing document... This may take a while for documents with many references.");
         
         try {
           const result = await this.processDocumentContent(content);
           
-          if (result.success) {
+          if (result.success && result.processed_content) {
             // Replace entire document content
             editor.setValue(result.processed_content);
-            new Notice(`✓ Processed ${result.statistics.processed}/${result.statistics.total_references} citations (${result.statistics.inline_replacements} inline replacements)`);
+            const stats = result.statistics;
+            if (stats) {
+              new Notice(`✓ Processed ${stats.processed}/${stats.total_references} citations (${stats.inline_replacements} inline replacements)`);
+            } else {
+              new Notice("✓ Document processed successfully");
+            }
+            
+            if (backupPath) {
+              new Notice(`💾 Backup saved at: ${backupPath}`);
+            }
             
             if (result.failed_references && result.failed_references.length > 0) {
               new Notice(`⚠️ ${result.failed_references.length} citations could not be resolved`);
             }
           } else {
             new Notice(`Error: ${result.error || 'Processing failed'}`);
+            if (backupPath) {
+              new Notice(`Your backup is at: ${backupPath}`);
+            }
           }
         } catch (e) {
           new Notice(`Error: ${e.message}`);
+          if (backupPath) {
+            new Notice(`Your backup is at: ${backupPath}`);
+          }
+        }
+      },
+    });
+
+    // Restore from backup command
+    this.addCommand({
+      id: "restore-from-backup",
+      name: "Restore from Last Backup",
+      editorCallback: async (editor: Editor, view: MarkdownView) => {
+        if (!this.settings.lastBackupPath) {
+          new Notice("No backup available. Process a note first to create a backup.");
+          return;
+        }
+        
+        const confirmed = await this.confirmRestore();
+        if (!confirmed) return;
+        
+        try {
+          const backupFile = this.app.vault.getAbstractFileByPath(this.settings.lastBackupPath);
+          if (!backupFile || !(backupFile instanceof this.app.vault.adapter.constructor)) {
+            // Try to read the backup file
+            const backupContent = await this.app.vault.adapter.read(this.settings.lastBackupPath);
+            if (backupContent) {
+              editor.setValue(backupContent);
+              new Notice(`✓ Restored from backup: ${this.settings.lastBackupPath}`);
+            } else {
+              new Notice(`Backup file not found: ${this.settings.lastBackupPath}`);
+            }
+          }
+        } catch (e: any) {
+          new Notice(`Error restoring backup: ${e.message}`);
         }
       },
     });
@@ -1377,10 +1468,18 @@ export default class CitationSculptorPlugin extends Plugin {
       modal.contentEl.createEl("p", {
         text: "This will process all citations in the current document, looking them up via PubMed/CrossRef and replacing inline references with proper formatted citations.",
       });
-      modal.contentEl.createEl("p", {
-        text: "A backup of your document is recommended before proceeding.",
-        cls: "mod-warning",
-      });
+      
+      if (this.settings.createBackupBeforeProcessing) {
+        modal.contentEl.createEl("p", {
+          text: "✅ A backup will be created automatically before processing.",
+          cls: "mod-success",
+        });
+      } else {
+        modal.contentEl.createEl("p", {
+          text: "⚠️ Backups are disabled. Enable them in settings for safety.",
+          cls: "mod-warning",
+        });
+      }
       
       const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
       
@@ -1401,6 +1500,92 @@ export default class CitationSculptorPlugin extends Plugin {
       
       modal.open();
     });
+  }
+
+  async confirmProceedWithoutBackup(errorMsg: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText("⚠️ Backup Failed");
+      modal.contentEl.createEl("p", {
+        text: `Could not create backup: ${errorMsg}`,
+      });
+      modal.contentEl.createEl("p", {
+        text: "Do you want to proceed without a backup? This is not recommended.",
+        cls: "mod-warning",
+      });
+      
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      
+      const confirmButton = buttonContainer.createEl("button", { 
+        text: "Proceed Without Backup",
+        cls: "mod-warning",
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      
+      modal.open();
+    });
+  }
+
+  async confirmRestore(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText("Restore from Backup?");
+      modal.contentEl.createEl("p", {
+        text: `This will replace the current note content with the backup from: ${this.settings.lastBackupPath}`,
+      });
+      modal.contentEl.createEl("p", {
+        text: "Current changes will be lost.",
+        cls: "mod-warning",
+      });
+      
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      
+      const confirmButton = buttonContainer.createEl("button", { 
+        text: "Restore",
+        cls: "mod-cta",
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      
+      modal.open();
+    });
+  }
+
+  async createBackup(file: any, content: string): Promise<string> {
+    // Generate backup filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const baseName = file.basename;
+    const backupName = `${baseName}_backup_${timestamp}.md`;
+    
+    // Create backup in the same folder as the original file
+    const parentPath = file.parent?.path || "";
+    const backupPath = parentPath ? `${parentPath}/${backupName}` : backupName;
+    
+    // Write backup file
+    await this.app.vault.create(backupPath, content);
+    
+    // Store the backup path for potential restoration
+    this.settings.lastBackupPath = backupPath;
+    await this.saveSettings();
+    
+    return backupPath;
   }
 
   async processDocumentContent(content: string): Promise<{

@@ -209,7 +209,7 @@ async def list_tools():
         ),
         Tool(
             name="citation_process_document",
-            description="Process a markdown document, looking up all citations and replacing inline references with proper Vancouver-style citations. Accepts either a file path or document content directly.",
+            description="Process a markdown document, looking up all citations and replacing inline references with proper formatted citations. Accepts either a file path or document content directly. SAFETY: Creates an automatic backup when file_path is provided (backup_path included in response).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -225,6 +225,11 @@ async def list_tools():
                         "type": "string",
                         "description": "Citation style: vancouver (default), apa, mla, chicago, harvard, ieee",
                         "default": "vancouver"
+                    },
+                    "create_backup": {
+                        "type": "boolean",
+                        "description": "Create a timestamped backup before processing (default: true when file_path is provided)",
+                        "default": True
                     }
                 },
                 "required": []
@@ -365,7 +370,8 @@ async def call_tool(name: str, arguments: dict):
                 process_document_content,
                 arguments.get('file_path'),
                 arguments.get('content'),
-                arguments.get('style', 'vancouver')
+                arguments.get('style', 'vancouver'),
+                arguments.get('create_backup', True)
             )
             return [TextContent(type="text", text=result)]
 
@@ -376,7 +382,32 @@ async def call_tool(name: str, arguments: dict):
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-def process_document_content(file_path: Optional[str], content: Optional[str], style: str = 'vancouver') -> str:
+def create_backup(file_path: str, content: str) -> str:
+    """
+    Create a timestamped backup of a file before processing.
+    
+    Args:
+        file_path: Original file path
+        content: Original file content
+        
+    Returns:
+        Path to the backup file
+    """
+    from datetime import datetime
+    from pathlib import Path
+    
+    path = Path(file_path)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"{path.stem}_backup_{timestamp}{path.suffix}"
+    backup_path = path.parent / backup_name
+    
+    with open(backup_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    
+    return str(backup_path)
+
+
+def process_document_content(file_path: Optional[str], content: Optional[str], style: str = 'vancouver', create_backup_file: bool = True) -> str:
     """
     Process a markdown document, looking up all citations and replacing inline references.
     
@@ -384,10 +415,13 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
         file_path: Path to the markdown file to process
         content: Markdown content to process (alternative to file_path)
         style: Citation style (vancouver, apa, mla, chicago, harvard, ieee)
+        create_backup_file: Create a timestamped backup before processing (default: True when file_path provided)
     
     Returns:
         Formatted result string with processed content and statistics
     """
+    backup_path = None
+    
     # Get content from file or direct input
     if file_path:
         file_path = os.path.expanduser(file_path)
@@ -396,6 +430,11 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+            
+            # Create backup before processing (safety feature)
+            if create_backup_file:
+                backup_path = create_backup(file_path, content)
+                
         except Exception as e:
             return f"Error reading file: {e}"
     
@@ -480,13 +519,25 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
     output_lines = [
         "# Document Processing Complete",
         "",
+    ]
+    
+    # Add backup information (safety feature)
+    if backup_path:
+        output_lines.extend([
+            "## 💾 Backup Created",
+            f"- **Backup saved to:** `{backup_path}`",
+            "- *If anything goes wrong, your original document is safe.*",
+            "",
+        ])
+    
+    output_lines.extend([
         "## Statistics",
         f"- **Total references found:** {len(parser.references)}",
         f"- **Successfully processed:** {len(processed_citations)}",
         f"- **Failed:** {len(failed_refs)}",
         f"- **Inline replacements:** {replacements_made}",
         "",
-    ]
+    ])
     
     if failed_refs:
         output_lines.extend([

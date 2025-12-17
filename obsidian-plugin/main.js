@@ -38,7 +38,10 @@ var DEFAULT_SETTINGS = {
   recentLookups: [],
   // HTTP API settings (preferred for efficiency)
   useHttpApi: true,
-  httpApiUrl: "http://127.0.0.1:3019"
+  httpApiUrl: "http://127.0.0.1:3019",
+  // Safety settings
+  createBackupBeforeProcessing: true,
+  lastBackupPath: ""
 };
 var CitationLookupModal = class extends import_obsidian.Modal {
   constructor(app, plugin) {
@@ -631,6 +634,23 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
         await this.plugin.saveSettings();
       })
     );
+    containerEl.createEl("h3", { text: "Safety" });
+    new import_obsidian.Setting(containerEl).setName("Create Backup Before Processing").setDesc("Automatically create a timestamped backup of your note before processing citations (highly recommended)").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.createBackupBeforeProcessing).onChange(async (value) => {
+        this.plugin.settings.createBackupBeforeProcessing = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    if (this.plugin.settings.lastBackupPath) {
+      new import_obsidian.Setting(containerEl).setName("Last Backup").setDesc(`Last backup: ${this.plugin.settings.lastBackupPath}`).addButton(
+        (button) => button.setButtonText("Clear").onClick(async () => {
+          this.plugin.settings.lastBackupPath = "";
+          await this.plugin.saveSettings();
+          this.display();
+          new import_obsidian.Notice("Backup path cleared");
+        })
+      );
+    }
     containerEl.createEl("h3", { text: "Cache & History" });
     new import_obsidian.Setting(containerEl).setName("Recent Lookups").setDesc(`${this.plugin.settings.recentLookups.length} items in history`).addButton(
       (button) => button.setButtonText("Clear History").onClick(async () => {
@@ -747,6 +767,87 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
         const modal = new CitationLookupModal(this.app, this);
         modal.open();
         setTimeout(() => modal.showTab("recent"), 100);
+      }
+    });
+    this.addCommand({
+      id: "process-current-note",
+      name: "Process Current Note (Fix All Citations)",
+      editorCallback: async (editor, view) => {
+        const content = editor.getValue();
+        if (!content) {
+          new import_obsidian.Notice("Current note is empty");
+          return;
+        }
+        const confirmed = await this.confirmProcessNote();
+        if (!confirmed)
+          return;
+        let backupPath = null;
+        if (this.settings.createBackupBeforeProcessing && view.file) {
+          try {
+            backupPath = await this.createBackup(view.file, content);
+            new import_obsidian.Notice(`\u{1F4CB} Backup created: ${backupPath}`);
+          } catch (backupError) {
+            const proceed = await this.confirmProceedWithoutBackup(backupError.message);
+            if (!proceed)
+              return;
+          }
+        }
+        new import_obsidian.Notice("Processing document... This may take a while for documents with many references.");
+        try {
+          const result = await this.processDocumentContent(content);
+          if (result.success && result.processed_content) {
+            editor.setValue(result.processed_content);
+            const stats = result.statistics;
+            if (stats) {
+              new import_obsidian.Notice(`\u2713 Processed ${stats.processed}/${stats.total_references} citations (${stats.inline_replacements} inline replacements)`);
+            } else {
+              new import_obsidian.Notice("\u2713 Document processed successfully");
+            }
+            if (backupPath) {
+              new import_obsidian.Notice(`\u{1F4BE} Backup saved at: ${backupPath}`);
+            }
+            if (result.failed_references && result.failed_references.length > 0) {
+              new import_obsidian.Notice(`\u26A0\uFE0F ${result.failed_references.length} citations could not be resolved`);
+            }
+          } else {
+            new import_obsidian.Notice(`Error: ${result.error || "Processing failed"}`);
+            if (backupPath) {
+              new import_obsidian.Notice(`Your backup is at: ${backupPath}`);
+            }
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Error: ${e.message}`);
+          if (backupPath) {
+            new import_obsidian.Notice(`Your backup is at: ${backupPath}`);
+          }
+        }
+      }
+    });
+    this.addCommand({
+      id: "restore-from-backup",
+      name: "Restore from Last Backup",
+      editorCallback: async (editor, view) => {
+        if (!this.settings.lastBackupPath) {
+          new import_obsidian.Notice("No backup available. Process a note first to create a backup.");
+          return;
+        }
+        const confirmed = await this.confirmRestore();
+        if (!confirmed)
+          return;
+        try {
+          const backupFile = this.app.vault.getAbstractFileByPath(this.settings.lastBackupPath);
+          if (!backupFile || !(backupFile instanceof this.app.vault.adapter.constructor)) {
+            const backupContent = await this.app.vault.adapter.read(this.settings.lastBackupPath);
+            if (backupContent) {
+              editor.setValue(backupContent);
+              new import_obsidian.Notice(`\u2713 Restored from backup: ${this.settings.lastBackupPath}`);
+            } else {
+              new import_obsidian.Notice(`Backup file not found: ${this.settings.lastBackupPath}`);
+            }
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Error restoring backup: ${e.message}`);
+        }
       }
     });
     this.addSettingTab(new CitationSculptorSettingTab(this.app, this));
@@ -871,6 +972,138 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     } catch (error) {
       console.error("PubMed search error:", error);
       return [];
+    }
+  }
+  // =========================================================================
+  // Document Processing
+  // =========================================================================
+  async confirmProcessNote() {
+    return new Promise((resolve) => {
+      const modal = new import_obsidian.Modal(this.app);
+      modal.titleEl.setText("Process Current Note?");
+      modal.contentEl.createEl("p", {
+        text: "This will process all citations in the current document, looking them up via PubMed/CrossRef and replacing inline references with proper formatted citations."
+      });
+      if (this.settings.createBackupBeforeProcessing) {
+        modal.contentEl.createEl("p", {
+          text: "\u2705 A backup will be created automatically before processing.",
+          cls: "mod-success"
+        });
+      } else {
+        modal.contentEl.createEl("p", {
+          text: "\u26A0\uFE0F Backups are disabled. Enable them in settings for safety.",
+          cls: "mod-warning"
+        });
+      }
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      const confirmButton = buttonContainer.createEl("button", {
+        text: "Process Document",
+        cls: "mod-cta"
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      modal.open();
+    });
+  }
+  async confirmProceedWithoutBackup(errorMsg) {
+    return new Promise((resolve) => {
+      const modal = new import_obsidian.Modal(this.app);
+      modal.titleEl.setText("\u26A0\uFE0F Backup Failed");
+      modal.contentEl.createEl("p", {
+        text: `Could not create backup: ${errorMsg}`
+      });
+      modal.contentEl.createEl("p", {
+        text: "Do you want to proceed without a backup? This is not recommended.",
+        cls: "mod-warning"
+      });
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      const confirmButton = buttonContainer.createEl("button", {
+        text: "Proceed Without Backup",
+        cls: "mod-warning"
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      modal.open();
+    });
+  }
+  async confirmRestore() {
+    return new Promise((resolve) => {
+      const modal = new import_obsidian.Modal(this.app);
+      modal.titleEl.setText("Restore from Backup?");
+      modal.contentEl.createEl("p", {
+        text: `This will replace the current note content with the backup from: ${this.settings.lastBackupPath}`
+      });
+      modal.contentEl.createEl("p", {
+        text: "Current changes will be lost.",
+        cls: "mod-warning"
+      });
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      const confirmButton = buttonContainer.createEl("button", {
+        text: "Restore",
+        cls: "mod-cta"
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      modal.open();
+    });
+  }
+  async createBackup(file, content) {
+    var _a;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const baseName = file.basename;
+    const backupName = `${baseName}_backup_${timestamp}.md`;
+    const parentPath = ((_a = file.parent) == null ? void 0 : _a.path) || "";
+    const backupPath = parentPath ? `${parentPath}/${backupName}` : backupName;
+    await this.app.vault.create(backupPath, content);
+    this.settings.lastBackupPath = backupPath;
+    await this.saveSettings();
+    return backupPath;
+  }
+  async processDocumentContent(content) {
+    if (!this.settings.useHttpApi) {
+      return {
+        success: false,
+        error: "Document processing requires the HTTP API to be enabled. Please enable it in settings."
+      };
+    }
+    try {
+      const style = this.settings.citationStyle || "vancouver";
+      const response = await (0, import_obsidian.requestUrl)({
+        url: `${this.settings.httpApiUrl}/api/process-document`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          style
+        })
+      });
+      return response.json;
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message || "Failed to process document"
+      };
     }
   }
   insertAtCursor(result, format = "full") {

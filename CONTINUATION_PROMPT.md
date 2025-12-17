@@ -98,6 +98,23 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Recent Updates (Just Completed)
 
+### Dec 17, 2025 - Safety Features & Backup System
+1. **Obsidian Plugin Safety Features:**
+   - Added automatic backup before processing notes (creates timestamped `filename_backup_YYYYMMDD_HHMMSS.md`)
+   - Added "Restore from Last Backup" command
+   - Added safety toggle in settings (enabled by default)
+   - Confirmation dialogs now show backup status
+
+2. **HTTP Server Safety Features:**
+   - Added automatic backup when processing files via `/api/process-document` with `file_path`
+   - Backup path included in response
+   - New `create_backup` parameter (default: true)
+
+3. **MCP Server Safety Features:**
+   - Added backup creation for `citation_process_document` tool
+   - Backup path shown in output
+   - New `create_backup` parameter (default: true)
+
 ### Dec 17, 2025 - Maintenance & Testing
 1. Fixed asyncio deprecation warning in `tests/test_mcp_server.py`
    - Updated `run_async()` helper to use `asyncio.new_event_loop()` instead of deprecated `asyncio.get_event_loop()`
