@@ -1228,6 +1228,19 @@
                     <p class="page-subtitle">Configure CitationSculptor preferences</p>
                 </div>
 
+                <div class="card" style="background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%); color: white; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 16px;">
+                        <span style="font-size: 2rem;">🔄</span>
+                        <div>
+                            <h3 style="margin: 0 0 4px 0; color: white;">Obsidian Plugin Sync</h3>
+                            <p style="margin: 0; opacity: 0.9; font-size: 0.9rem;">
+                                Settings changed here automatically sync with the Obsidian plugin (when "Sync with Web Server" is enabled in the plugin settings). 
+                                Citation style, backup preferences, and search results limit will be shared between interfaces.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="card" id="settingsContent">
                     <div class="loading"><div class="spinner"></div>Loading settings...</div>
                 </div>
@@ -2026,7 +2039,7 @@
                 const data = await res.json();
                 
                 if (data.success) {
-                    msgEl.innerHTML = '<div class="message success"><span>✅</span><span>Settings saved successfully!</span></div>';
+                    msgEl.innerHTML = '<div class="message success"><span>✅</span><span>Settings saved! Changes will sync to Obsidian plugin on next Pull.</span></div>';
                     // Update vault hint on process page
                     loadVaultConfig();
                 } else {
@@ -2036,8 +2049,8 @@
                 msgEl.innerHTML = `<div class="message error"><span>❌</span><span>Error: ${e.message}</span></div>`;
             }
             
-            // Clear message after 5 seconds
-            setTimeout(() => { msgEl.innerHTML = ''; }, 5000);
+            // Clear message after 6 seconds
+            setTimeout(() => { msgEl.innerHTML = ''; }, 6000);
         }
 
         async function resetSettings() {

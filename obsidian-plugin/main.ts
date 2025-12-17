@@ -34,6 +34,9 @@ interface CitationSculptorSettings {
   // Safety settings
   createBackupBeforeProcessing: boolean;
   lastBackupPath: string;
+  // Server sync settings
+  syncWithServer: boolean;
+  lastServerSync: string;
 }
 
 interface RecentLookup {
@@ -58,6 +61,9 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   // Safety settings
   createBackupBeforeProcessing: true,
   lastBackupPath: "",
+  // Server sync settings
+  syncWithServer: true,
+  lastServerSync: "",
 };
 
 // ============================================================================
@@ -1034,6 +1040,62 @@ class CitationSculptorSettingTab extends PluginSettingTab {
         })
       );
 
+    // Server Sync section
+    containerEl.createEl("h3", { text: "Settings Sync" });
+    
+    new Setting(containerEl)
+      .setName("Sync with Web Server")
+      .setDesc("Automatically sync settings with the CitationSculptor web server. Changes made in the web interface will be reflected here and vice versa.")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.syncWithServer).onChange(async (value) => {
+          this.plugin.settings.syncWithServer = value;
+          await this.plugin.saveSettings();
+          this.display();
+        })
+      );
+    
+    if (this.plugin.settings.syncWithServer) {
+      if (this.plugin.settings.lastServerSync) {
+        const syncDate = new Date(this.plugin.settings.lastServerSync);
+        containerEl.createEl("p", { 
+          text: `Last synced: ${syncDate.toLocaleString()}`,
+          cls: "setting-item-description"
+        });
+      }
+      
+      new Setting(containerEl)
+        .setName("Pull from Server")
+        .setDesc("Fetch and apply settings from the web server")
+        .addButton((button) =>
+          button.setButtonText("Pull Settings").onClick(async () => {
+            new Notice("Fetching settings from server...");
+            const success = await this.plugin.manualSyncFromServer();
+            if (success) {
+              new Notice("✅ Settings pulled from server");
+              this.display(); // Refresh the settings UI
+            } else {
+              new Notice("❌ Failed to pull settings. Is the server running?");
+            }
+          })
+        );
+      
+      new Setting(containerEl)
+        .setName("Push to Server")
+        .setDesc("Send current settings to the web server")
+        .addButton((button) =>
+          button.setButtonText("Push Settings").onClick(async () => {
+            new Notice("Pushing settings to server...");
+            const success = await this.plugin.manualSyncToServer();
+            if (success) {
+              new Notice("✅ Settings pushed to server");
+              this.display();
+            } else {
+              new Notice("❌ Failed to push settings. Is the server running?");
+            }
+          })
+        );
+    }
+
     // Safety section
     containerEl.createEl("h3", { text: "Safety" });
 
@@ -1316,10 +1378,121 @@ export default class CitationSculptorPlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    
+    // Sync with server if enabled
+    if (this.settings.syncWithServer && this.settings.useHttpApi) {
+      try {
+        await this.syncSettingsFromServer();
+      } catch (e) {
+        console.warn("Failed to sync settings from server on load:", e);
+      }
+    }
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+    
+    // Push changes to server if sync is enabled
+    if (this.settings.syncWithServer && this.settings.useHttpApi) {
+      try {
+        await this.syncSettingsToServer();
+      } catch (e) {
+        console.warn("Failed to sync settings to server:", e);
+      }
+    }
+  }
+  
+  // =========================================================================
+  // Server Settings Sync
+  // =========================================================================
+  
+  /**
+   * Fetch settings from the server and merge with local settings.
+   * Server settings take precedence for shared settings.
+   */
+  async syncSettingsFromServer(): Promise<void> {
+    try {
+      const response = await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/settings`,
+        method: "GET",
+      });
+      
+      const serverSettings = response.json;
+      
+      // Map server settings to plugin settings
+      if (serverSettings.default_citation_style) {
+        this.settings.citationStyle = serverSettings.default_citation_style;
+      }
+      if (serverSettings.create_backup_on_process !== undefined) {
+        this.settings.createBackupBeforeProcessing = serverSettings.create_backup_on_process;
+      }
+      if (serverSettings.max_search_results !== undefined) {
+        this.settings.maxSearchResults = serverSettings.max_search_results;
+      }
+      
+      this.settings.lastServerSync = new Date().toISOString();
+      await this.saveData(this.settings); // Save locally without triggering push back
+      
+    } catch (error: any) {
+      throw new Error(`Failed to fetch settings from server: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Push local settings to the server.
+   * Only pushes settings that the server understands.
+   */
+  async syncSettingsToServer(): Promise<void> {
+    try {
+      const settingsToSync = {
+        default_citation_style: this.settings.citationStyle,
+        create_backup_on_process: this.settings.createBackupBeforeProcessing,
+        max_search_results: this.settings.maxSearchResults,
+      };
+      
+      await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/settings`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(settingsToSync),
+      });
+      
+      this.settings.lastServerSync = new Date().toISOString();
+      await this.saveData(this.settings); // Save locally without triggering another push
+      
+    } catch (error: any) {
+      throw new Error(`Failed to push settings to server: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Manually trigger a settings sync from the server.
+   * Returns true if successful, false otherwise.
+   */
+  async manualSyncFromServer(): Promise<boolean> {
+    try {
+      await this.syncSettingsFromServer();
+      return true;
+    } catch (error: any) {
+      console.error("Manual sync failed:", error);
+      return false;
+    }
+  }
+  
+  /**
+   * Manually trigger a settings push to the server.
+   * Returns true if successful, false otherwise.
+   */
+  async manualSyncToServer(): Promise<boolean> {
+    try {
+      await this.syncSettingsToServer();
+      return true;
+    } catch (error: any) {
+      console.error("Manual push failed:", error);
+      return false;
+    }
   }
 
   addRecentLookup(identifier: string, inline_mark: string) {
