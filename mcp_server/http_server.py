@@ -2020,14 +2020,24 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         - News sites
         - Any other URL-based reference
         """
-        if not ref.url and not ref.title:
-            return None
-        
         from urllib.parse import urlparse
         from datetime import datetime
         
         url = ref.url or ''
-        title = ref.title or 'Untitled'
+        # Always have a title - use URL-derived title or reference number if needed
+        title = ref.title or ''
+        if not title and url:
+            # Extract title from URL path
+            try:
+                parsed = urlparse(url)
+                path_parts = [p for p in parsed.path.split('/') if p]
+                if path_parts:
+                    # Use last meaningful path segment
+                    title = path_parts[-1].replace('-', ' ').replace('_', ' ').title()
+            except:
+                pass
+        if not title:
+            title = f'Reference {ref.original_number}' if hasattr(ref, 'original_number') else 'Untitled'
         
         # Parse URL for domain info
         domain = ''
@@ -2043,27 +2053,87 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         citation_type = 'webpage'
         year = datetime.now().strftime('%Y')
         
-        # Domain-specific handling
+        # Comprehensive domain-specific handling
         domain_orgs = {
+            # === Pharmaceutical Companies ===
             'novonordisk.com': ('Novo Nordisk', 'pharmaceutical'),
             'ventyxbio.com': ('Ventyx Biosciences', 'pharmaceutical'),
             'ir.ventyxbio.com': ('Ventyx Biosciences', 'pharmaceutical'),
             'olatec.com': ('Olatec Therapeutics', 'pharmaceutical'),
+            'pfizer.com': ('Pfizer', 'pharmaceutical'),
+            'merck.com': ('Merck', 'pharmaceutical'),
+            'lilly.com': ('Eli Lilly', 'pharmaceutical'),
+            'abbvie.com': ('AbbVie', 'pharmaceutical'),
+            'gsk.com': ('GlaxoSmithKline', 'pharmaceutical'),
+            'astrazeneca.com': ('AstraZeneca', 'pharmaceutical'),
+            'sanofi.com': ('Sanofi', 'pharmaceutical'),
+            'bms.com': ('Bristol-Myers Squibb', 'pharmaceutical'),
+            'jnj.com': ('Johnson & Johnson', 'pharmaceutical'),
+            'roche.com': ('Roche', 'pharmaceutical'),
+            'boehringer-ingelheim.com': ('Boehringer Ingelheim', 'pharmaceutical'),
+            
+            # === Press Releases ===
             'prnewswire.com': ('PR Newswire', 'press_release'),
             'businesswire.com': ('Business Wire', 'press_release'),
             'globenewswire.com': ('GlobeNewswire', 'press_release'),
+            'accesswire.com': ('AccessWire', 'press_release'),
+            
+            # === News/Media ===
             'firstwordpharma.com': ('FirstWord Pharma', 'news'),
             'clinicaltrialsarena.com': ('Clinical Trials Arena', 'news'),
             'barchart.com': ('Barchart', 'news'),
+            'fiercepharma.com': ('Fierce Pharma', 'news'),
+            'statnews.com': ('STAT News', 'news'),
+            'medscape.com': ('Medscape', 'news'),
+            'healio.com': ('Healio', 'news'),
+            'medpagetoday.com': ('MedPage Today', 'news'),
+            'reuters.com': ('Reuters', 'news'),
+            'nytimes.com': ('The New York Times', 'news'),
+            'washingtonpost.com': ('The Washington Post', 'news'),
+            
+            # === Encyclopedia/Reference ===
             'wikipedia.org': ('Wikipedia', 'encyclopedia'),
             'en.wikipedia.org': ('Wikipedia', 'encyclopedia'),
+            
+            # === Clinical Trials ===
             'clinicaltrials.gov': ('ClinicalTrials.gov', 'clinical_trial'),
+            
+            # === Medical Organizations ===
             'acc.org': ('American College of Cardiology', 'organization'),
             'aha.org': ('American Heart Association', 'organization'),
+            'heart.org': ('American Heart Association', 'organization'),
+            'escardio.org': ('European Society of Cardiology', 'organization'),
+            'who.int': ('World Health Organization', 'organization'),
+            'cdc.gov': ('Centers for Disease Control', 'organization'),
+            'nih.gov': ('National Institutes of Health', 'organization'),
+            'fda.gov': ('U.S. Food and Drug Administration', 'organization'),
+            'ema.europa.eu': ('European Medicines Agency', 'organization'),
+            
+            # === Academic/Research Networks ===
             'researchgate.net': ('ResearchGate', 'preprint'),
+            'academia.edu': ('Academia.edu', 'preprint'),
+            'ssrn.com': ('SSRN', 'preprint'),
+            
+            # === Academic Publishers (fallback if DOI extraction fails) ===
             'jstage.jst.go.jp': ('J-STAGE', 'journal'),
             'imrpress.com': ('IMR Press', 'journal'),
             'aging-us.com': ('Aging', 'journal'),
+            'frontiersin.org': ('Frontiers', 'journal'),
+            'mdpi.com': ('MDPI', 'journal'),
+            'nature.com': ('Nature', 'journal'),
+            'sciencedirect.com': ('ScienceDirect', 'journal'),
+            'springer.com': ('Springer', 'journal'),
+            'wiley.com': ('Wiley', 'journal'),
+            'plos.org': ('PLOS', 'journal'),
+            'bmj.com': ('BMJ', 'journal'),
+            'nejm.org': ('NEJM', 'journal'),
+            'jamanetwork.com': ('JAMA Network', 'journal'),
+            'thelancet.com': ('The Lancet', 'journal'),
+            'ahajournals.org': ('AHA Journals', 'journal'),
+            'dovepress.com': ('Dove Medical Press', 'journal'),
+            'karger.com': ('Karger', 'journal'),
+            'ecrjournal.com': ('European Cardiology Review', 'journal'),
+            'diabetesjournals.org': ('Diabetes Journals', 'journal'),
         }
         
         # Find matching domain
@@ -2078,7 +2148,20 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Convert domain to organization name
             parts = domain.split('.')
             if len(parts) >= 2:
-                org_name = parts[0].replace('-', ' ').title()
+                # Use the main domain part (before .com, .org, etc.)
+                main_part = parts[0] if parts[0] not in ['www', 'ir', 'investor', 'news'] else (parts[1] if len(parts) > 1 else parts[0])
+                org_name = main_part.replace('-', ' ').replace('_', ' ').title()
+                
+                # Handle common abbreviations
+                abbrev_map = {
+                    'Nih': 'NIH', 'Fda': 'FDA', 'Cdc': 'CDC', 'Who': 'WHO',
+                    'Aha': 'AHA', 'Acc': 'ACC', 'Esc': 'ESC', 'Jama': 'JAMA',
+                    'Nejm': 'NEJM', 'Bmj': 'BMJ', 'Plos': 'PLOS', 'Mdpi': 'MDPI',
+                }
+                for abbrev, correct in abbrev_map.items():
+                    if org_name == abbrev:
+                        org_name = correct
+                        break
         
         # Try to scrape for more metadata
         scraped_metadata = None
@@ -2089,19 +2172,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             except:
                 pass
         
-        # Use scraped data if available
+        # Use scraped data if available (with defensive error handling)
         if scraped_metadata:
-            if scraped_metadata.title and len(scraped_metadata.title) > len(title):
-                title = scraped_metadata.title
-            if scraped_metadata.site_name:
-                org_name = scraped_metadata.site_name
-            if scraped_metadata.year:
-                year = scraped_metadata.year
-            elif scraped_metadata.published_date:
-                import re
-                year_match = re.search(r'(\d{4})', scraped_metadata.published_date)
-                if year_match:
-                    year = year_match.group(1)
+            try:
+                if getattr(scraped_metadata, 'title', None) and len(scraped_metadata.title) > len(title):
+                    title = scraped_metadata.title
+                if getattr(scraped_metadata, 'site_name', None):
+                    org_name = scraped_metadata.site_name
+                if getattr(scraped_metadata, 'year', None):
+                    year = scraped_metadata.year
+                elif getattr(scraped_metadata, 'published_date', None):
+                    import re
+                    year_match = re.search(r'(\d{4})', scraped_metadata.published_date)
+                    if year_match:
+                        year = year_match.group(1)
+            except Exception as e:
+                logger.debug(f"Error extracting scraped metadata: {e}")
         
         # Extract year from URL if available
         if url and year == datetime.now().strftime('%Y'):
@@ -2150,21 +2236,51 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         else:
             # Generic webpage format
-            if org_name:
-                full_citation = f"{inline_label}: {title}. {org_name}. {year}. [Link]({url})"
+            if url:
+                if org_name:
+                    full_citation = f"{inline_label}: {title}. {org_name}. {year}. [Link]({url})"
+                else:
+                    full_citation = f"{inline_label}: {title}. {year}. [Link]({url})"
             else:
-                full_citation = f"{inline_label}: {title}. {year}. [Link]({url})"
+                # No URL - just title-based citation
+                if org_name:
+                    full_citation = f"{inline_label}: {title}. {org_name}. {year}."
+                else:
+                    full_citation = f"{inline_label}: {title}. {year}."
         
-        logger.info(f"Created fallback {citation_type} citation for: {domain or title[:30]}")
+        # Final safety check - ensure we have a valid citation
+        if not full_citation or len(full_citation) < 10:
+            full_citation = f"{inline_label}: {title}. {year}."
         
-        return {
-            'success': True,
-            'inline_mark': inline_label,
-            'full_citation': full_citation,
-            'citation_type': citation_type,
-            'is_fallback': True,
-            'fallback_reason': f'No database record found; formatted as {citation_type}',
-        }
+        # Final validation and return
+        try:
+            # Ensure inline_label is valid
+            if not inline_label or '[^' not in inline_label:
+                inline_label = f"[^Web-{ref.original_number if hasattr(ref, 'original_number') else 'ref'}-{year}]"
+            
+            logger.info(f"Created fallback {citation_type} citation for: {domain or title[:30]}")
+            
+            return {
+                'success': True,
+                'inline_mark': inline_label,
+                'full_citation': full_citation,
+                'citation_type': citation_type,
+                'is_fallback': True,
+                'fallback_reason': f'No database record found; formatted as {citation_type}',
+            }
+        except Exception as e:
+            # Absolute last resort - NEVER fail
+            logger.warning(f"Fallback citation exception: {e}, creating minimal citation")
+            minimal_label = f"[^Ref{ref.original_number if hasattr(ref, 'original_number') else 'Unknown'}]"
+            minimal_citation = f"{minimal_label}: Reference. Accessed {year}."
+            return {
+                'success': True,
+                'inline_mark': minimal_label,
+                'full_citation': minimal_citation,
+                'citation_type': 'minimal',
+                'is_fallback': True,
+                'fallback_reason': 'Minimal citation due to processing error',
+            }
     
     def _get_detailed_error(self, ref, result: Optional[Dict]) -> Dict[str, str]:
         """Generate detailed error information for a failed reference lookup."""
@@ -2365,24 +2481,38 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 return self._format_result(result)
         
         # 7. FALLBACK: Create a webpage/organizational citation instead of failing
-        # This ensures we always produce a valid citation, even for non-academic sources
+        # This ensures we ALWAYS produce a valid citation, even for non-academic sources
         attempted_strategies.append('fallback_citation')
-        fallback_result = self._create_fallback_citation(ref, attempted_strategies)
-        if fallback_result:
-            learning.record_success(ref.url, 'fallback', 'webpage', 'fallback_citation')
-            return fallback_result
+        try:
+            fallback_result = self._create_fallback_citation(ref, attempted_strategies)
+            if fallback_result and fallback_result.get('success'):
+                learning.record_success(ref.url, 'fallback', 'webpage', 'fallback_citation')
+                return fallback_result
+        except Exception as e:
+            logger.warning(f"Fallback citation creation failed: {e}")
         
-        # 8. Only fail if we truly can't create any citation
-        failure_reason = 'Could not find or create citation via any method'
-        learning.record_failure(
-            url=ref.url,
-            title=ref.title,
-            failure_reason=failure_reason,
-            failure_type='lookup_failed',
-            attempted_strategies=attempted_strategies
-        )
+        # 8. ABSOLUTE LAST RESORT: Create a minimal citation rather than fail
+        # This should basically never happen, but we guarantee no failures
+        logger.warning(f"All strategies exhausted for reference {ref.original_number}, creating minimal citation")
+        year = datetime.now().strftime('%Y')
+        ref_num = ref.original_number if hasattr(ref, 'original_number') else 'Unknown'
+        minimal_label = f"[^Ref{ref_num}]"
+        minimal_title = ref.title[:50] if ref.title else f"Reference {ref_num}"
         
-        return {'success': False, 'error': failure_reason}
+        # Include URL if available
+        if ref.url:
+            minimal_citation = f"{minimal_label}: {minimal_title}. [Link]({ref.url})"
+        else:
+            minimal_citation = f"{minimal_label}: {minimal_title}. {year}."
+        
+        return {
+            'success': True,
+            'inline_mark': minimal_label,
+            'full_citation': minimal_citation,
+            'citation_type': 'minimal',
+            'is_fallback': True,
+            'fallback_reason': 'All lookup methods exhausted; minimal citation created',
+        }
 
 
 def run_server(port: int = 3019, host: str = '127.0.0.1'):
