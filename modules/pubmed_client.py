@@ -611,6 +611,21 @@ class PubMedClient:
         logger.warning(f"No match found for: {title[:60]}...")
         return None
 
+
+    def search_pubmed(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search PubMed and return multiple results as dictionaries for selection."""
+        results = self.search_by_title(query, max_results=max_results)
+        return [
+            {
+                'pmid': r.pmid,
+                'title': r.title,
+                'authors': r.authors,
+                'journal': r.journal,
+                'year': r.year,
+            }
+            for r in results
+        ]
+
     def fetch_article_by_pmcid(self, pmcid: str) -> Optional[ArticleMetadata]:
         """Fetch article metadata by PMC ID (e.g., PMC4424793).
         

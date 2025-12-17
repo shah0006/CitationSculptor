@@ -13,6 +13,7 @@ Tests cover:
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import json
+import xml.etree.ElementTree as ET
 
 from modules.pubmed_client import (
     SimpleCache,
@@ -248,47 +249,47 @@ class TestArticleMetadata:
 
 
 class TestPubMedClient:
-    """Test cases for PubMedClient."""
+    """Test cases for PubMedClient using direct E-utilities API (v1.3.1+)."""
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.client = PubMedClient(server_url="http://test:3017/mcp")
+        self.client = PubMedClient()
 
     def test_initialization(self):
         """Test client initialization."""
-        assert self.client.server_url == "http://test:3017/mcp"
+        # v1.3.1+: Client uses direct E-utilities, no server_url needed
         assert self.client._pmid_cache is not None
         assert self.client._conversion_cache is not None
         assert self.client._crossref_cache is not None
+        assert self.client.session is not None
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_test_connection_success(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_test_connection_success(self, mock_eutils):
         """Test successful connection check."""
-        mock_send.return_value = {"tools": []}
+        # Return a valid XML element (simulating successful response)
+        mock_eutils.return_value = ET.fromstring('<eSearchResult><Count>1</Count></eSearchResult>')
         assert self.client.test_connection() is True
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_test_connection_failure(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_test_connection_failure(self, mock_eutils):
         """Test failed connection check."""
-        mock_send.return_value = None
+        mock_eutils.return_value = None
         assert self.client.test_connection() is False
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_convert_ids(self, mock_send):
-        """Test ID conversion."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'conversions': [{
-                        'inputId': 'PMC1234567',
-                        'pmid': '12345678',
-                        'pmcid': 'PMC1234567',
-                        'doi': '10.1234/test',
-                        'status': 'success'
-                    }]
-                })
+    def test_convert_ids(self):
+        """Test ID conversion using NCBI ID Converter."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json.return_value = {
+            'records': [{
+                'requested-id': 'PMC1234567',
+                'pmcid': 'PMC1234567',
+                'pmid': '12345678',
+                'doi': '10.1234/test',
             }]
         }
+        self.client.session.get = Mock(return_value=mock_response)
 
         results = self.client.convert_ids(['PMC1234567'], id_type='pmcid')
         
@@ -296,8 +297,7 @@ class TestPubMedClient:
         assert results[0].pmid == '12345678'
         assert results[0].status == 'success'
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_convert_pmcid_to_pmid_cached(self, mock_send):
+    def test_convert_pmcid_to_pmid_cached(self):
         """Test PMCID to PMID conversion with caching."""
         # Setup cache
         cached_result = IdConversionResult(
@@ -307,36 +307,42 @@ class TestPubMedClient:
         )
         self.client._conversion_cache.set("pmcid:PMC1234567", cached_result)
 
-        # Should return cached result without calling _send_request
+        # Should return cached result without making API call
         result = self.client.convert_pmcid_to_pmid("PMC1234567")
         
         assert result == "12345678"
-        mock_send.assert_not_called()
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_fetch_article_by_pmid(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_fetch_article_by_pmid(self, mock_eutils):
         """Test fetching article by PMID."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'articles': [{
-                        'pmid': '12345678',
-                        'title': 'Test Article Title',
-                        'authors': [{'name': 'Smith J'}, {'name': 'Jones M'}],
-                        'journal': 'Test Journal',
-                        'journalInfo': {
-                            'title': 'Test Journal',
-                            'isoAbbreviation': 'Test J',
-                            'volume': '10',
-                            'issue': '2',
-                            'pages': '100-105'
-                        },
-                        'year': '2024',
-                        'doi': '10.1234/test'
-                    }]
-                })
-            }]
-        }
+        # Create mock XML response matching E-utilities format
+        xml_response = '''<?xml version="1.0"?>
+        <PubmedArticleSet>
+            <PubmedArticle>
+                <MedlineCitation>
+                    <PMID>12345678</PMID>
+                    <Article>
+                        <ArticleTitle>Test Article Title</ArticleTitle>
+                        <AuthorList>
+                            <Author><LastName>Smith</LastName><Initials>J</Initials></Author>
+                            <Author><LastName>Jones</LastName><Initials>M</Initials></Author>
+                        </AuthorList>
+                        <Journal>
+                            <Title>Test Journal</Title>
+                            <ISOAbbreviation>Test J</ISOAbbreviation>
+                            <JournalIssue>
+                                <Volume>10</Volume>
+                                <Issue>2</Issue>
+                                <PubDate><Year>2024</Year></PubDate>
+                            </JournalIssue>
+                        </Journal>
+                        <Pagination><MedlinePgn>100-105</MedlinePgn></Pagination>
+                        <ELocationID EIdType="doi">10.1234/test</ELocationID>
+                    </Article>
+                </MedlineCitation>
+            </PubmedArticle>
+        </PubmedArticleSet>'''
+        mock_eutils.return_value = ET.fromstring(xml_response)
 
         result = self.client.fetch_article_by_pmid('12345678')
 
@@ -345,70 +351,80 @@ class TestPubMedClient:
         assert result.title == 'Test Article Title'
         assert 'Smith J' in result.authors
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_fetch_article_by_pmid_caches_result(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_fetch_article_by_pmid_caches_result(self, mock_eutils):
         """Test that fetched articles are cached."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'articles': [{
-                        'pmid': '99999999',
-                        'title': 'Cached Article',
-                        'authors': [],
-                        'journal': 'Test Journal',
-                        'year': '2024'
-                    }]
-                })
-            }]
-        }
+        xml_response = '''<?xml version="1.0"?>
+        <PubmedArticleSet>
+            <PubmedArticle>
+                <MedlineCitation>
+                    <PMID>99999999</PMID>
+                    <Article>
+                        <ArticleTitle>Cached Article</ArticleTitle>
+                        <AuthorList></AuthorList>
+                        <Journal><Title>Test Journal</Title><JournalIssue><PubDate><Year>2024</Year></PubDate></JournalIssue></Journal>
+                    </Article>
+                </MedlineCitation>
+            </PubmedArticle>
+        </PubmedArticleSet>'''
+        mock_eutils.return_value = ET.fromstring(xml_response)
 
         # First call
         result1 = self.client.fetch_article_by_pmid('99999999')
         
-        # Second call should use cache
+        # Second call should use cache (mock won't be called again)
         result2 = self.client.fetch_article_by_pmid('99999999')
 
         assert result1.title == result2.title
-        # Note: Implementation may make additional calls for DOI lookup
-        # The important thing is that second call is faster (uses cache)
         assert result1 is not None
         assert result2 is not None
+        # Only one call to E-utilities (second uses cache)
+        assert mock_eutils.call_count == 1
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_search_by_title(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_search_by_title(self, mock_eutils):
         """Test searching by title."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'briefSummaries': [{
-                        'pmid': '12345678',
-                        'title': 'Matching Article Title',
-                        'authors': [],
-                        'journal': 'Test Journal',
-                        'year': '2024'
-                    }]
-                })
-            }]
-        }
+        # First call returns search results (PMIDs)
+        search_xml = '''<?xml version="1.0"?>
+        <eSearchResult><IdList><Id>12345678</Id></IdList></eSearchResult>'''
+        
+        # Second call returns article details
+        fetch_xml = '''<?xml version="1.0"?>
+        <PubmedArticleSet>
+            <PubmedArticle>
+                <MedlineCitation>
+                    <PMID>12345678</PMID>
+                    <Article>
+                        <ArticleTitle>Matching Article Title</ArticleTitle>
+                        <AuthorList></AuthorList>
+                        <Journal><Title>Test Journal</Title><JournalIssue><PubDate><Year>2024</Year></PubDate></JournalIssue></Journal>
+                    </Article>
+                </MedlineCitation>
+            </PubmedArticle>
+        </PubmedArticleSet>'''
+        
+        mock_eutils.side_effect = [
+            ET.fromstring(search_xml),
+            ET.fromstring(fetch_xml)
+        ]
 
         results = self.client.search_by_title("Matching Article")
 
         assert len(results) == 1
         assert results[0].pmid == '12345678'
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_search_by_title_truncates_long_queries(self, mock_send):
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_search_by_title_truncates_long_queries(self, mock_eutils):
         """Test that long search queries are truncated."""
-        mock_send.return_value = {'content': [{'text': '{"briefSummaries": []}'}]}
+        search_xml = '<eSearchResult><IdList></IdList></eSearchResult>'
+        mock_eutils.return_value = ET.fromstring(search_xml)
 
         long_title = "This is a very long article title " * 10  # ~300 chars
         self.client.search_by_title(long_title)
 
         # Verify the search was called
-        mock_send.assert_called_once()
-        call_args = mock_send.call_args
-        query = call_args[1]['arguments']['queryTerm'] if 'arguments' in call_args[1] else None
-        # Query should be truncated (implementation detail, but we check it's called)
+        mock_eutils.assert_called_once()
+        # The query should be truncated to ~100 chars at word boundary
 
     def test_article_to_metadata_parsing(self):
         """Test parsing various article JSON structures."""
@@ -454,30 +470,32 @@ class TestPubMedClient:
 
 
 class TestCrossRefIntegration:
-    """Test cases for CrossRef integration."""
+    """Test cases for CrossRef integration (v1.3.1+ direct API)."""
 
     def setup_method(self):
         """Set up test fixtures."""
         self.client = PubMedClient()
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_crossref_lookup_doi(self, mock_send):
-        """Test CrossRef DOI lookup."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'doi': '10.1234/test',
-                    'title': 'Test Book Chapter',
-                    'type': 'book-chapter',
-                    'authors': [{'family': 'Smith', 'given': 'John'}],
-                    'editors': [{'family': 'Editor', 'given': 'A'}],
-                    'bookTitle': 'Test Book',
-                    'publisher': 'Test Publisher',
-                    'publishedDate': {'year': 2023},
-                    'pages': '100-120'
-                })
-            }]
+    @patch('modules.pubmed_client.requests.get')
+    def test_crossref_lookup_doi(self, mock_get):
+        """Test CrossRef DOI lookup using direct API."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json.return_value = {
+            'message': {
+                'DOI': '10.1234/test',
+                'title': ['Test Book Chapter'],
+                'type': 'book-chapter',
+                'author': [{'family': 'Smith', 'given': 'John'}],
+                'editor': [{'family': 'Editor', 'given': 'A'}],
+                'container-title': ['Test Book'],
+                'publisher': 'Test Publisher',
+                'published': {'date-parts': [[2023]]},
+                'page': '100-120'
+            }
         }
+        mock_get.return_value = mock_response
 
         result = self.client.crossref_lookup_doi('10.1234/test')
 
@@ -486,18 +504,20 @@ class TestCrossRefIntegration:
         assert result.work_type == 'book-chapter'
         assert result.title == 'Test Book Chapter'
 
-    @patch.object(PubMedClient, '_send_request')
-    def test_crossref_lookup_doi_caches_result(self, mock_send):
+    @patch('modules.pubmed_client.requests.get')
+    def test_crossref_lookup_doi_caches_result(self, mock_get):
         """Test that CrossRef results are cached."""
-        mock_send.return_value = {
-            'content': [{
-                'text': json.dumps({
-                    'doi': '10.9999/cached',
-                    'title': 'Cached Entry',
-                    'type': 'journal-article'
-                })
-            }]
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json.return_value = {
+            'message': {
+                'DOI': '10.9999/cached',
+                'title': ['Cached Entry'],
+                'type': 'journal-article'
+            }
         }
+        mock_get.return_value = mock_response
 
         # First call
         result1 = self.client.crossref_lookup_doi('10.9999/cached')
@@ -506,7 +526,8 @@ class TestCrossRefIntegration:
         result2 = self.client.crossref_lookup_doi('10.9999/cached')
 
         assert result1.title == result2.title
-        assert mock_send.call_count == 1
+        # Only one API call (second uses cache)
+        assert mock_get.call_count == 1
 
     @patch('requests.get')
     def test_crossref_search_title(self, mock_get):

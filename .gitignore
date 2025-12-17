@@ -46,3 +46,6 @@ Thumbs.db
 output.log
 run_output.txt
 
+# Cache directory
+.cache/
+

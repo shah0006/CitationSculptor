@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 1.3.0 | **Updated:** Dec 2024 | **Status:** Active Development
+**Version:** 1.4.0 | **Updated:** Jun 2025 | **Status:** Active Development
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -18,9 +18,14 @@ Converted MCP server from HTTP to stdio transport for compatibility with Abacus 
 
 ---
 
-## ✅ Recently Completed (May 2025)
+## ✅ Recently Completed (Jun 2025)
 
-### API Client Refactor (v1.3.1)
+### citation_lookup.py Enhancements (v1.4.0)
+- **Clipboard Integration**: `--copy` / `-c` flag copies citation to clipboard via `pbcopy` (macOS)
+- **Result Caching**: Persistent JSON cache (`.cache/citation_cache.json`) with 30-day expiry, `--no-cache` to bypass
+- **Search Multiple**: `--search-multi QUERY` shows interactive Rich table of up to 5 PubMed results
+
+### API Client Refactor (v1.3.1) - May 2025
 - **Direct API Integration**: Restored direct E-utilities/CrossRef access in `PubMedClient` to fix server dependency issues.
 - **Bug Fixes**: Resolved valid-but-crashing type errors in ID conversion and missing methods in CrossRef lookup.
 - **Cleanup**: Removed unused legacy code and temporary methods (`_parse_conversion_result`, etc.).
@@ -49,10 +54,10 @@ Converted MCP server from HTTP to stdio transport for compatibility with Abacus 
 
 ### High Priority - citation_lookup.py Enhancements
 1. **Interactive Mode** - Run continuously, entering identifiers one at a time
-2. **Clipboard Integration** - Copy result directly to clipboard (macOS `pbcopy`)
+2. ~~**Clipboard Integration**~~ ✅ Completed in v1.4.0
 3. **Obsidian Integration** - Output format optimized for pasting into Obsidian
-4. **Search Multiple** - Search multiple titles, pick best match
-5. **Cache Results** - Persistent cache to avoid repeated API calls
+4. ~~**Search Multiple**~~ ✅ Completed in v1.4.0
+5. ~~**Cache Results**~~ ✅ Completed in v1.4.0
 
 ### Medium Priority - citation_sculptor.py
 1. **Duplicate Detection** - Detect/merge same PMID with different ref numbers

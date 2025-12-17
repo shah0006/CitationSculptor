@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2025-06-17
+
+### Added
+- **Clipboard Integration**: `--copy` / `-c` flag copies citation to clipboard via pbcopy (macOS)
+- **Result Caching**: Persistent JSON cache (`.cache/citation_cache.json`) with 30-day expiry
+- **Search Multiple**: `--search-multi QUERY` shows interactive table of up to 5 PubMed results
+
+---
+
 ## [1.3.1] - 2025-05-27
 
 ### Fixed
