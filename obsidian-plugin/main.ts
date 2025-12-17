@@ -37,6 +37,8 @@ interface CitationSculptorSettings {
   // Server sync settings
   syncWithServer: boolean;
   lastServerSync: string;
+  syncIntervalSeconds: number;  // How often to check for server changes
+  lastKnownServerModified: string;  // Track server's last_modified to detect changes
 }
 
 interface RecentLookup {
@@ -64,6 +66,8 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   // Server sync settings
   syncWithServer: true,
   lastServerSync: "",
+  syncIntervalSeconds: 30,  // Check for changes every 30 seconds
+  lastKnownServerModified: "",
 };
 
 // ============================================================================
@@ -1041,59 +1045,93 @@ class CitationSculptorSettingTab extends PluginSettingTab {
       );
 
     // Server Sync section
-    containerEl.createEl("h3", { text: "Settings Sync" });
+    containerEl.createEl("h3", { text: "🔄 Bidirectional Settings Sync" });
+    
+    containerEl.createEl("p", {
+      text: "Settings are automatically synchronized between Obsidian and the Web UI. Changes in either interface update the other within seconds.",
+      cls: "setting-item-description"
+    });
     
     new Setting(containerEl)
-      .setName("Sync with Web Server")
-      .setDesc("Automatically sync settings with the CitationSculptor web server. Changes made in the web interface will be reflected here and vice versa.")
+      .setName("Enable Sync")
+      .setDesc("Automatically sync settings with the CitationSculptor web server")
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.syncWithServer).onChange(async (value) => {
           this.plugin.settings.syncWithServer = value;
           await this.plugin.saveSettings();
+          if (value) {
+            this.plugin.startPeriodicSync();
+          } else {
+            this.plugin.stopPeriodicSync();
+          }
           this.display();
         })
       );
     
     if (this.plugin.settings.syncWithServer) {
+      new Setting(containerEl)
+        .setName("Sync Interval")
+        .setDesc("How often to check for changes from the web server (in seconds)")
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("10", "10 seconds")
+            .addOption("30", "30 seconds")
+            .addOption("60", "1 minute")
+            .addOption("300", "5 minutes")
+            .setValue(String(this.plugin.settings.syncIntervalSeconds || 30))
+            .onChange(async (value) => {
+              this.plugin.settings.syncIntervalSeconds = parseInt(value);
+              await this.plugin.saveSettings();
+              this.plugin.restartPeriodicSync();
+            })
+        );
+      
+      // Sync status
+      const statusEl = containerEl.createDiv({ cls: "setting-item" });
+      const statusInfo = statusEl.createDiv({ cls: "setting-item-info" });
+      statusInfo.createDiv({ cls: "setting-item-name", text: "Sync Status" });
+      const statusDesc = statusInfo.createDiv({ cls: "setting-item-description" });
+      
       if (this.plugin.settings.lastServerSync) {
         const syncDate = new Date(this.plugin.settings.lastServerSync);
-        containerEl.createEl("p", { 
-          text: `Last synced: ${syncDate.toLocaleString()}`,
-          cls: "setting-item-description"
-        });
+        statusDesc.setText(`Last synced: ${syncDate.toLocaleString()}`);
+      } else {
+        statusDesc.setText("Not yet synced");
       }
       
       new Setting(containerEl)
-        .setName("Pull from Server")
-        .setDesc("Fetch and apply settings from the web server")
+        .setName("Manual Sync")
+        .setDesc("Force sync now (settings are also synced automatically)")
         .addButton((button) =>
-          button.setButtonText("Pull Settings").onClick(async () => {
-            new Notice("Fetching settings from server...");
+          button.setButtonText("↓ Pull").onClick(async () => {
+            new Notice("Pulling settings from server...");
             const success = await this.plugin.manualSyncFromServer();
             if (success) {
               new Notice("✅ Settings pulled from server");
-              this.display(); // Refresh the settings UI
+              this.display();
             } else {
-              new Notice("❌ Failed to pull settings. Is the server running?");
+              new Notice("❌ Failed to pull. Is the server running?");
             }
           })
-        );
-      
-      new Setting(containerEl)
-        .setName("Push to Server")
-        .setDesc("Send current settings to the web server")
+        )
         .addButton((button) =>
-          button.setButtonText("Push Settings").onClick(async () => {
+          button.setButtonText("↑ Push").onClick(async () => {
             new Notice("Pushing settings to server...");
             const success = await this.plugin.manualSyncToServer();
             if (success) {
               new Notice("✅ Settings pushed to server");
               this.display();
             } else {
-              new Notice("❌ Failed to push settings. Is the server running?");
+              new Notice("❌ Failed to push. Is the server running?");
             }
           })
         );
+      
+      // Show what settings are synced
+      containerEl.createEl("p", {
+        text: "Synced settings: Citation Style, Backup on Process, Max Search Results",
+        cls: "setting-item-description"
+      });
     }
 
     // Safety section
@@ -1165,9 +1203,13 @@ class CitationSculptorSettingTab extends PluginSettingTab {
 
 export default class CitationSculptorPlugin extends Plugin {
   settings: CitationSculptorSettings;
+  private syncIntervalId: number | null = null;
 
   async onload() {
     await this.loadSettings();
+    
+    // Start periodic sync if enabled
+    this.startPeriodicSync();
 
     // Add ribbon icon
     this.addRibbonIcon("quote-glyph", "CitationSculptor", () => {
@@ -1374,7 +1416,10 @@ export default class CitationSculptorPlugin extends Plugin {
     this.addSettingTab(new CitationSculptorSettingTab(this.app, this));
   }
 
-  onunload() {}
+  onunload() {
+    // Stop periodic sync
+    this.stopPeriodicSync();
+  }
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -1403,8 +1448,117 @@ export default class CitationSculptorPlugin extends Plugin {
   }
   
   // =========================================================================
-  // Server Settings Sync
+  // Server Settings Sync (Bidirectional)
   // =========================================================================
+  
+  /**
+   * Start periodic sync to check for server-side changes.
+   */
+  startPeriodicSync(): void {
+    if (!this.settings.syncWithServer || !this.settings.useHttpApi) {
+      return;
+    }
+    
+    // Clear any existing interval
+    this.stopPeriodicSync();
+    
+    const intervalMs = (this.settings.syncIntervalSeconds || 30) * 1000;
+    
+    this.syncIntervalId = window.setInterval(async () => {
+      if (this.settings.syncWithServer && this.settings.useHttpApi) {
+        try {
+          await this.checkAndSyncFromServer();
+        } catch (e) {
+          // Silently ignore periodic sync errors to avoid spamming
+          console.debug("Periodic sync check failed:", e);
+        }
+      }
+    }, intervalMs);
+    
+    console.log(`CitationSculptor: Started periodic sync every ${this.settings.syncIntervalSeconds}s`);
+  }
+  
+  /**
+   * Stop periodic sync.
+   */
+  stopPeriodicSync(): void {
+    if (this.syncIntervalId !== null) {
+      window.clearInterval(this.syncIntervalId);
+      this.syncIntervalId = null;
+      console.log("CitationSculptor: Stopped periodic sync");
+    }
+  }
+  
+  /**
+   * Restart periodic sync (e.g., when interval changes).
+   */
+  restartPeriodicSync(): void {
+    this.stopPeriodicSync();
+    this.startPeriodicSync();
+  }
+  
+  /**
+   * Check if server settings have changed and sync if needed.
+   * Only pulls if the server's last_modified is newer than our last known.
+   */
+  async checkAndSyncFromServer(): Promise<boolean> {
+    try {
+      const response = await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/settings`,
+        method: "GET",
+      });
+      
+      const data = response.json;
+      const serverModified = data.settings?.last_modified || "";
+      
+      // Check if server has newer settings
+      if (serverModified && serverModified !== this.settings.lastKnownServerModified) {
+        console.log("CitationSculptor: Server settings changed, syncing...");
+        await this.applyServerSettings(data.settings);
+        return true;
+      }
+      
+      return false;
+    } catch (error: any) {
+      console.debug("Check sync failed:", error.message);
+      return false;
+    }
+  }
+  
+  /**
+   * Apply settings from server response to local settings.
+   */
+  private async applyServerSettings(serverSettings: any): Promise<void> {
+    let changed = false;
+    
+    // Map server settings to plugin settings
+    if (serverSettings.default_citation_style && 
+        serverSettings.default_citation_style !== this.settings.citationStyle) {
+      this.settings.citationStyle = serverSettings.default_citation_style;
+      changed = true;
+    }
+    if (serverSettings.create_backup_on_process !== undefined &&
+        serverSettings.create_backup_on_process !== this.settings.createBackupBeforeProcessing) {
+      this.settings.createBackupBeforeProcessing = serverSettings.create_backup_on_process;
+      changed = true;
+    }
+    if (serverSettings.max_search_results !== undefined &&
+        serverSettings.max_search_results !== this.settings.maxSearchResults) {
+      this.settings.maxSearchResults = serverSettings.max_search_results;
+      changed = true;
+    }
+    
+    // Update tracking fields
+    this.settings.lastServerSync = new Date().toISOString();
+    this.settings.lastKnownServerModified = serverSettings.last_modified || "";
+    
+    // Save locally without triggering push back
+    await this.saveData(this.settings);
+    
+    if (changed) {
+      console.log("CitationSculptor: Settings updated from server");
+    }
+  }
   
   /**
    * Fetch settings from the server and merge with local settings.
@@ -1417,21 +1571,8 @@ export default class CitationSculptorPlugin extends Plugin {
         method: "GET",
       });
       
-      const serverSettings = response.json;
-      
-      // Map server settings to plugin settings
-      if (serverSettings.default_citation_style) {
-        this.settings.citationStyle = serverSettings.default_citation_style;
-      }
-      if (serverSettings.create_backup_on_process !== undefined) {
-        this.settings.createBackupBeforeProcessing = serverSettings.create_backup_on_process;
-      }
-      if (serverSettings.max_search_results !== undefined) {
-        this.settings.maxSearchResults = serverSettings.max_search_results;
-      }
-      
-      this.settings.lastServerSync = new Date().toISOString();
-      await this.saveData(this.settings); // Save locally without triggering push back
+      const data = response.json;
+      await this.applyServerSettings(data.settings);
       
     } catch (error: any) {
       throw new Error(`Failed to fetch settings from server: ${error.message}`);
@@ -1450,7 +1591,7 @@ export default class CitationSculptorPlugin extends Plugin {
         max_search_results: this.settings.maxSearchResults,
       };
       
-      await requestUrl({
+      const response = await requestUrl({
         url: `${this.settings.httpApiUrl}/api/settings`,
         method: "POST",
         headers: {
@@ -1458,6 +1599,12 @@ export default class CitationSculptorPlugin extends Plugin {
         },
         body: JSON.stringify(settingsToSync),
       });
+      
+      // Update our tracking of server's last_modified
+      const data = response.json;
+      if (data.settings?.last_modified) {
+        this.settings.lastKnownServerModified = data.settings.last_modified;
+      }
       
       this.settings.lastServerSync = new Date().toISOString();
       await this.saveData(this.settings); // Save locally without triggering another push
