@@ -27,6 +27,9 @@ interface CitationSculptorSettings {
   showAbstractInResults: boolean;
   maxSearchResults: number;
   recentLookups: RecentLookup[];
+  // HTTP API settings (preferred for efficiency)
+  useHttpApi: boolean;
+  httpApiUrl: string;
 }
 
 interface RecentLookup {
@@ -44,6 +47,9 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   showAbstractInResults: false,
   maxSearchResults: 10,
   recentLookups: [],
+  // HTTP API settings (preferred for efficiency)
+  useHttpApi: true,
+  httpApiUrl: "http://127.0.0.1:3018",
 };
 
 // ============================================================================
@@ -830,8 +836,65 @@ class CitationSculptorSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "CitationSculptor Settings" });
 
-    // Paths section
-    containerEl.createEl("h3", { text: "Paths" });
+    // MCP Server section (preferred)
+    containerEl.createEl("h3", { text: "MCP Server (Recommended)" });
+    containerEl.createEl("p", { 
+      text: "Using the HTTP API is more efficient and avoids spawning new processes for each lookup.",
+      cls: "setting-item-description"
+    });
+
+    new Setting(containerEl)
+      .setName("Use HTTP API")
+      .setDesc("Connect to CitationSculptor MCP server via HTTP (recommended)")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.useHttpApi).onChange(async (value) => {
+          this.plugin.settings.useHttpApi = value;
+          await this.plugin.saveSettings();
+          this.display(); // Refresh to show/hide relevant settings
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("HTTP API URL")
+      .setDesc("URL of the CitationSculptor HTTP server")
+      .addText((text) =>
+        text
+          .setPlaceholder("http://127.0.0.1:3018")
+          .setValue(this.plugin.settings.httpApiUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.httpApiUrl = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Test HTTP Connection")
+      .setDesc("Check if the MCP server is running")
+      .addButton((button) =>
+        button.setButtonText("Test").onClick(async () => {
+          new Notice("Testing HTTP connection...");
+          try {
+            const response = await requestUrl({
+              url: `${this.plugin.settings.httpApiUrl}/health`,
+              method: "GET",
+            });
+            if (response.json?.status === "ok") {
+              new Notice(`✅ Connected! Server v${response.json.version}`);
+            } else {
+              new Notice("❌ Unexpected response from server");
+            }
+          } catch (error: any) {
+            new Notice(`❌ Server not reachable: ${error.message}`);
+          }
+        })
+      );
+
+    // CLI Fallback section
+    containerEl.createEl("h3", { text: "CLI Fallback" });
+    containerEl.createEl("p", {
+      text: "Used when HTTP API is disabled or unavailable.",
+      cls: "setting-item-description"
+    });
 
     new Setting(containerEl)
       .setName("CitationSculptor Path")
@@ -1114,10 +1177,35 @@ export default class CitationSculptorPlugin extends Plugin {
   }
 
   // =========================================================================
-  // Citation Lookup via CLI
+  // Citation Lookup via MCP Server HTTP API (preferred) or CLI fallback
   // =========================================================================
 
   async lookupCitation(identifier: string): Promise<CitationResult> {
+    // Try HTTP API first (more efficient - no process spawning)
+    if (this.settings.useHttpApi) {
+      try {
+        const response = await requestUrl({
+          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}`,
+          method: "GET",
+        });
+        const result = response.json;
+        return {
+          success: result.success,
+          identifier: result.identifier || identifier,
+          identifier_type: result.identifier_type || "unknown",
+          inline_mark: result.inline_mark || "",
+          endnote_citation: result.endnote_citation || result.full_citation || "",
+          full_citation: result.full_citation || "",
+          metadata: result.metadata,
+          error: result.error,
+        };
+      } catch (httpError: any) {
+        // Fall back to CLI if HTTP API is not available
+        console.warn("HTTP API unavailable, falling back to CLI:", httpError.message);
+      }
+    }
+
+    // CLI fallback
     const { exec } = require("child_process");
     const { promisify } = require("util");
     const execAsync = promisify(exec);
@@ -1151,6 +1239,21 @@ export default class CitationSculptorPlugin extends Plugin {
   }
 
   async searchPubMed(query: string, maxResults: number = 10): Promise<PubMedArticle[]> {
+    // Try HTTP API first (more efficient)
+    if (this.settings.useHttpApi) {
+      try {
+        const response = await requestUrl({
+          url: `${this.settings.httpApiUrl}/api/search?q=${encodeURIComponent(query)}&max=${maxResults}`,
+          method: "GET",
+        });
+        const data = response.json;
+        return data.results || [];
+      } catch (httpError: any) {
+        console.warn("HTTP API unavailable, falling back to direct PubMed:", httpError.message);
+      }
+    }
+
+    // Direct PubMed fallback
     const baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
     const searchUrl = `${baseUrl}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${maxResults}&retmode=json`;
 

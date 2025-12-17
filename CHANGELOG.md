@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.1] - 2025-06-17
+
+### Added
+- **HTTP Server for Obsidian Integration**: New `mcp_server/http_server.py`
+  - Lightweight HTTP server exposing all CitationSculptor features
+  - CORS-enabled for browser access
+  - Endpoints: `/api/lookup`, `/api/search`, `/api/batch`, `/api/cache/stats`
+  - Health check endpoint for connection testing
+  - Eliminates process spawning overhead from Obsidian plugin
+- **macOS LaunchAgent**: Auto-start HTTP server on login
+  - `scripts/com.citationsculptor.httpserver.plist`
+- **Improved Obsidian Plugin**:
+  - HTTP API integration (primary) with CLI fallback
+  - Connection test button in settings
+  - Settings for HTTP API URL configuration
+  - 4-tab UI: Quick Lookup, PubMed Search, Batch Lookup, Recent
+  - 8 commands for all plugin features
+- **HTTP Server Tests**: 11 new tests for HTTP endpoints
+  - Total test count: 185 tests across 6 test files
+
+### Documentation
+- Updated README with HTTP server documentation
+- Updated Obsidian plugin README with HTTP API usage
+- Architecture diagram showing HTTP/CLI fallback flow
+
+---
+
 ## [1.5.0] - 2025-06-17
 
 ### Added

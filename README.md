@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -163,13 +163,30 @@ python citation_sculptor.py "document.md" --generate-corrections
 
 ## 🔌 Obsidian Plugin
 
-Native Obsidian integration with a comprehensive UI.
+Native Obsidian integration with a comprehensive UI that connects to the CitationSculptor MCP server for efficient lookups.
 
 ### Installation
 
-1. Copy plugin files to `.obsidian/plugins/citation-sculptor/`
-2. Enable in Settings → Community Plugins
-3. Configure paths in plugin settings
+1. Build the plugin:
+   ```bash
+   cd obsidian-plugin
+   npm install && npm run build
+   ```
+2. Copy `manifest.json`, `main.js`, `styles.css` to `.obsidian/plugins/citation-sculptor/`
+3. Enable in Settings → Community Plugins
+
+### Start the HTTP Server (Recommended)
+
+The plugin works best with the HTTP server running:
+
+```bash
+# Start the server
+.venv/bin/python -m mcp_server.http_server --port 3018
+
+# Or install as a macOS service (auto-start on login)
+cp scripts/com.citationsculptor.httpserver.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.citationsculptor.httpserver.plist
+```
 
 ### Commands (Cmd+P)
 
@@ -186,6 +203,8 @@ Native Obsidian integration with a comprehensive UI.
 ### Features
 
 - **4-tab interface**: Lookup, Search, Batch, Recent
+- **HTTP API Integration**: Uses MCP server for fast lookups (no process spawning)
+- **CLI Fallback**: Automatically falls back to CLI if server unavailable
 - **One-click insert**: At cursor with auto References section
 - **Format options**: Inline only, full citation, or both
 - **Auto-copy**: Clipboard integration
@@ -195,9 +214,9 @@ Native Obsidian integration with a comprehensive UI.
 
 ## 🤖 MCP Server Integration
 
-Use CitationSculptor with AI assistants (Cursor, Claude, etc.).
+Use CitationSculptor with AI assistants (Cursor, Claude, etc.) or via HTTP API.
 
-### Configuration
+### stdio Server (for AI assistants)
 
 Add to your MCP settings (`.cursor/mcp.json`):
 
@@ -213,7 +232,32 @@ Add to your MCP settings (`.cursor/mcp.json`):
 }
 ```
 
-### Available Tools
+### HTTP Server (for Obsidian plugin & direct API access)
+
+```bash
+# Start the HTTP server
+.venv/bin/python -m mcp_server.http_server --port 3018
+
+# Test it
+curl http://127.0.0.1:3018/health
+curl "http://127.0.0.1:3018/api/lookup?id=37622666"
+curl "http://127.0.0.1:3018/api/search?q=heart+failure"
+```
+
+### HTTP API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/lookup?id=X` | GET | Auto-detect and lookup |
+| `/api/lookup/pmid?pmid=X` | GET | Lookup by PMID |
+| `/api/lookup/doi?doi=X` | GET | Lookup by DOI |
+| `/api/search?q=X&max=10` | GET | Search PubMed |
+| `/api/lookup` | POST | Lookup with JSON body |
+| `/api/batch` | POST | Batch lookup |
+| `/api/cache/stats` | GET | Cache statistics |
+
+### MCP Tools (for AI assistants)
 
 | Tool | Description |
 |------|-------------|
@@ -290,13 +334,14 @@ See [PLANNING.md](PLANNING.md) for detailed roadmap.
 
 ```
 CitationSculptor/
-├── citation_lookup.py       # Single citation CLI
+├── citation_lookup.py       # Single citation CLI (--interactive mode)
 ├── citation_sculptor.py     # Document processing CLI
 ├── gui.py                   # Streamlit web interface
 ├── mcp_server/
-│   └── server.py            # MCP server (stdio)
+│   ├── server.py            # MCP server (stdio transport)
+│   └── http_server.py       # HTTP API server (for Obsidian)
 ├── obsidian-plugin/         # Native Obsidian plugin
-│   ├── main.ts
+│   ├── main.ts              # Plugin code (uses HTTP API)
 │   ├── manifest.json
 │   └── styles.css
 ├── modules/
@@ -305,7 +350,9 @@ CitationSculptor/
 │   ├── reference_parser.py
 │   ├── inline_replacer.py
 │   └── ...
-└── tests/                   # 174 tests
+├── scripts/
+│   └── com.citationsculptor.httpserver.plist  # macOS launchd service
+└── tests/                   # 185 tests
 ```
 
 ---
@@ -323,7 +370,7 @@ python -m pytest tests/test_pubmed_client.py -v
 python -m pytest tests/ --cov=modules
 ```
 
-**Test Coverage:** 174 tests across 5 test files
+**Test Coverage:** 185 tests across 6 test files
 
 ---
 

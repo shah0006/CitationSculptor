@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.citationsculptor.httpserver</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/.venv/bin/python</string>
+        <string>-m</string>
+        <string>mcp_server.http_server</string>
+        <string>--port</string>
+        <string>3018</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/tusharshah/Developer/MCP-Servers/CitationSculptor</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/citationsculptor-http.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/citationsculptor-http.err</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+

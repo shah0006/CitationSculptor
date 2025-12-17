@@ -34,7 +34,10 @@ var DEFAULT_SETTINGS = {
   insertAtCursor: true,
   showAbstractInResults: false,
   maxSearchResults: 10,
-  recentLookups: []
+  recentLookups: [],
+  // HTTP API settings (preferred for efficiency)
+  useHttpApi: true,
+  httpApiUrl: "http://127.0.0.1:3018"
 };
 var CitationLookupModal = class extends import_obsidian.Modal {
   constructor(app, plugin) {
@@ -527,7 +530,48 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "CitationSculptor Settings" });
-    containerEl.createEl("h3", { text: "Paths" });
+    containerEl.createEl("h3", { text: "MCP Server (Recommended)" });
+    containerEl.createEl("p", {
+      text: "Using the HTTP API is more efficient and avoids spawning new processes for each lookup.",
+      cls: "setting-item-description"
+    });
+    new import_obsidian.Setting(containerEl).setName("Use HTTP API").setDesc("Connect to CitationSculptor MCP server via HTTP (recommended)").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.useHttpApi).onChange(async (value) => {
+        this.plugin.settings.useHttpApi = value;
+        await this.plugin.saveSettings();
+        this.display();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("HTTP API URL").setDesc("URL of the CitationSculptor HTTP server").addText(
+      (text) => text.setPlaceholder("http://127.0.0.1:3018").setValue(this.plugin.settings.httpApiUrl).onChange(async (value) => {
+        this.plugin.settings.httpApiUrl = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Test HTTP Connection").setDesc("Check if the MCP server is running").addButton(
+      (button) => button.setButtonText("Test").onClick(async () => {
+        var _a;
+        new import_obsidian.Notice("Testing HTTP connection...");
+        try {
+          const response = await (0, import_obsidian.requestUrl)({
+            url: `${this.plugin.settings.httpApiUrl}/health`,
+            method: "GET"
+          });
+          if (((_a = response.json) == null ? void 0 : _a.status) === "ok") {
+            new import_obsidian.Notice(`\u2705 Connected! Server v${response.json.version}`);
+          } else {
+            new import_obsidian.Notice("\u274C Unexpected response from server");
+          }
+        } catch (error) {
+          new import_obsidian.Notice(`\u274C Server not reachable: ${error.message}`);
+        }
+      })
+    );
+    containerEl.createEl("h3", { text: "CLI Fallback" });
+    containerEl.createEl("p", {
+      text: "Used when HTTP API is disabled or unavailable.",
+      cls: "setting-item-description"
+    });
     new import_obsidian.Setting(containerEl).setName("CitationSculptor Path").setDesc("Path to the CitationSculptor directory").addText(
       (text) => text.setPlaceholder("/path/to/CitationSculptor").setValue(this.plugin.settings.citationScriptPath).onChange(async (value) => {
         this.plugin.settings.citationScriptPath = value;
@@ -715,9 +759,30 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     this.saveSettings();
   }
   // =========================================================================
-  // Citation Lookup via CLI
+  // Citation Lookup via MCP Server HTTP API (preferred) or CLI fallback
   // =========================================================================
   async lookupCitation(identifier) {
+    if (this.settings.useHttpApi) {
+      try {
+        const response = await (0, import_obsidian.requestUrl)({
+          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}`,
+          method: "GET"
+        });
+        const result = response.json;
+        return {
+          success: result.success,
+          identifier: result.identifier || identifier,
+          identifier_type: result.identifier_type || "unknown",
+          inline_mark: result.inline_mark || "",
+          endnote_citation: result.endnote_citation || result.full_citation || "",
+          full_citation: result.full_citation || "",
+          metadata: result.metadata,
+          error: result.error
+        };
+      } catch (httpError) {
+        console.warn("HTTP API unavailable, falling back to CLI:", httpError.message);
+      }
+    }
     const { exec } = require("child_process");
     const { promisify } = require("util");
     const execAsync = promisify(exec);
@@ -749,6 +814,18 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
   }
   async searchPubMed(query, maxResults = 10) {
     var _a, _b, _c, _d;
+    if (this.settings.useHttpApi) {
+      try {
+        const response = await (0, import_obsidian.requestUrl)({
+          url: `${this.settings.httpApiUrl}/api/search?q=${encodeURIComponent(query)}&max=${maxResults}`,
+          method: "GET"
+        });
+        const data = response.json;
+        return data.results || [];
+      } catch (httpError) {
+        console.warn("HTTP API unavailable, falling back to direct PubMed:", httpError.message);
+      }
+    }
     const baseUrl = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
     const searchUrl = `${baseUrl}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmax=${maxResults}&retmode=json`;
     try {
