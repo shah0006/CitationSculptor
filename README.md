@@ -18,9 +18,13 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 - **Webpages**: Smart metadata extraction with fallbacks
 - **News/Blogs**: Publication date and author extraction
 
-### 🎨 Output Formats
-- **Vancouver Style** (medical/scientific standard)
-- *Coming soon: APA, MLA, Chicago, Harvard, IEEE*
+### 🎨 Citation Styles
+- **Vancouver** - Medical/scientific standard
+- **APA 7th** - Psychology, social sciences
+- **MLA 9th** - Humanities, literature
+- **Chicago** - History, arts
+- **Harvard** - General academic
+- **IEEE** - Engineering, computer science
 
 ### 🖥️ Multiple Interfaces
 | Interface | Use Case |
@@ -296,57 +300,71 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 ## 📊 Source Type Support
 
-**Legend:** ✅ Fully supported | ⚠️ Partial support | 📋 Planned
+**Legend:** ✅ Fully supported | ⚠️ Partial support
 
 | Source | Detection | Lookup | Format | Status |
 |--------|-----------|--------|--------|--------|
 | PubMed Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 | CrossRef Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 | Book Chapters | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
-| Books (ISBN) | ⚠️ Partial | 📋 Planned | ✅ Supported | v1.7 |
+| Books (ISBN) | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 | Webpages | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 | News Articles | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 | Blogs | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
-| PDFs | ⚠️ Partial | 📋 Planned | ✅ Supported | v1.8 |
-| arXiv | 📋 Planned | 📋 Planned | 📋 Planned | v1.7 |
-| bioRxiv/medRxiv | 📋 Planned | 📋 Planned | 📋 Planned | v1.7 |
+| PDFs | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| arXiv | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| bioRxiv/medRxiv | ✅ Supported | ⚠️ Partial | ✅ Supported | Complete |
+| OpenAlex | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
+| Semantic Scholar | ✅ Supported | ✅ Supported | ✅ Supported | Complete |
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Version History
 
-### v1.6.0 - Multi-Format Support
-- [ ] APA 7th Edition
-- [ ] MLA 9th Edition
-- [ ] Chicago/Turabian
-- [ ] Format selector in CLI & plugin
+### ✅ v2.0.0 - Smart Features (Complete)
+- [x] Citation database (SQLite) with full-text search
+- [x] Duplicate detection with fuzzy matching
+- [x] Bibliography auto-generation
+- [x] Document processing across all interfaces
 
-### v1.7.0 - Enhanced Sources
-- [ ] arXiv API integration
-- [ ] bioRxiv/medRxiv support
-- [ ] ISBN → Google Books lookup
-- [ ] Wayback Machine for archived URLs
-- [ ] OpenAlex API
+### ✅ v1.9.0 - Import/Export (Complete)
+- [x] BibTeX import & export
+- [x] RIS import & export
 
-### v1.8.0 - PDF Support
-- [ ] PDF metadata extraction
-- [ ] DOI extraction from PDF content
-- [ ] PDF drag & drop in Obsidian
+### ✅ v1.8.0 - Additional Sources (Complete)
+- [x] Wayback Machine integration
+- [x] OpenAlex API
+- [x] Semantic Scholar API
+- [x] PDF metadata extraction
 
-### v1.9.0 - Import/Export
-- [ ] BibTeX export
-- [ ] RIS export
-- [ ] BibTeX import
-- [ ] Zotero integration
+### ✅ v1.7.0 - Enhanced Sources (Complete)
+- [x] arXiv API integration
+- [x] bioRxiv/medRxiv support
+- [x] ISBN → Google Books/OpenLibrary lookup
 
-### v2.0.0 - Smart Features
-- [ ] LLM-powered metadata extraction
-- [ ] Citation database (SQLite)
-- [ ] Duplicate detection
-- [ ] Link verification
+### ✅ v1.6.0 - Multi-Format Support (Complete)
+- [x] APA 7th Edition
+- [x] MLA 9th Edition
+- [x] Chicago/Turabian
+- [x] Harvard
+- [x] IEEE
+- [x] Format selector in CLI, Web UI & plugin
+
+---
+
+## 🔮 Future Roadmap
+
+### v2.1.0 - Enhanced Integration
+- [ ] Zotero sync
+- [ ] Mendeley integration
 - [ ] Citation graph visualization
 
-See [PLANNING.md](PLANNING.md) for detailed roadmap.
+### v2.2.0 - Advanced Features
+- [ ] LLM-powered metadata extraction for edge cases
+- [ ] Link verification & broken link detection
+- [ ] Batch PDF processing
+
+See [PLANNING.md](PLANNING.md) and [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
