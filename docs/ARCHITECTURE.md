@@ -22,7 +22,7 @@ CitationSculptor/
 ├── mcp_server/
 │   └── server.py           # MCP server for AI agent access
 └── tests/
-    └── *.py                # Unit tests (166 tests)
+    └── *.py                # Unit tests (226 tests)
 ```
 
 ## Key Classes

@@ -105,8 +105,9 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 | Issue | Workaround | Priority |
 |-------|------------|----------|
 | Tkinter crash on macOS | Use CLI mode | Low |
-| Duplicate citations in output | Manual dedup | Medium |
 | Some sites block scraping | Use Null placeholders | Low |
+
+> **Note:** Duplicate citation detection is now available via `/api/duplicates` endpoint and `DuplicateDetector` module (v2.0).
 
 ---
 

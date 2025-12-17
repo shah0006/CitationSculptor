@@ -98,6 +98,16 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Recent Updates (Just Completed)
 
+### Dec 17, 2025 - Maintenance & Testing
+1. Fixed asyncio deprecation warning in `tests/test_mcp_server.py`
+   - Updated `run_async()` helper to use `asyncio.new_event_loop()` instead of deprecated `asyncio.get_event_loop()`
+2. Verified duplicate detection is implemented (DuplicateDetector module + `/api/duplicates` endpoint)
+   - Updated PLANNING.md to remove outdated "duplicate citations" known issue
+3. Updated documentation test counts (166 → 226 tests)
+4. Ran full test suite: **226 tests passing, 0 warnings**
+5. Verified HTTP server and Web UI functionality
+
+### Previous Updates
 1. Updated README.md:
    - Changed "Roadmap" section to "Version History" showing all v1.6-v2.0 as complete
    - Added expanded "Future Roadmap" section (v2.1-v2.4 planned features)
@@ -137,7 +147,7 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 ## Notes
 
 - HTTP server runs on port 3019 (localhost only, secure)
-- All tests pass (185 tests)
+- All tests pass (226 tests, 0 warnings)
 - bioRxiv/medRxiv API can be finicky (marked as ⚠️ Partial for Lookup)
 - Obsidian plugin requires HTTP server to be running for best performance
 
