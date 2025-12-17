@@ -52,6 +52,7 @@ from modules.wayback_client import WaybackClient
 from modules.openalex_client import OpenAlexClient
 from modules.semantic_scholar_client import SemanticScholarClient
 from modules.pubmed_client import WebpageScraper
+from modules.learning_engine import get_learning_engine, LearningEngine
 from modules.document_intelligence import (
     DocumentIntelligence,
     LinkVerifier,
@@ -438,6 +439,25 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             })
             return
         
+        # === Learning Engine API ===
+        if path == '/api/learning/stats':
+            learning = get_learning_engine()
+            stats = learning.get_failure_stats()
+            self._send_json({
+                'success': True,
+                'stats': stats,
+            })
+            return
+        
+        if path == '/api/learning/export':
+            learning = get_learning_engine()
+            data = learning.export_learnings()
+            self._send_json({
+                'success': True,
+                'data': data,
+            })
+            return
+        
         # === Document Intelligence - Link Verification ===
         if path == '/api/verify-link':
             url = query.get('url', [None])[0]
@@ -744,6 +764,49 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     self._send_json({'error': 'Failed to save settings'}, 500)
             except Exception as e:
                 self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Learning Engine API - Add Correction ===
+        if path == '/api/learning/correction':
+            url = data.get('url')
+            title = data.get('title')
+            identifier = data.get('identifier')
+            identifier_type = data.get('identifier_type')  # 'pmid', 'doi', 'pmcid'
+            
+            if not identifier or not identifier_type:
+                self._send_json({'error': 'Missing identifier or identifier_type'}, 400)
+                return
+            
+            if identifier_type not in ['pmid', 'doi', 'pmcid']:
+                self._send_json({'error': 'Invalid identifier_type. Must be pmid, doi, or pmcid'}, 400)
+                return
+            
+            learning = get_learning_engine()
+            learning.add_user_correction(
+                original_url=url,
+                original_title=title,
+                correct_identifier=identifier,
+                identifier_type=identifier_type,
+                source='api'
+            )
+            
+            self._send_json({
+                'success': True,
+                'message': f'Correction recorded: {identifier_type}={identifier}',
+            })
+            return
+        
+        # === Learning Engine API - Import Learnings ===
+        if path == '/api/learning/import':
+            learning = get_learning_engine()
+            try:
+                learning.import_learnings(data)
+                self._send_json({
+                    'success': True,
+                    'message': 'Learnings imported successfully',
+                })
+            except Exception as e:
+                self._send_json({'error': f'Import failed: {e}'}, 500)
             return
         
         # === Restore from Backup API ===
@@ -2022,41 +2085,95 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         """Process a single reference, attempting to look it up.
         
         Lookup priority:
-        1. Extract identifiers from URL (PMID, PMCID, DOI)
-        2. Check metadata for DOI (extracted from reference text)
-        3. Scrape webpage for DOI/metadata (if URL available)
-        4. Title search as last resort
+        1. Check learning engine for user corrections
+        2. Check learning engine for learned patterns
+        3. Extract identifiers from URL (PMID, PMCID, DOI)
+        4. Check metadata for DOI (extracted from reference text)
+        5. Scrape webpage for DOI/metadata (if URL available)
+        6. Title search as last resort
+        7. Record failure for future learning
         """
-        # Try to extract identifiers from URL
+        learning = get_learning_engine()
+        attempted_strategies = []
+        
+        # 1. Check learning engine for user corrections or learned patterns
+        if ref.url or ref.title:
+            suggestions = learning.suggest_resolution(ref.url, ref.title)
+            for suggestion in suggestions:
+                attempted_strategies.append(f"learning:{suggestion['type']}")
+                
+                if suggestion['type'] == 'user_correction':
+                    # User already told us the correct identifier
+                    identifier = suggestion['identifier']
+                    id_type = suggestion['identifier_type']
+                    logger.info(f"Using user correction: {id_type}={identifier}")
+                    
+                    if id_type == 'pmid':
+                        result = self.lookup.lookup_pmid(identifier)
+                    elif id_type == 'doi':
+                        result = self.lookup.lookup_doi(identifier)
+                    elif id_type == 'pmcid':
+                        result = self.lookup.lookup_pmcid(identifier)
+                    else:
+                        continue
+                    
+                    if result.success:
+                        learning.record_success(ref.url, identifier, id_type, 'user_correction')
+                        return self._format_result(result)
+                
+                elif suggestion['type'] == 'url_pattern' and suggestion.get('identifier'):
+                    # Learning engine found identifier via URL pattern
+                    identifier = suggestion['identifier']
+                    id_type = suggestion['identifier_type']
+                    logger.info(f"Using learned pattern: {id_type}={identifier}")
+                    
+                    if id_type == 'doi':
+                        result = self.lookup.lookup_doi(identifier)
+                        if result.success:
+                            learning.record_success(ref.url, identifier, id_type, 'url_pattern')
+                            return self._format_result(result)
+        
+        # 2. Try to extract identifiers from URL
+        attempted_strategies.append('url_extraction')
         pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
         pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
         doi = self.type_detector.extract_doi(ref.url) if ref.url else None
         
-        # Also check ref.metadata for DOI extracted from reference text
-        # Format in text: "doi:10.xxxx/yyyy" or "DOI: 10.xxxx/yyyy"
+        # 3. Also check ref.metadata for DOI extracted from reference text
         if not doi and ref.metadata:
             doi = ref.metadata.get('doi')
             if doi:
                 logger.debug(f"Found DOI in metadata: {doi}")
+                attempted_strategies.append('metadata_doi')
         
-        # Attempt lookup by identifier priority
+        # 4. Attempt lookup by identifier priority
         if pmid:
+            attempted_strategies.append('pmid_lookup')
             result = self.lookup.lookup_pmid(pmid)
             if result.success:
+                learning.record_success(ref.url, pmid, 'pmid', 'url_extraction')
                 return self._format_result(result)
         
         if pmcid:
+            attempted_strategies.append('pmcid_lookup')
             result = self.lookup.lookup_pmcid(pmcid)
             if result.success:
+                learning.record_success(ref.url, pmcid, 'pmcid', 'url_extraction')
                 return self._format_result(result)
         
         if doi:
+            attempted_strategies.append('doi_lookup')
             result = self.lookup.lookup_doi(doi)
             if result.success:
+                learning.record_success(ref.url, doi, 'doi', 'metadata_or_url')
+                # Learn from this success if DOI was in URL
+                if ref.url and doi in ref.url:
+                    learning.learn_from_url(ref.url, doi, 'doi')
                 return self._format_result(result)
         
-        # If no identifier found but we have a URL, try scraping the webpage for DOI
+        # 5. If no identifier found but we have a URL, try scraping the webpage for DOI
         if ref.url and not (pmid or pmcid or doi):
+            attempted_strategies.append('webpage_scraping')
             try:
                 scraper = WebpageScraper(timeout=10)
                 scraped_metadata = scraper.extract_metadata(ref.url)
@@ -2066,6 +2183,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                         logger.info(f"Found DOI via webpage scraping: {scraped_metadata.doi}")
                         result = self.lookup.lookup_doi(scraped_metadata.doi)
                         if result.success:
+                            learning.record_success(ref.url, scraped_metadata.doi, 'doi', 'webpage_scraping')
                             return self._format_result(result)
                     
                     # Check if scraping found a PMID
@@ -2073,17 +2191,32 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                         logger.info(f"Found PMID via webpage scraping: {scraped_metadata.pmid}")
                         result = self.lookup.lookup_pmid(scraped_metadata.pmid)
                         if result.success:
+                            learning.record_success(ref.url, scraped_metadata.pmid, 'pmid', 'webpage_scraping')
                             return self._format_result(result)
             except Exception as e:
                 logger.debug(f"Webpage scraping failed for {ref.url}: {e}")
         
-        # Try title search as last resort
+        # 6. Try title search as last resort
         if ref.title:
+            attempted_strategies.append('title_search')
             result = self.lookup.lookup_auto(ref.title)
             if result.success:
+                # Record success with the identifier found
+                if result.identifier:
+                    learning.record_success(ref.url, result.identifier, result.identifier_type or 'unknown', 'title_search')
                 return self._format_result(result)
         
-        return {'success': False, 'error': 'Could not find citation'}
+        # 7. Record failure for future learning
+        failure_reason = 'Could not find citation via any method'
+        learning.record_failure(
+            url=ref.url,
+            title=ref.title,
+            failure_reason=failure_reason,
+            failure_type='lookup_failed',
+            attempted_strategies=attempted_strategies
+        )
+        
+        return {'success': False, 'error': failure_reason}
 
 
 def run_server(port: int = 3019, host: str = '127.0.0.1'):
