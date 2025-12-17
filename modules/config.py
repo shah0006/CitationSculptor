@@ -161,6 +161,21 @@ class Config:
         "VERBOSE", False
     ))
     
+    # Enable file logging
+    ENABLE_FILE_LOGGING: bool = field(default_factory=lambda: _get_env_bool(
+        "ENABLE_FILE_LOGGING", True
+    ))
+    
+    # Log file rotation size (MB)
+    LOG_ROTATION_SIZE_MB: int = field(default_factory=lambda: _get_env_int(
+        "LOG_ROTATION_SIZE_MB", 10
+    ))
+    
+    # Number of log files to retain
+    LOG_RETENTION_COUNT: int = field(default_factory=lambda: _get_env_int(
+        "LOG_RETENTION_COUNT", 5
+    ))
+    
     # ==========================================================================
     # Cache Settings
     # ==========================================================================

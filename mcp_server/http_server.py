@@ -64,6 +64,8 @@ from modules.config import config, resolve_vault_path
 from modules.settings_manager import settings_manager, get_settings, update_settings
 
 from loguru import logger
+from modules.logging_setup import setup_logging, log_document_operation, init_from_config, get_recent_logs, get_log_directory
+from modules.config import VERSION
 
 # Static files directory
 WEB_DIR = Path(__file__).parent.parent / 'web'
@@ -370,6 +372,68 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             settings = get_settings()
             self._send_json({
                 'last_modified': settings.last_modified,
+            })
+            return
+        
+        # === Logging API ===
+        if path == '/api/logs':
+            max_lines = int(query.get('lines', ['100'])[0])
+            log_type = query.get('type', ['main'])[0]  # main, errors, processing
+            
+            log_dir = get_log_directory()
+            
+            log_files = {
+                'main': log_dir / 'citationsculptor.log',
+                'errors': log_dir / 'errors.log',
+                'processing': log_dir / 'document_processing.log',
+            }
+            
+            log_file = log_files.get(log_type, log_files['main'])
+            
+            if log_file.exists():
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                        recent = lines[-max_lines:] if len(lines) > max_lines else lines
+                    
+                    self._send_json({
+                        'success': True,
+                        'log_type': log_type,
+                        'log_file': str(log_file),
+                        'total_lines': len(lines),
+                        'returned_lines': len(recent),
+                        'content': ''.join(recent),
+                    })
+                except Exception as e:
+                    self._send_json({'error': f'Failed to read log: {e}'}, 500)
+            else:
+                self._send_json({
+                    'success': True,
+                    'log_type': log_type,
+                    'log_file': str(log_file),
+                    'total_lines': 0,
+                    'returned_lines': 0,
+                    'content': 'Log file not found. Logging may not be enabled.',
+                })
+            return
+        
+        if path == '/api/logs/info':
+            log_dir = get_log_directory()
+            
+            log_files = []
+            if log_dir.exists():
+                for f in log_dir.iterdir():
+                    if f.is_file():
+                        log_files.append({
+                            'name': f.name,
+                            'path': str(f),
+                            'size_bytes': f.stat().st_size,
+                            'modified': f.stat().st_mtime,
+                        })
+            
+            self._send_json({
+                'log_directory': str(log_dir),
+                'files': sorted(log_files, key=lambda x: x['modified'], reverse=True),
             })
             return
         
@@ -705,6 +769,10 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     f.write(backup_content)
                 
                 logger.info(f"Restored {target_path} from backup {backup_path}")
+                log_document_operation("restore", target_path, {
+                    "backup_used": backup_path,
+                    "success": True
+                })
                 
                 self._send_json({
                     'success': True,
@@ -1101,6 +1169,11 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                         result['saved_path'] = str(resolved_file_path)
                         result['message'] = f'Processed document saved to: {resolved_file_path}'
                         logger.info(f"Saved processed document to: {resolved_file_path}")
+                        log_document_operation("save", str(resolved_file_path), {
+                            "backup_path": backup_path,
+                            "refs_processed": result.get('statistics', {}).get('processed', 0),
+                            "refs_failed": result.get('statistics', {}).get('failed', 0)
+                        })
                     except Exception as e:
                         result['saved_to_file'] = False
                         result['save_error'] = str(e)
@@ -1565,6 +1638,10 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             f.write(content)
         
         logger.info(f"Created backup: {backup_path}")
+        log_document_operation("backup", str(file_path), {
+            "backup_path": str(backup_path),
+            "content_length": len(content)
+        })
         return str(backup_path)
     
     def _analyze_document_statistics(self, content: str) -> Dict[str, Any]:
@@ -1907,6 +1984,10 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
 
 def run_server(port: int = 3019, host: str = '127.0.0.1'):
     """Start the HTTP server."""
+    # Initialize logging from config
+    init_from_config()
+    logger.info(f"Starting CitationSculptor HTTP Server v{VERSION}")
+    
     # Ensure data directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
