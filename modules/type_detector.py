@@ -113,12 +113,20 @@ class CitationTypeDetector:
         - doi.org/10.xxxx/... 
         - publisher.com/doi/10.xxxx/...
         - publisher.com/articles/10.xxxx/...
+        - nature.com/articles/article_id (converts to 10.1038/article_id)
         
         Also cleans up:
         - Query parameters (?key=value)
         - Trailing punctuation
         - OUP-style article IDs (e.g., /7236864 after DOI in academic.oup.com URLs)
         """
+        # Special handling for Nature.com URLs
+        # Format: nature.com/articles/s41591-019-0675-0 → DOI: 10.1038/s41591-019-0675-0
+        nature_match = re.search(r'nature\.com/articles/([a-z]\d+[-\w]+)', url, re.IGNORECASE)
+        if nature_match:
+            article_id = nature_match.group(1)
+            return f'10.1038/{article_id}'
+        
         for pattern in self.DOI_PATTERNS:
             match = re.search(pattern, url, re.IGNORECASE)
             if match:
