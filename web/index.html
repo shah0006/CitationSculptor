@@ -589,7 +589,15 @@
                     <label>Enter PMID, DOI, PMC ID, or article title</label>
                     <div class="input-row">
                         <input type="text" id="lookupInput" placeholder="e.g., 37622666, 10.1093/eurheartj/ehad195, or ESC heart failure guidelines">
-                        <select id="formatSelect">
+                        <select id="styleSelect" title="Citation Style">
+                            <option value="vancouver">Vancouver</option>
+                            <option value="apa">APA 7th</option>
+                            <option value="mla">MLA 9th</option>
+                            <option value="chicago">Chicago</option>
+                            <option value="harvard">Harvard</option>
+                            <option value="ieee">IEEE</option>
+                        </select>
+                        <select id="formatSelect" title="Output Format">
                             <option value="full">Full</option>
                             <option value="inline">Inline Only</option>
                             <option value="endnote">Endnote Only</option>
@@ -718,11 +726,12 @@
             const input = document.getElementById('lookupInput').value.trim();
             if (!input) return;
 
+            const style = document.getElementById('styleSelect').value;
             const container = document.getElementById('lookupResult');
             container.innerHTML = '<div class="loading"><div class="spinner"></div>Looking up...</div>';
 
             try {
-                const res = await fetch(`${API_URL}/api/lookup?id=${encodeURIComponent(input)}`);
+                const res = await fetch(`${API_URL}/api/lookup?id=${encodeURIComponent(input)}&style=${style}`);
                 const data = await res.json();
                 lastResult = data;
 

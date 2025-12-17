@@ -27,6 +27,7 @@ from typing import Optional, Dict, Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from citation_lookup import CitationLookup, LookupResult
+from modules.formatter_factory import get_available_styles, get_style_info
 
 # Static files directory
 WEB_DIR = Path(__file__).parent.parent / 'web'
@@ -117,14 +118,27 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # API Endpoints
         if path == '/health':
-            self._send_json({'status': 'ok', 'version': '1.5.1'})
+            self._send_json({'status': 'ok', 'version': '1.6.0'})
+            return
+        
+        if path == '/api/styles':
+            self._send_json({
+                'styles': get_available_styles(),
+                'info': get_style_info(),
+                'default': 'vancouver'
+            })
             return
         
         if path == '/api/lookup':
             identifier = query.get('id', [None])[0]
+            style = query.get('style', ['vancouver'])[0]
             if not identifier:
                 self._send_json({'error': 'Missing id parameter'}, 400)
                 return
+            
+            # Set style if different from current
+            if style != self.lookup.style:
+                self.lookup.set_style(style)
             
             result = self.lookup.lookup_auto(identifier)
             self._send_json(self._format_result(result))

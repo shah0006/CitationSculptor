@@ -29,6 +29,12 @@ from citation_lookup import LookupResult
 class MockLookup:
     """Mock CitationLookup for testing."""
     
+    def __init__(self):
+        self.style = "vancouver"
+    
+    def set_style(self, style):
+        self.style = style
+    
     def lookup_auto(self, identifier):
         if identifier == "32089132":
             return LookupResult(

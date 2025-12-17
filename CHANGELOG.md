@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.7.0] - 2025-06-17
+
+### Added
+- **arXiv Integration**: Full support for arXiv preprint lookup
+  - Auto-detect arXiv IDs (e.g., `2301.04104`, `arxiv:2301.04104`)
+  - New `modules/arxiv_client.py` with search and metadata fetching
+  - Proper preprint citation formatting with category and URL
+- **bioRxiv/medRxiv Support**: Preprint server integration
+  - New `modules/preprint_client.py` for bioRxiv/medRxiv API
+  - Auto-detect preprint DOIs (10.1101/...)
+  - Notes if preprint has been published in a journal
+- **ISBN Lookup**: Book citation support via Google Books and OpenLibrary
+  - New `modules/book_client.py` with dual-API fallback
+  - Validates ISBN-10 and ISBN-13 checksums
+  - Rich book metadata including publisher, page count, edition
+- **Enhanced Auto-Detection**: `lookup_auto()` now handles:
+  - arXiv IDs (new and old format)
+  - ISBNs (with or without hyphens)
+  - bioRxiv/medRxiv preprint DOIs
+  - Standard PubMed identifiers (PMID, DOI, PMC ID, title)
+
+---
+
+## [1.6.0] - 2025-06-17
+
+### Added
+- **Multiple Citation Styles**: Support for 6 major citation formats
+  - Vancouver (medical/scientific) - default
+  - APA 7th Edition (social sciences)
+  - MLA 9th Edition (humanities)
+  - Chicago/Turabian (notes-bibliography)
+  - Harvard (author-date)
+  - IEEE (engineering/computer science)
+- **Base Formatter Architecture**: New `modules/base_formatter.py` with shared functionality
+  - Common author formatting methods for each style
+  - Shared utilities for DOI formatting, label generation, organization extraction
+  - Style-specific formatters inherit from base class
+- **CLI Style Support**: New `--style` / `-s` flag to select citation format
+  - `--list-styles` to show available styles and descriptions
+  - Style persists in cache per-style (same article, different styles cached separately)
+- **Interactive Mode Style Command**: `/style` to view/change style during session
+- **Web UI Style Selector**: Dropdown to choose citation style before lookup
+- **Obsidian Plugin Style Settings**: New dropdown in plugin settings
+  - Style selector in Quick Lookup tab for on-the-fly changes
+  - Persistent style preference saved to settings
+
+### Changed
+- Cache now includes style in key (different style = separate cache entry)
+- HTTP API `/api/lookup` accepts `?style=` query parameter
+- New endpoint `/api/styles` returns available styles and descriptions
+- VancouverFormatter now inherits from BaseFormatter
+
+---
+
 ## [1.5.2] - 2025-06-17
 
 ### Added

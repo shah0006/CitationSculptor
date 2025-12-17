@@ -2,43 +2,19 @@
 
 import re
 from typing import Optional
-from dataclasses import dataclass
 from loguru import logger
 
 from .pubmed_client import ArticleMetadata, CrossRefMetadata, WebpageMetadata
+from .base_formatter import BaseFormatter, FormattedCitation
 
 
-@dataclass
-class FormattedCitation:
-    """A fully formatted citation."""
-    label: str  # e.g., "[^SmithJA-2024-12345678]"
-    full_citation: str  # Complete formatted citation
-    citation_type: str
-    original_number: int
-    pmid: Optional[str] = None
-    doi: Optional[str] = None
-
-
-class VancouverFormatter:
+class VancouverFormatter(BaseFormatter):
     """Formats citations in Vancouver style."""
-
-    MONTH_ABBREV = {
-        '1': 'Jan', '01': 'Jan', 'january': 'Jan',
-        '2': 'Feb', '02': 'Feb', 'february': 'Feb',
-        '3': 'Mar', '03': 'Mar', 'march': 'Mar',
-        '4': 'Apr', '04': 'Apr', 'april': 'Apr',
-        '5': 'May', '05': 'May', 'may': 'May',
-        '6': 'Jun', '06': 'Jun', 'june': 'Jun',
-        '7': 'Jul', '07': 'Jul', 'july': 'Jul',
-        '8': 'Aug', '08': 'Aug', 'august': 'Aug',
-        '9': 'Sep', '09': 'Sep', 'september': 'Sep',
-        '10': 'Oct', 'october': 'Oct',
-        '11': 'Nov', 'november': 'Nov',
-        '12': 'Dec', 'december': 'Dec',
-    }
+    
+    STYLE_NAME = "vancouver"
 
     def __init__(self, max_authors: int = 3):
-        self.max_authors = max_authors
+        super().__init__(max_authors)
 
     def format_journal_article(self, metadata: ArticleMetadata, original_number: int) -> FormattedCitation:
         """Format a journal article in Vancouver style."""

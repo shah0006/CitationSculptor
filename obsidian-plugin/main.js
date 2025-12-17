@@ -30,6 +30,7 @@ var DEFAULT_SETTINGS = {
   citationScriptPath: "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor",
   pythonPath: "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/.venv/bin/python",
   defaultFormat: "full",
+  citationStyle: "vancouver",
   autoCopyToClipboard: true,
   insertAtCursor: true,
   showAbstractInResults: false,
@@ -117,7 +118,10 @@ var CitationLookupModal = class extends import_obsidian.Modal {
         this.doLookup();
     });
     const formatRow = container.createDiv({ cls: "cs-format-row" });
-    formatRow.createSpan({ text: "Format: " });
+    formatRow.createSpan({ text: "Style: " });
+    this.styleDropdown = new import_obsidian.DropdownComponent(formatRow);
+    this.styleDropdown.addOption("vancouver", "Vancouver").addOption("apa", "APA").addOption("mla", "MLA").addOption("chicago", "Chicago").addOption("harvard", "Harvard").addOption("ieee", "IEEE").setValue(this.plugin.settings.citationStyle);
+    formatRow.createSpan({ text: "  Format: " });
     this.formatDropdown = new import_obsidian.DropdownComponent(formatRow);
     this.formatDropdown.addOption("full", "Full (inline + endnote)").addOption("inline", "Inline only").addOption("endnote", "Endnote only").setValue(this.plugin.settings.defaultFormat);
     const buttonRow = container.createDiv({ cls: "cs-button-row" });
@@ -131,6 +135,11 @@ var CitationLookupModal = class extends import_obsidian.Modal {
     if (!query) {
       new import_obsidian.Notice("Please enter an identifier");
       return;
+    }
+    const selectedStyle = this.styleDropdown.getValue();
+    if (selectedStyle !== this.plugin.settings.citationStyle) {
+      this.plugin.settings.citationStyle = selectedStyle;
+      await this.plugin.saveSettings();
     }
     const resultsEl = this.resultEl.querySelector(".cs-results");
     resultsEl.empty();
@@ -543,7 +552,7 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
       })
     );
     new import_obsidian.Setting(containerEl).setName("HTTP API URL").setDesc("URL of the CitationSculptor HTTP server").addText(
-      (text) => text.setPlaceholder("http://127.0.0.1:3018").setValue(this.plugin.settings.httpApiUrl).onChange(async (value) => {
+      (text) => text.setPlaceholder("http://127.0.0.1:3019").setValue(this.plugin.settings.httpApiUrl).onChange(async (value) => {
         this.plugin.settings.httpApiUrl = value;
         await this.plugin.saveSettings();
       })
@@ -588,6 +597,12 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
     new import_obsidian.Setting(containerEl).setName("Default Format").setDesc("Default citation format when inserting").addDropdown(
       (dropdown) => dropdown.addOption("full", "Full (inline + endnote)").addOption("inline", "Inline only").addOption("endnote", "Endnote only").setValue(this.plugin.settings.defaultFormat).onChange(async (value) => {
         this.plugin.settings.defaultFormat = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Citation Style").setDesc("Choose the citation style format (Vancouver, APA, MLA, etc.)").addDropdown(
+      (dropdown) => dropdown.addOption("vancouver", "Vancouver (medical/scientific)").addOption("apa", "APA 7th (social sciences)").addOption("mla", "MLA 9th (humanities)").addOption("chicago", "Chicago/Turabian").addOption("harvard", "Harvard (author-date)").addOption("ieee", "IEEE (engineering)").setValue(this.plugin.settings.citationStyle).onChange(async (value) => {
+        this.plugin.settings.citationStyle = value;
         await this.plugin.saveSettings();
       })
     );
@@ -764,8 +779,9 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
   async lookupCitation(identifier) {
     if (this.settings.useHttpApi) {
       try {
+        const style = this.settings.citationStyle || "vancouver";
         const response = await (0, import_obsidian.requestUrl)({
-          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}`,
+          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}&style=${style}`,
           method: "GET"
         });
         const result = response.json;

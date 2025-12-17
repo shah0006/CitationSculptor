@@ -22,6 +22,7 @@ interface CitationSculptorSettings {
   citationScriptPath: string;
   pythonPath: string;
   defaultFormat: "full" | "inline" | "endnote";
+  citationStyle: "vancouver" | "apa" | "mla" | "chicago" | "harvard" | "ieee";
   autoCopyToClipboard: boolean;
   insertAtCursor: boolean;
   showAbstractInResults: boolean;
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   citationScriptPath: "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor",
   pythonPath: "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/.venv/bin/python",
   defaultFormat: "full",
+  citationStyle: "vancouver",
   autoCopyToClipboard: true,
   insertAtCursor: true,
   showAbstractInResults: false,
@@ -100,6 +102,7 @@ class CitationLookupModal extends Modal {
   plugin: CitationSculptorPlugin;
   inputEl: TextComponent;
   formatDropdown: DropdownComponent;
+  styleDropdown: DropdownComponent;
   resultEl: HTMLElement;
   tabsEl: HTMLElement;
   searchResults: PubMedArticle[] = [];
@@ -201,10 +204,21 @@ class CitationLookupModal extends Modal {
       if (e.key === "Enter") this.doLookup();
     });
 
-    // Format selector
+    // Style and Format selectors
     const formatRow = container.createDiv({ cls: "cs-format-row" });
-    formatRow.createSpan({ text: "Format: " });
     
+    formatRow.createSpan({ text: "Style: " });
+    this.styleDropdown = new DropdownComponent(formatRow);
+    this.styleDropdown
+      .addOption("vancouver", "Vancouver")
+      .addOption("apa", "APA")
+      .addOption("mla", "MLA")
+      .addOption("chicago", "Chicago")
+      .addOption("harvard", "Harvard")
+      .addOption("ieee", "IEEE")
+      .setValue(this.plugin.settings.citationStyle);
+
+    formatRow.createSpan({ text: "  Format: " });
     this.formatDropdown = new DropdownComponent(formatRow);
     this.formatDropdown
       .addOption("full", "Full (inline + endnote)")
@@ -235,6 +249,13 @@ class CitationLookupModal extends Modal {
     if (!query) {
       new Notice("Please enter an identifier");
       return;
+    }
+
+    // Update style setting from dropdown
+    const selectedStyle = this.styleDropdown.getValue() as "vancouver" | "apa" | "mla" | "chicago" | "harvard" | "ieee";
+    if (selectedStyle !== this.plugin.settings.citationStyle) {
+      this.plugin.settings.citationStyle = selectedStyle;
+      await this.plugin.saveSettings();
     }
 
     const resultsEl = this.resultEl.querySelector(".cs-results") as HTMLElement;
@@ -941,6 +962,24 @@ class CitationSculptorSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Citation Style")
+      .setDesc("Choose the citation style format (Vancouver, APA, MLA, etc.)")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("vancouver", "Vancouver (medical/scientific)")
+          .addOption("apa", "APA 7th (social sciences)")
+          .addOption("mla", "MLA 9th (humanities)")
+          .addOption("chicago", "Chicago/Turabian")
+          .addOption("harvard", "Harvard (author-date)")
+          .addOption("ieee", "IEEE (engineering)")
+          .setValue(this.plugin.settings.citationStyle)
+          .onChange(async (value: "vancouver" | "apa" | "mla" | "chicago" | "harvard" | "ieee") => {
+            this.plugin.settings.citationStyle = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
       .setName("Auto Copy to Clipboard")
       .setDesc("Automatically copy citations to clipboard when inserted")
       .addToggle((toggle) =>
@@ -1184,8 +1223,9 @@ export default class CitationSculptorPlugin extends Plugin {
     // Try HTTP API first (more efficient - no process spawning)
     if (this.settings.useHttpApi) {
       try {
+        const style = this.settings.citationStyle || "vancouver";
         const response = await requestUrl({
-          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}`,
+          url: `${this.settings.httpApiUrl}/api/lookup?id=${encodeURIComponent(identifier)}&style=${style}`,
           method: "GET",
         });
         const result = response.json;

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Citation Lookup Tool - Generate Vancouver-style citations from identifiers.
+Citation Lookup Tool - Generate citations from identifiers in multiple styles.
 
 Usage:
     python citation_lookup.py --pmid 32755608
-    python citation_lookup.py --doi "10.1186/s12968-020-00607-1"
+    python citation_lookup.py --doi "10.1186/s12968-020-00607-1" --style apa
     python citation_lookup.py --pmcid PMC7039045
     python citation_lookup.py --title "Standardized cardiovascular magnetic resonance"
     python citation_lookup.py --search-multi "heart failure guidelines"
-    python citation_lookup.py --batch citations.txt
+    python citation_lookup.py --batch citations.txt --style mla
 
 Options:
+    --style             Citation style: vancouver (default), apa, mla, chicago, harvard, ieee
     --copy              Copy result to clipboard (macOS)
     --no-cache          Bypass the cache for this lookup
 """
@@ -31,7 +32,11 @@ from rich.prompt import Prompt
 from loguru import logger
 
 from modules.pubmed_client import PubMedClient, ArticleMetadata, CrossRefMetadata
-from modules.vancouver_formatter import VancouverFormatter, FormattedCitation
+from modules.arxiv_client import ArxivClient, ArxivMetadata
+from modules.preprint_client import PreprintClient, PreprintMetadata
+from modules.book_client import BookClient, BookMetadata
+from modules.base_formatter import FormattedCitation
+from modules.formatter_factory import get_formatter, get_available_styles, get_style_info, DEFAULT_STYLE
 
 console = Console()
 
@@ -58,11 +63,11 @@ class CitationCache:
     def _save_cache(self):
         CACHE_FILE.write_text(json.dumps(self.cache, indent=2))
     
-    def _make_key(self, identifier_type: str, identifier: str) -> str:
-        return hashlib.md5(f"{identifier_type}:{identifier.lower().strip()}".encode()).hexdigest()
+    def _make_key(self, identifier_type: str, identifier: str, style: str = "vancouver") -> str:
+        return hashlib.md5(f"{style}:{identifier_type}:{identifier.lower().strip()}".encode()).hexdigest()
     
-    def get(self, identifier_type: str, identifier: str) -> Optional[Dict[str, Any]]:
-        key = self._make_key(identifier_type, identifier)
+    def get(self, identifier_type: str, identifier: str, style: str = "vancouver") -> Optional[Dict[str, Any]]:
+        key = self._make_key(identifier_type, identifier, style)
         entry = self.cache.get(key)
         if entry:
             if time.time() - entry.get('timestamp', 0) < CACHE_EXPIRY_DAYS * 86400:
@@ -72,8 +77,8 @@ class CitationCache:
                 self._save_cache()
         return None
     
-    def set(self, identifier_type: str, identifier: str, data: Dict[str, Any]):
-        key = self._make_key(identifier_type, identifier)
+    def set(self, identifier_type: str, identifier: str, data: Dict[str, Any], style: str = "vancouver"):
+        key = self._make_key(identifier_type, identifier, style)
         self.cache[key] = {'timestamp': time.time(), 'data': data}
         self._save_cache()
 
@@ -104,30 +109,39 @@ class LookupResult:
 class CitationLookup:
     """Look up and format citations from various identifiers."""
     
-    def __init__(self, verbose: bool = False, use_cache: bool = True):
+    def __init__(self, verbose: bool = False, use_cache: bool = True, style: str = DEFAULT_STYLE):
         self.verbose = verbose
         self.use_cache = use_cache
+        self.style = style
         self.cache = CitationCache() if use_cache else None
         self.pubmed_client = PubMedClient()
-        self.formatter = VancouverFormatter(max_authors=3)
+        self.arxiv_client = ArxivClient()
+        self.preprint_client = PreprintClient()
+        self.book_client = BookClient()
+        self.formatter = get_formatter(style, max_authors=3)
         
         log_level = "DEBUG" if verbose else "WARNING"
         logger.remove()
         logger.add(sys.stderr, level=log_level, format="<level>{level: <8}</level> | <cyan>{message}</cyan>")
+    
+    def set_style(self, style: str):
+        """Change the citation style."""
+        self.style = style
+        self.formatter = get_formatter(style, max_authors=3)
     
     def test_connection(self) -> bool:
         return self.pubmed_client.test_connection()
     
     def _check_cache(self, identifier_type: str, identifier: str) -> Optional[LookupResult]:
         if self.cache:
-            cached = self.cache.get(identifier_type, identifier)
+            cached = self.cache.get(identifier_type, identifier, self.style)
             if cached:
                 return LookupResult(**cached)
         return None
     
     def _cache_result(self, result: LookupResult):
         if self.cache and result.success:
-            self.cache.set(result.identifier_type, result.identifier, asdict(result))
+            self.cache.set(result.identifier_type, result.identifier, asdict(result), self.style)
     
     def lookup_pmid(self, pmid: str) -> LookupResult:
         cached = self._check_cache("pmid", pmid)
@@ -250,15 +264,98 @@ class CitationLookup:
             return []
     
     def lookup_auto(self, identifier: str) -> LookupResult:
+        """Auto-detect identifier type and look up accordingly."""
         identifier = identifier.strip()
+        
+        # PMID (all digits)
         if identifier.isdigit():
             return self.lookup_pmid(identifier)
+        
+        # PMC ID
         if identifier.upper().startswith('PMC'):
             return self.lookup_pmcid(identifier)
+        
+        # arXiv ID
+        if self.arxiv_client.is_arxiv_id(identifier) or identifier.lower().startswith('arxiv:'):
+            return self.lookup_arxiv(identifier)
+        
+        # ISBN
+        if self.book_client.is_isbn(identifier):
+            return self.lookup_isbn(identifier)
+        
+        # DOI (various formats)
         if identifier.startswith('10.') or 'doi.org' in identifier.lower():
             doi = identifier.split('doi.org/')[-1] if 'doi.org/' in identifier else identifier
+            # Check if bioRxiv/medRxiv preprint DOI
+            if self.preprint_client.is_preprint_doi(doi):
+                return self.lookup_preprint(doi)
             return self.lookup_doi(doi)
+        
+        # Default: title search
         return self.lookup_title(identifier)
+    
+    def lookup_arxiv(self, arxiv_id: str) -> LookupResult:
+        """Look up an arXiv preprint by ID."""
+        cached = self._check_cache("arxiv", arxiv_id)
+        if cached:
+            return cached
+        try:
+            metadata = self.arxiv_client.fetch_by_id(arxiv_id)
+            if metadata:
+                citation = self.formatter.format_preprint(metadata, original_number=0)
+                result = LookupResult(
+                    success=True, identifier=arxiv_id, identifier_type="arxiv",
+                    inline_mark=citation.label, endnote_citation=citation.full_citation,
+                    full_citation=citation.full_citation, metadata=self._arxiv_to_dict(metadata),
+                )
+                self._cache_result(result)
+                return result
+            return LookupResult(success=False, identifier=arxiv_id, identifier_type="arxiv",
+                               error=f"arXiv ID {arxiv_id} not found")
+        except Exception as e:
+            return LookupResult(success=False, identifier=arxiv_id, identifier_type="arxiv", error=str(e))
+    
+    def lookup_preprint(self, doi: str) -> LookupResult:
+        """Look up a bioRxiv/medRxiv preprint by DOI."""
+        cached = self._check_cache("preprint", doi)
+        if cached:
+            return cached
+        try:
+            metadata = self.preprint_client.fetch_by_doi(doi)
+            if metadata:
+                citation = self.formatter.format_biorxiv_preprint(metadata, original_number=0)
+                result = LookupResult(
+                    success=True, identifier=doi, identifier_type="preprint",
+                    inline_mark=citation.label, endnote_citation=citation.full_citation,
+                    full_citation=citation.full_citation, metadata=self._preprint_to_dict(metadata),
+                )
+                self._cache_result(result)
+                return result
+            return LookupResult(success=False, identifier=doi, identifier_type="preprint",
+                               error=f"Preprint DOI {doi} not found in bioRxiv/medRxiv")
+        except Exception as e:
+            return LookupResult(success=False, identifier=doi, identifier_type="preprint", error=str(e))
+    
+    def lookup_isbn(self, isbn: str) -> LookupResult:
+        """Look up a book by ISBN."""
+        cached = self._check_cache("isbn", isbn)
+        if cached:
+            return cached
+        try:
+            metadata = self.book_client.fetch_by_isbn(isbn)
+            if metadata:
+                citation = self.formatter.format_book_from_isbn(metadata, original_number=0)
+                result = LookupResult(
+                    success=True, identifier=isbn, identifier_type="isbn",
+                    inline_mark=citation.label, endnote_citation=citation.full_citation,
+                    full_citation=citation.full_citation, metadata=self._book_to_dict(metadata),
+                )
+                self._cache_result(result)
+                return result
+            return LookupResult(success=False, identifier=isbn, identifier_type="isbn",
+                               error=f"ISBN {isbn} not found")
+        except Exception as e:
+            return LookupResult(success=False, identifier=isbn, identifier_type="isbn", error=str(e))
     
     def batch_lookup(self, identifiers: List[str]) -> List[LookupResult]:
         results = []
@@ -275,6 +372,32 @@ class CitationLookup:
             'year': metadata.year, 'month': metadata.month, 'volume': metadata.volume,
             'issue': metadata.issue, 'pages': metadata.pages, 'doi': metadata.doi,
             'abstract': metadata.abstract[:200] + '...' if metadata.abstract and len(metadata.abstract) > 200 else metadata.abstract,
+        }
+    
+    def _arxiv_to_dict(self, metadata: ArxivMetadata) -> Dict[str, Any]:
+        return {
+            'arxiv_id': metadata.arxiv_id, 'title': metadata.title, 
+            'authors': metadata.authors, 'abstract': metadata.abstract[:200] + '...' if len(metadata.abstract) > 200 else metadata.abstract,
+            'primary_category': metadata.primary_category, 'published': metadata.published,
+            'doi': metadata.doi, 'journal_ref': metadata.journal_ref,
+            'pdf_url': metadata.pdf_url, 'abs_url': metadata.abs_url,
+        }
+    
+    def _preprint_to_dict(self, metadata: PreprintMetadata) -> Dict[str, Any]:
+        return {
+            'doi': metadata.doi, 'title': metadata.title, 
+            'authors': metadata.authors_list, 'abstract': metadata.abstract[:200] + '...' if len(metadata.abstract) > 200 else metadata.abstract,
+            'server': metadata.server, 'category': metadata.category, 'date': metadata.date,
+            'published_doi': metadata.published_doi, 'published_journal': metadata.published_journal,
+            'url': metadata.url,
+        }
+    
+    def _book_to_dict(self, metadata: BookMetadata) -> Dict[str, Any]:
+        return {
+            'isbn': metadata.display_isbn, 'title': metadata.title, 'authors': metadata.authors,
+            'publisher': metadata.publisher, 'published_date': metadata.published_date,
+            'page_count': metadata.page_count, 'categories': metadata.categories,
+            'info_link': metadata.info_link, 'source': metadata.source,
         }
     
     def _crossref_to_dict(self, metadata: CrossRefMetadata) -> Dict[str, Any]:
@@ -336,8 +459,8 @@ def display_search_results(results: List[Dict[str, Any]]) -> Optional[int]:
 def run_interactive_mode(lookup: CitationLookup, output_format: str, auto_copy: bool):
     """Run in interactive REPL mode."""
     console.print("\n[bold cyan]CitationSculptor Interactive Mode[/bold cyan]")
-    console.print("[dim]Enter identifiers (PMID, DOI, PMC ID, or title)[/dim]")
-    console.print("[dim]Commands: /search <query>, /format <inline|endnote|full|json>, /help, /quit[/dim]\n")
+    console.print(f"[dim]Style: {lookup.style} | Enter identifiers (PMID, DOI, PMC ID, or title)[/dim]")
+    console.print("[dim]Commands: /search, /style, /format, /help, /quit[/dim]\n")
     
     current_format = output_format
     
@@ -362,6 +485,8 @@ def run_interactive_mode(lookup: CitationLookup, output_format: str, auto_copy: 
                     console.print("""
 [bold]Commands:[/bold]
   /search <query>  - Search PubMed and select from results
+  /style <name>    - Set citation style (vancouver, apa, mla, chicago, harvard, ieee)
+  /style           - Show current style and list available styles
   /format <type>   - Set output format (inline, endnote, full, json)
   /cache clear     - Clear the citation cache
   /cache stats     - Show cache statistics
@@ -390,6 +515,22 @@ def run_interactive_mode(lookup: CitationLookup, output_format: str, auto_copy: 
                             if auto_copy and result.success:
                                 if copy_to_clipboard(output.strip()):
                                     console.print("[dim green]✓ Copied to clipboard[/dim green]\n")
+                    continue
+                
+                elif cmd == 'style':
+                    if cmd_arg:
+                        available = get_available_styles()
+                        if cmd_arg.lower() in available:
+                            lookup.set_style(cmd_arg.lower())
+                            console.print(f"[green]Citation style set to: {lookup.style}[/green]")
+                        else:
+                            console.print(f"[red]Unknown style. Available: {', '.join(available)}[/red]")
+                    else:
+                        console.print(f"[cyan]Current style: {lookup.style}[/cyan]")
+                        console.print("[dim]Available styles:[/dim]")
+                        for style, desc in get_style_info().items():
+                            marker = "[green]→[/green]" if style == lookup.style else " "
+                            console.print(f"  {marker} {style}: {desc}")
                     continue
                 
                 elif cmd == 'format' and cmd_arg:
@@ -437,7 +578,10 @@ def run_interactive_mode(lookup: CitationLookup, output_format: str, auto_copy: 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Look up citations and generate Vancouver-style references")
+    parser = argparse.ArgumentParser(
+        description="Look up citations and generate references in multiple styles",
+        epilog="Available styles: " + ", ".join(get_available_styles())
+    )
     
     id_group = parser.add_mutually_exclusive_group()
     id_group.add_argument('--pmid', help='PubMed ID to look up')
@@ -450,7 +594,11 @@ def main():
                          help='Search PubMed and select from multiple results')
     id_group.add_argument('--interactive', '-i', action='store_true',
                          help='Run in interactive mode (REPL)')
+    id_group.add_argument('--list-styles', action='store_true',
+                         help='List available citation styles')
     
+    parser.add_argument('--style', '-s', choices=get_available_styles(), default=DEFAULT_STYLE,
+                       help=f'Citation style (default: {DEFAULT_STYLE})')
     parser.add_argument('--format', '-f', choices=['inline', 'endnote', 'full', 'json'], default='full')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
     parser.add_argument('--copy', '-c', action='store_true', help='Copy result to clipboard (macOS)')
@@ -459,11 +607,19 @@ def main():
     
     args = parser.parse_args()
     
+    # Handle --list-styles
+    if args.list_styles:
+        console.print("\n[bold cyan]Available Citation Styles:[/bold cyan]\n")
+        for style, description in get_style_info().items():
+            console.print(f"  [green]{style:12}[/green] {description}")
+        console.print()
+        sys.exit(0)
+    
     if not any([args.pmid, args.doi, args.pmcid, args.title, args.auto, args.batch, args.search_multi, args.interactive]):
         parser.print_help()
         sys.exit(1)
     
-    lookup = CitationLookup(verbose=args.verbose, use_cache=not args.no_cache)
+    lookup = CitationLookup(verbose=args.verbose, use_cache=not args.no_cache, style=args.style)
     
     if not lookup.test_connection():
         console.print("[red]Error: Cannot connect to PubMed API[/red]")

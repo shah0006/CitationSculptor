@@ -266,6 +266,9 @@ class TestCitationLookupWithMockedClient:
         self.mock_article.pages = "1-10"
         self.mock_article.doi = "10.1234/test"
         self.mock_article.abstract = "Test abstract"
+        # Methods that formatters call
+        self.mock_article.get_first_author_label = Mock(return_value="SmithJ")
+        self.mock_article.format_authors_vancouver = Mock(return_value="Smith J, Jones B")
 
     @patch('citation_lookup.CitationLookup')
     def test_lookup_pmid_success(self, MockLookup):
