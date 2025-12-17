@@ -11,7 +11,7 @@
         <string>-m</string>
         <string>mcp_server.http_server</string>
         <string>--port</string>
-        <string>3018</string>
+        <string>3019</string>
     </array>
     
     <key>WorkingDirectory</key>

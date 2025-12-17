@@ -37,7 +37,7 @@ var DEFAULT_SETTINGS = {
   recentLookups: [],
   // HTTP API settings (preferred for efficiency)
   useHttpApi: true,
-  httpApiUrl: "http://127.0.0.1:3018"
+  httpApiUrl: "http://127.0.0.1:3019"
 };
 var CitationLookupModal = class extends import_obsidian.Modal {
   constructor(app, plugin) {

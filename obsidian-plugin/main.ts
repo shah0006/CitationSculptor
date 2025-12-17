@@ -49,7 +49,7 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   recentLookups: [],
   // HTTP API settings (preferred for efficiency)
   useHttpApi: true,
-  httpApiUrl: "http://127.0.0.1:3018",
+  httpApiUrl: "http://127.0.0.1:3019",
 };
 
 // ============================================================================
