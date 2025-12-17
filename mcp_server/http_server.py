@@ -1246,6 +1246,127 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         logger.info(f"Created backup: {backup_path}")
         return str(backup_path)
     
+    def _analyze_document_statistics(self, content: str) -> Dict[str, Any]:
+        """
+        Analyze a document to provide comprehensive citation/reference statistics.
+        
+        Counts various types of inline references and citations in the document.
+        """
+        import re
+        
+        stats = {
+            # Inline reference marks (in body text)
+            'inline_numeric': 0,       # [1], [2], etc.
+            'inline_footnote': 0,      # [^name], [^PMID-123], etc.
+            'inline_author_year': 0,   # (Smith 2020), (Smith et al., 2020)
+            
+            # Reference section
+            'reference_section_items': 0,  # Items in ## References section
+            'footnote_definitions': 0,     # [^name]: definition lines
+            
+            # Identifiers found
+            'pubmed_urls': 0,          # pubmed.ncbi.nlm.nih.gov URLs
+            'doi_links': 0,            # DOI URLs or patterns
+            'pmid_mentions': 0,        # PMID: 12345 patterns
+            'pmcid_mentions': 0,       # PMC12345 patterns
+            
+            # URLs
+            'total_urls': 0,           # All URLs
+            'markdown_links': 0,       # [text](url) links
+        }
+        
+        lines = content.split('\n')
+        in_reference_section = False
+        
+        for line in lines:
+            # Check for reference section start
+            if re.match(r'^##?\s*(References|Bibliography|Citations|Works Cited)', line, re.IGNORECASE):
+                in_reference_section = True
+                continue
+            
+            # Check for next section (end of references)
+            if in_reference_section and re.match(r'^##?\s+\w', line) and not re.match(r'^##?\s*(References|Bibliography)', line, re.IGNORECASE):
+                in_reference_section = False
+            
+            # Count footnote definitions [^name]: ...
+            if re.match(r'^\[\^[^\]]+\]:\s*', line):
+                stats['footnote_definitions'] += 1
+                if in_reference_section:
+                    stats['reference_section_items'] += 1
+                continue
+            
+            # Count numbered references in reference section (1. Author... or [1] Author...)
+            if in_reference_section and re.match(r'^(\d+\.|^\[\d+\])\s*\w', line):
+                stats['reference_section_items'] += 1
+            
+            # Count inline numeric references [1], [2], [1,2], [1-3]
+            numeric_refs = re.findall(r'\[(\d+(?:[,\-–]\d+)*)\](?!\()', line)
+            for ref in numeric_refs:
+                # Count individual numbers in ranges like [1-3] or [1,2,3]
+                if '-' in ref or '–' in ref:
+                    parts = re.split(r'[-–]', ref)
+                    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                        stats['inline_numeric'] += int(parts[1]) - int(parts[0]) + 1
+                    else:
+                        stats['inline_numeric'] += 1
+                elif ',' in ref:
+                    stats['inline_numeric'] += len(ref.split(','))
+                else:
+                    stats['inline_numeric'] += 1
+            
+            # Count footnote-style references [^name]
+            footnote_refs = re.findall(r'\[\^[^\]]+\](?!:)', line)
+            stats['inline_footnote'] += len(footnote_refs)
+            
+            # Count author-year citations (Smith 2020), (Smith et al., 2020)
+            author_year = re.findall(r'\([A-Z][a-z]+(?:\s+et\s+al\.?)?,?\s*\d{4}[a-z]?\)', line)
+            stats['inline_author_year'] += len(author_year)
+            
+            # Count PubMed URLs
+            pubmed_urls = re.findall(r'pubmed\.ncbi\.nlm\.nih\.gov/\d+', line)
+            stats['pubmed_urls'] += len(pubmed_urls)
+            
+            # Count DOI patterns
+            dois = re.findall(r'(?:doi\.org/|DOI:\s*)(10\.\d{4,}/[^\s\)]+)', line, re.IGNORECASE)
+            stats['doi_links'] += len(dois)
+            
+            # Count PMID mentions
+            pmids = re.findall(r'PMID:\s*\d+', line, re.IGNORECASE)
+            stats['pmid_mentions'] += len(pmids)
+            
+            # Count PMC IDs
+            pmcids = re.findall(r'PMC\d+', line)
+            stats['pmcid_mentions'] += len(pmcids)
+            
+            # Count markdown links [text](url)
+            md_links = re.findall(r'\[[^\]]+\]\([^)]+\)', line)
+            stats['markdown_links'] += len(md_links)
+            
+            # Count all URLs
+            all_urls = re.findall(r'https?://[^\s\)<>]+', line)
+            stats['total_urls'] += len(all_urls)
+        
+        # Calculate totals
+        stats['total_inline_references'] = (
+            stats['inline_numeric'] + 
+            stats['inline_footnote'] + 
+            stats['inline_author_year']
+        )
+        
+        stats['total_citations'] = max(
+            stats['reference_section_items'],
+            stats['footnote_definitions']
+        )
+        
+        stats['total_identifiers'] = (
+            stats['pubmed_urls'] + 
+            stats['doi_links'] + 
+            stats['pmid_mentions'] + 
+            stats['pmcid_mentions']
+        )
+        
+        return stats
+    
     def _process_document_content(self, content: str, style: str = 'vancouver') -> Dict[str, Any]:
         """
         Process a markdown document, looking up all citations and replacing inline references.
@@ -1255,6 +1376,9 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         - citations: List of processed citations
         - statistics: Processing stats
         """
+        # First, analyze the document for comprehensive statistics
+        doc_stats = self._analyze_document_statistics(content)
+        
         # Set citation style
         if style != self.lookup.style:
             self.lookup.set_style(style)
@@ -1267,13 +1391,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if not parser.references:
             return {
                 'success': True,
-                'message': 'No references found in document',
+                'message': 'No processable references found in document',
                 'processed_content': content,
                 'citations': [],
                 'statistics': {
                     'total_references': 0,
                     'processed': 0,
                     'failed': 0,
+                    'inline_replacements': 0,
+                    # Include document analysis stats
+                    'document_analysis': doc_stats,
                 },
             }
         
@@ -1341,6 +1468,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'processed': len(processed_citations),
                 'failed': len(failed_refs),
                 'inline_replacements': replacements_made,
+                # Include comprehensive document analysis stats
+                'document_analysis': doc_stats,
             },
         }
     

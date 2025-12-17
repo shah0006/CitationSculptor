@@ -1988,16 +1988,67 @@
                 if (data.success) {
                     lastProcessedDoc = data.processed_content;
                     const stats = data.statistics || {};
+                    const docStats = stats.document_analysis || {};
                     
                     container.innerHTML = `
-                        <div class="stats-grid" style="margin-top: 20px;">
+                        <h4 style="margin: 20px 0 12px 0; color: var(--accent);">📊 Document Analysis</h4>
+                        <div class="stats-grid" style="margin-bottom: 20px;">
+                            <div class="stat-card">
+                                <div class="stat-value">${docStats.total_inline_references ?? 0}</div>
+                                <div class="stat-label">Inline References</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${docStats.total_citations ?? 0}</div>
+                                <div class="stat-label">Citations in Doc</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${docStats.total_identifiers ?? 0}</div>
+                                <div class="stat-label">Identifiers Found</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${docStats.markdown_links ?? 0}</div>
+                                <div class="stat-label">Markdown Links</div>
+                            </div>
+                        </div>
+                        
+                        <details style="margin-bottom: 16px;">
+                            <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">📋 Detailed Breakdown</summary>
+                            <div style="margin-top: 12px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem;">
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                                    <div><strong>Inline References:</strong>
+                                        <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                            <li>Numeric [1]: ${docStats.inline_numeric ?? 0}</li>
+                                            <li>Footnote [^ref]: ${docStats.inline_footnote ?? 0}</li>
+                                            <li>Author-year: ${docStats.inline_author_year ?? 0}</li>
+                                        </ul>
+                                    </div>
+                                    <div><strong>Reference Section:</strong>
+                                        <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                            <li>Items: ${docStats.reference_section_items ?? 0}</li>
+                                            <li>Footnote defs: ${docStats.footnote_definitions ?? 0}</li>
+                                        </ul>
+                                    </div>
+                                    <div><strong>Identifiers:</strong>
+                                        <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                            <li>PubMed URLs: ${docStats.pubmed_urls ?? 0}</li>
+                                            <li>DOI links: ${docStats.doi_links ?? 0}</li>
+                                            <li>PMID mentions: ${docStats.pmid_mentions ?? 0}</li>
+                                            <li>PMC IDs: ${docStats.pmcid_mentions ?? 0}</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        
+                        <h4 style="margin: 20px 0 12px 0; color: var(--accent);">⚙️ Processing Results</h4>
+                        <div class="stats-grid">
                             <div class="stat-card">
                                 <div class="stat-value">${stats.total_references ?? 0}</div>
-                                <div class="stat-label">Total References</div>
+                                <div class="stat-label">Refs to Process</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" style="color: var(--success);">${stats.processed ?? 0}</div>
-                                <div class="stat-label">Successfully Processed</div>
+                                <div class="stat-label">Processed</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" style="color: ${(stats.failed || 0) > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed ?? 0}</div>
@@ -2005,13 +2056,18 @@
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value">${stats.inline_replacements ?? 0}</div>
-                                <div class="stat-label">Inline Replacements</div>
+                                <div class="stat-label">Replacements</div>
                             </div>
                         </div>
-                        ${(stats.total_references ?? 0) === 0 ? `
-                            <div class="message info" style="margin-bottom: 16px;">
+                        ${(stats.total_references ?? 0) === 0 && (docStats.total_citations ?? 0) > 0 ? `
+                            <div class="message success" style="margin: 16px 0;">
+                                <span>✅</span>
+                                <span>This document already has ${docStats.total_citations} formatted citations with ${docStats.total_inline_references} inline references. No processing needed!</span>
+                            </div>
+                        ` : (stats.total_references ?? 0) === 0 ? `
+                            <div class="message info" style="margin: 16px 0;">
                                 <span>💡</span>
-                                <span>No PubMed URLs or citation markers found. This document may already be formatted, or use a different citation style (e.g., Obsidian footnotes).</span>
+                                <span>No processable references found. Add PubMed URLs or citation markers to process.</span>
                             </div>
                         ` : ''}
                         ${data.failed_references && data.failed_references.length > 0 ? `
