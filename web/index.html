@@ -2091,18 +2091,50 @@
         // =====================================================
         // Folder Browser for Vault Selection
         // =====================================================
-        // Note: We use a server-side folder browser instead of the native 
-        // File System Access API because:
-        // 1. Native API doesn't expose full file paths (browser security)
-        // 2. Safari/Firefox don't support showDirectoryPicker()
-        // 3. Our server can provide full paths needed for configuration
-        // =====================================================
         
         let currentBrowsePath = '';
+        let nativePickerAvailable = true; // Will be set false if native picker fails
         
         async function openFolderBrowser() {
+            // Try native macOS folder picker first (since this is a local server)
+            if (nativePickerAvailable) {
+                try {
+                    const res = await fetch(`${API}/api/pick-folder`);
+                    const data = await res.json();
+                    
+                    if (data.success && data.path) {
+                        document.getElementById('settingVaultPath').value = data.path;
+                        
+                        // Show feedback
+                        const isVault = data.is_obsidian_vault ? ' (Obsidian Vault detected! ✓)' : '';
+                        showNotification(`Selected: ${data.path}${isVault}`, 'success');
+                        return;
+                    } else if (data.cancelled) {
+                        // User cancelled - do nothing
+                        return;
+                    } else if (data.error) {
+                        // Native picker not available, fall back to modal
+                        console.log('Native picker unavailable:', data.error);
+                        nativePickerAvailable = false;
+                    }
+                } catch (e) {
+                    console.log('Native picker error:', e);
+                    nativePickerAvailable = false;
+                }
+            }
+            
+            // Fallback: Use custom modal browser
             document.getElementById('folderBrowserModal').style.display = 'flex';
             await loadDirectory();
+        }
+        
+        function showNotification(message, type = 'info') {
+            const msgEl = document.getElementById('settingsMessage');
+            if (msgEl) {
+                const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : '💡';
+                msgEl.innerHTML = `<div class="message ${type}"><span>${icon}</span><span>${message}</span></div>`;
+                setTimeout(() => { msgEl.innerHTML = ''; }, 5000);
+            }
         }
         
         function closeFolderBrowser() {

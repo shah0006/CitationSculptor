@@ -276,7 +276,51 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             })
             return
         
-        # === Directory Browser (for folder selection in Web UI) ===
+        # === Native Folder Picker (macOS) ===
+        if path == '/api/pick-folder':
+            import subprocess
+            import platform
+            
+            if platform.system() != 'Darwin':
+                self._send_json({'error': 'Native folder picker only available on macOS'}, 400)
+                return
+            
+            try:
+                # Use AppleScript to show native macOS folder picker
+                script = '''
+                    tell application "System Events"
+                        activate
+                    end tell
+                    set chosenFolder to choose folder with prompt "Select your Obsidian Vault folder:"
+                    return POSIX path of chosenFolder
+                '''
+                result = subprocess.run(
+                    ['osascript', '-e', script],
+                    capture_output=True,
+                    text=True,
+                    timeout=120  # 2 minute timeout for user to select
+                )
+                
+                if result.returncode == 0 and result.stdout.strip():
+                    folder_path = result.stdout.strip().rstrip('/')
+                    self._send_json({
+                        'success': True,
+                        'path': folder_path,
+                        'is_obsidian_vault': self._is_obsidian_vault(folder_path),
+                    })
+                else:
+                    # User cancelled
+                    self._send_json({
+                        'success': False,
+                        'cancelled': True,
+                    })
+            except subprocess.TimeoutExpired:
+                self._send_json({'error': 'Folder picker timed out'}, 408)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Directory Browser (fallback for non-macOS or manual browsing) ===
         if path == '/api/browse-directories':
             browse_path = query.get('path', [None])[0]
             
