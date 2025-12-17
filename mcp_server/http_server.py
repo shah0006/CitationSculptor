@@ -980,19 +980,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             file_path = data.get('file_path')
             style = data.get('style', 'vancouver')
             create_backup = data.get('create_backup', True)  # Default: create backup when file_path provided
+            save_to_file = data.get('save_to_file', False)  # Option to save processed content back to file
             
             backup_path = None
+            resolved_file_path = None
             
             # Get content from file or direct input
             if file_path:
                 try:
-                    file_path = resolve_vault_path(file_path)
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    resolved_file_path = resolve_vault_path(file_path)
+                    with open(resolved_file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                     
                     # Create backup before processing (safety feature)
-                    if create_backup:
-                        backup_path = self._create_backup(file_path, content)
+                    # Always create backup when save_to_file is True
+                    if create_backup or save_to_file:
+                        backup_path = self._create_backup(resolved_file_path, content)
                         
                 except FileNotFoundError:
                     self._send_json({'error': f'File not found: {file_path}'}, 404)
@@ -1007,9 +1010,26 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             
             try:
                 result = self._process_document_content(content, style)
+                
                 # Include backup path in response
                 if backup_path:
                     result['backup_path'] = backup_path
+                
+                # Save processed content back to original file if requested
+                if save_to_file and resolved_file_path and result.get('success'):
+                    try:
+                        with open(resolved_file_path, 'w', encoding='utf-8') as f:
+                            f.write(result['processed_content'])
+                        result['saved_to_file'] = True
+                        result['saved_path'] = str(resolved_file_path)
+                        result['message'] = f'Processed document saved to: {resolved_file_path}'
+                        logger.info(f"Saved processed document to: {resolved_file_path}")
+                    except Exception as e:
+                        result['saved_to_file'] = False
+                        result['save_error'] = str(e)
+                        result['message'] = f'Processing succeeded but failed to save: {e}. Backup available at: {backup_path}'
+                        logger.error(f"Failed to save processed document: {e}")
+                
                 self._send_json(result)
             except Exception as e:
                 error_response = {'error': str(e)}

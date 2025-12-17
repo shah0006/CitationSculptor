@@ -1064,6 +1064,14 @@
                             </select>
                         </div>
                     </div>
+                    
+                    <div id="saveOptionsRow" style="margin: 16px 0; padding: 12px; background: var(--bg-secondary); border-radius: 8px; display: none;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="saveToFile" style="width: 18px; height: 18px;">
+                            <span><strong>💾 Save to original file</strong> — Overwrites the file with processed content (backup created automatically)</span>
+                        </label>
+                    </div>
+                    
                     <div class="btn-group">
                         <button class="btn" onclick="processDocument()">⚙️ Process Document</button>
                         <button class="btn btn-secondary" onclick="copyProcessedDoc()">📋 Copy Result</button>
@@ -1951,11 +1959,15 @@
             });
             document.getElementById('docContentTab').style.display = tab === 'content' ? 'block' : 'none';
             document.getElementById('docFileTab').style.display = tab === 'file' ? 'block' : 'none';
+            
+            // Show save option only when using file path
+            document.getElementById('saveOptionsRow').style.display = tab === 'file' ? 'block' : 'none';
         }
 
         async function processDocument() {
             const style = document.getElementById('docStyle').value;
             const container = document.getElementById('docResult');
+            const saveToFile = document.getElementById('saveToFile')?.checked || false;
             
             let requestBody = { style };
             
@@ -1973,6 +1985,8 @@
                     return;
                 }
                 requestBody.file_path = filePath;
+                requestBody.save_to_file = saveToFile;
+                requestBody.create_backup = true; // Always create backup
             }
 
             container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing document... This may take a while for documents with many references.</div>';
@@ -2059,6 +2073,27 @@
                                 <div class="stat-label">Replacements</div>
                             </div>
                         </div>
+                        ${data.saved_to_file ? `
+                            <div class="message success" style="margin: 16px 0; padding: 16px;">
+                                <span>💾</span>
+                                <div>
+                                    <strong>File saved successfully!</strong><br>
+                                    <span style="font-size: 0.9rem;">📄 Saved to: <code>${escHtml(data.saved_path || '')}</code></span><br>
+                                    ${data.backup_path ? `<span style="font-size: 0.9rem;">📦 Backup at: <code>${escHtml(data.backup_path)}</code></span>` : ''}
+                                </div>
+                            </div>
+                        ` : data.backup_path && !data.saved_to_file ? `
+                            <div class="message info" style="margin: 16px 0;">
+                                <span>📦</span>
+                                <span>Backup created: <code style="font-size: 0.85rem;">${escHtml(data.backup_path)}</code></span>
+                            </div>
+                        ` : ''}
+                        ${data.save_error ? `
+                            <div class="message error" style="margin: 16px 0;">
+                                <span>⚠️</span>
+                                <span>Failed to save file: ${escHtml(data.save_error)}. Use "Download" to save manually.</span>
+                            </div>
+                        ` : ''}
                         ${(stats.total_references ?? 0) === 0 && (docStats.total_citations ?? 0) > 0 ? `
                             <div class="message success" style="margin: 16px 0;">
                                 <span>✅</span>
