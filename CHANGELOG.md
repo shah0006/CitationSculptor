@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.1] - 2025-12-17
+
+### Added - Document Processing Across All Interfaces
+- **HTTP Server** (`/api/process-document`):
+  - Process full markdown documents via REST API
+  - Accepts content directly or file path
+  - Returns processed content with statistics
+  - Support for all citation styles
+
+- **Web UI** (Process Document tab):
+  - New tab for document processing
+  - Paste content or enter file path
+  - Live statistics (total, processed, failed, replacements)
+  - Download processed document
+
+- **MCP Server** (`citation_process_document` tool):
+  - Process markdown files from AI assistants
+  - Accepts file_path or content parameter
+  - Detailed output with statistics
+
+- **Obsidian Plugin** (Process Current Note command):
+  - One-click processing of the active note
+  - Confirmation dialog before processing
+  - Progress notifications
+  - Automatic document replacement
+
+---
+
 ## [2.0.0] - 2025-06-17
 
 ### Added - Smart Features

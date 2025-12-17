@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -27,8 +27,8 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 |-----------|----------|
 | **CLI** | Quick lookups, scripting, batch processing |
 | **Interactive Mode** | Continuous lookups with REPL |
-| **Web UI** | Beautiful browser-based lookup interface |
-| **Obsidian Plugin** | Native integration with full UI |
+| **Web UI** | Beautiful browser-based interface with document processing |
+| **Obsidian Plugin** | Native integration with process current note |
 | **MCP Server** | AI assistant integration (Cursor, etc.) |
 | **Streamlit GUI** | Document batch processing |
 
@@ -204,6 +204,7 @@ launchctl load ~/Library/LaunchAgents/com.citationsculptor.httpserver.plist
 ### Features
 
 - **4-tab interface**: Lookup, Search, Batch, Recent
+- **Process Current Note**: One-click processing of all citations in the active note
 - **HTTP API Integration**: Uses MCP server for fast lookups (no process spawning)
 - **CLI Fallback**: Automatically falls back to CLI if server unavailable
 - **One-click insert**: At cursor with auto References section
@@ -249,6 +250,7 @@ open http://127.0.0.1:3019
 - 🔍 Quick Lookup - Enter any identifier
 - 📚 PubMed Search - Search and select from results
 - 📋 Batch Lookup - Process multiple identifiers
+- 📝 Process Document - Process entire markdown files with file path or content
 - 🕐 Recent History - Access past lookups
 
 ```bash
@@ -269,6 +271,7 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 | `/api/search?q=X&max=10` | GET | Search PubMed |
 | `/api/lookup` | POST | Lookup with JSON body |
 | `/api/batch` | POST | Batch lookup |
+| `/api/process-document` | POST | Process full markdown document |
 | `/api/cache/stats` | GET | Cache statistics |
 
 ### MCP Tools (for AI assistants)
@@ -286,6 +289,7 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 | `citation_get_abstract` | Get article abstract |
 | `citation_search_pubmed` | Search with multiple results |
 | `citation_batch_lookup` | Multiple identifiers |
+| `citation_process_document` | Process full markdown document |
 | `citation_test_connection` | Test API connection |
 
 ---

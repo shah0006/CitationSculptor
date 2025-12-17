@@ -1180,6 +1180,43 @@ export default class CitationSculptorPlugin extends Plugin {
       },
     });
 
+    // Process current note command
+    this.addCommand({
+      id: "process-current-note",
+      name: "Process Current Note (Fix All Citations)",
+      editorCallback: async (editor: Editor, view: MarkdownView) => {
+        const content = editor.getValue();
+        if (!content) {
+          new Notice("Current note is empty");
+          return;
+        }
+        
+        // Confirm with user
+        const confirmed = await this.confirmProcessNote();
+        if (!confirmed) return;
+        
+        new Notice("Processing document... This may take a while for documents with many references.");
+        
+        try {
+          const result = await this.processDocumentContent(content);
+          
+          if (result.success) {
+            // Replace entire document content
+            editor.setValue(result.processed_content);
+            new Notice(`✓ Processed ${result.statistics.processed}/${result.statistics.total_references} citations (${result.statistics.inline_replacements} inline replacements)`);
+            
+            if (result.failed_references && result.failed_references.length > 0) {
+              new Notice(`⚠️ ${result.failed_references.length} citations could not be resolved`);
+            }
+          } else {
+            new Notice(`Error: ${result.error || 'Processing failed'}`);
+          }
+        } catch (e) {
+          new Notice(`Error: ${e.message}`);
+        }
+      },
+    });
+
     // Add settings tab
     this.addSettingTab(new CitationSculptorSettingTab(this.app, this));
   }
@@ -1326,6 +1363,88 @@ export default class CitationSculptorPlugin extends Plugin {
     } catch (error) {
       console.error("PubMed search error:", error);
       return [];
+    }
+  }
+
+  // =========================================================================
+  // Document Processing
+  // =========================================================================
+
+  async confirmProcessNote(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText("Process Current Note?");
+      modal.contentEl.createEl("p", {
+        text: "This will process all citations in the current document, looking them up via PubMed/CrossRef and replacing inline references with proper formatted citations.",
+      });
+      modal.contentEl.createEl("p", {
+        text: "A backup of your document is recommended before proceeding.",
+        cls: "mod-warning",
+      });
+      
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      
+      const confirmButton = buttonContainer.createEl("button", { 
+        text: "Process Document",
+        cls: "mod-cta",
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      
+      modal.open();
+    });
+  }
+
+  async processDocumentContent(content: string): Promise<{
+    success: boolean;
+    processed_content?: string;
+    error?: string;
+    statistics?: {
+      total_references: number;
+      processed: number;
+      failed: number;
+      inline_replacements: number;
+    };
+    failed_references?: Array<{
+      original_number: number;
+      title: string;
+      error: string;
+    }>;
+  }> {
+    // HTTP API is required for document processing
+    if (!this.settings.useHttpApi) {
+      return {
+        success: false,
+        error: "Document processing requires the HTTP API to be enabled. Please enable it in settings.",
+      };
+    }
+
+    try {
+      const style = this.settings.citationStyle || "vancouver";
+      const response = await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/process-document`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: content,
+          style: style,
+        }),
+      });
+      
+      return response.json;
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message || "Failed to process document",
+      };
     }
   }
 

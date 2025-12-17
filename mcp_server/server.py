@@ -12,7 +12,7 @@ Or configure in Abacus Desktop MCP settings.
 """
 
 import sys
-# Trigger restart 2
+import os
 import json
 import asyncio
 from pathlib import Path
@@ -26,6 +26,9 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from citation_lookup import CitationLookup, LookupResult
+from modules.reference_parser import ReferenceParser
+from modules.type_detector import CitationTypeDetector
+from modules.inline_replacer import InlineReplacer
 
 
 
@@ -33,6 +36,7 @@ from citation_lookup import CitationLookup, LookupResult
 # Initialize server and lookup
 server = Server("citation-lookup-mcp")
 lookup = CitationLookup()
+type_detector = CitationTypeDetector()
 
 
 def format_result(result: LookupResult) -> str:
@@ -203,6 +207,29 @@ async def list_tools():
                 "required": []
             }
         ),
+        Tool(
+            name="citation_process_document",
+            description="Process a markdown document, looking up all citations and replacing inline references with proper Vancouver-style citations. Accepts either a file path or document content directly.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to process (absolute or relative path)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to process (alternative to file_path)"
+                    },
+                    "style": {
+                        "type": "string",
+                        "description": "Citation style: vancouver (default), apa, mla, chicago, harvard, ieee",
+                        "default": "vancouver"
+                    }
+                },
+                "required": []
+            }
+        ),
     ]
 
 
@@ -332,11 +359,155 @@ async def call_tool(name: str, arguments: dict):
 
             return [TextContent(type="text", text="\n".join(lines))]
 
+        elif name == "citation_process_document":
+            result = await loop.run_in_executor(
+                None,
+                process_document_content,
+                arguments.get('file_path'),
+                arguments.get('content'),
+                arguments.get('style', 'vancouver')
+            )
+            return [TextContent(type="text", text=result)]
+
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+def process_document_content(file_path: Optional[str], content: Optional[str], style: str = 'vancouver') -> str:
+    """
+    Process a markdown document, looking up all citations and replacing inline references.
+    
+    Args:
+        file_path: Path to the markdown file to process
+        content: Markdown content to process (alternative to file_path)
+        style: Citation style (vancouver, apa, mla, chicago, harvard, ieee)
+    
+    Returns:
+        Formatted result string with processed content and statistics
+    """
+    # Get content from file or direct input
+    if file_path:
+        file_path = os.path.expanduser(file_path)
+        if not os.path.exists(file_path):
+            return f"Error: File not found: {file_path}"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            return f"Error reading file: {e}"
+    
+    if not content:
+        return "Error: No content provided. Specify either file_path or content."
+    
+    # Set citation style
+    if style != lookup.style:
+        lookup.set_style(style)
+    
+    # Parse references
+    parser = ReferenceParser(content)
+    parser.find_reference_section()
+    parser.parse_references()
+    
+    if not parser.references:
+        return "**No references found in document.**\n\nThe document does not contain a recognizable reference section."
+    
+    # Get body content
+    body = parser.get_body_content()
+    inline_style = parser._detect_inline_style(body)
+    
+    # Track results
+    processed_citations = []
+    number_to_label_map = {}
+    failed_refs = []
+    
+    # Process each reference
+    for ref in parser.references:
+        # Try to extract identifiers from URL
+        pmid = type_detector.extract_pmid(ref.url) if ref.url else None
+        pmcid = type_detector.extract_pmcid(ref.url) if ref.url else None
+        doi = type_detector.extract_doi(ref.url) if ref.url else None
+        
+        result = None
+        
+        # Attempt lookup by identifier priority
+        if pmid:
+            result = lookup.lookup_pmid(pmid)
+        elif pmcid:
+            result = lookup.lookup_pmcid(pmcid)
+        elif doi:
+            result = lookup.lookup_doi(doi)
+        elif ref.title:
+            result = lookup.lookup_auto(ref.title)
+        
+        if result and result.success:
+            label = result.inline_mark.strip('[]^') if result.inline_mark else ''
+            number_to_label_map[ref.original_number] = label
+            processed_citations.append({
+                'original_number': ref.original_number,
+                'inline_mark': result.inline_mark,
+                'full_citation': result.full_citation,
+            })
+        else:
+            failed_refs.append({
+                'original_number': ref.original_number,
+                'title': ref.title[:80] if ref.title else 'Unknown',
+                'error': result.error if result else 'Lookup returned None',
+            })
+    
+    # Update inline references in body
+    if number_to_label_map:
+        replacer = InlineReplacer(number_to_label_map, style=inline_style)
+        result = replacer.replace_all(body)
+        updated_body = result.modified_text
+        replacements_made = result.replacements_made
+    else:
+        updated_body = body
+        replacements_made = 0
+    
+    # Generate new reference section
+    reference_section = "\n## References\n\n"
+    sorted_citations = sorted(processed_citations, key=lambda c: c.get('inline_mark', '').lower())
+    for citation in sorted_citations:
+        reference_section += f"{citation['full_citation']}\n\n"
+    
+    # Combine updated body with new references
+    processed_content = updated_body + "\n\n" + reference_section.strip()
+    
+    # Build output
+    output_lines = [
+        "# Document Processing Complete",
+        "",
+        "## Statistics",
+        f"- **Total references found:** {len(parser.references)}",
+        f"- **Successfully processed:** {len(processed_citations)}",
+        f"- **Failed:** {len(failed_refs)}",
+        f"- **Inline replacements:** {replacements_made}",
+        "",
+    ]
+    
+    if failed_refs:
+        output_lines.extend([
+            "## ⚠️ Failed References",
+            "",
+        ])
+        for ref in failed_refs:
+            output_lines.append(f"- **#{ref['original_number']}:** {ref['title']} - {ref['error']}")
+        output_lines.append("")
+    
+    output_lines.extend([
+        "---",
+        "",
+        "## Processed Document",
+        "",
+        "```markdown",
+        processed_content,
+        "```",
+    ])
+    
+    return "\n".join(output_lines)
 
 
 async def main():

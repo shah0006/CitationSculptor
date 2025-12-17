@@ -671,7 +671,7 @@
                 <div class="logo-icon">📚</div>
                 <div>
                     <h1>CitationSculptor</h1>
-                    <div class="logo-version">v2.0.0</div>
+                    <div class="logo-version">v2.0.1</div>
                 </div>
             </div>
 
@@ -688,6 +688,10 @@
                 <button type="button" class="nav-item" data-page="batch">
                     <span class="nav-item-icon">📋</span>
                     Batch Process
+                </button>
+                <button type="button" class="nav-item" data-page="document">
+                    <span class="nav-item-icon">📝</span>
+                    Process Document
                 </button>
                 <button type="button" class="nav-item" data-page="pdf">
                     <span class="nav-item-icon">📄</span>
@@ -838,6 +842,57 @@
                         <button class="btn btn-secondary" onclick="copyBatchResult()">📋 Copy All</button>
                     </div>
                     <div id="batchResults"></div>
+                </div>
+            </div>
+
+            <!-- Process Document Page -->
+            <div class="page" id="document">
+                <div class="page-header">
+                    <h2 class="page-title">Process Document</h2>
+                    <p class="page-subtitle">Process a markdown document, looking up all citations and updating inline references</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchDocTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchDocTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="docContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your Markdown document content</label>
+                            <textarea id="docContent" placeholder="# My Document&#10;&#10;This study shows that... [1]&#10;&#10;## References&#10;&#10;1. Smith J, et al. Important findings. J Medicine. 2024;1:2-3. https://pubmed.ncbi.nlm.nih.gov/12345678/" style="min-height: 250px;"></textarea>
+                        </div>
+                    </div>
+                    <div id="docFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your Markdown file</label>
+                            <input type="text" id="docFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                        <div class="message info" style="margin-top: 12px;">
+                            <span>💡</span>
+                            <span>You can use relative paths from your Obsidian vault or absolute paths</span>
+                        </div>
+                    </div>
+                    <div class="form-row" style="margin-top: 16px;">
+                        <div class="form-group">
+                            <label class="form-label">Citation Style</label>
+                            <select id="docStyle">
+                                <option value="vancouver">Vancouver</option>
+                                <option value="apa">APA 7th</option>
+                                <option value="mla">MLA 9th</option>
+                                <option value="chicago">Chicago</option>
+                                <option value="harvard">Harvard</option>
+                                <option value="ieee">IEEE</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="processDocument()">⚙️ Process Document</button>
+                        <button class="btn btn-secondary" onclick="copyProcessedDoc()">📋 Copy Result</button>
+                        <button class="btn btn-secondary" onclick="downloadProcessedDoc()">💾 Download</button>
+                    </div>
+                    <div id="docResult"></div>
                 </div>
             </div>
 
@@ -1478,6 +1533,119 @@
             }
 
             window.open(`${API}/api/export/${format}?ids=${encodeURIComponent(ids)}`, '_blank');
+        }
+
+        // Document Processing
+        let currentDocTab = 'content';
+        let lastProcessedDoc = null;
+
+        function switchDocTab(tab) {
+            currentDocTab = tab;
+            document.querySelectorAll('#document .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('docContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('docFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
+        async function processDocument() {
+            const style = document.getElementById('docStyle').value;
+            const container = document.getElementById('docResult');
+            
+            let requestBody = { style };
+            
+            if (currentDocTab === 'content') {
+                const content = document.getElementById('docContent').value.trim();
+                if (!content) {
+                    showToast('Please paste document content', 'error');
+                    return;
+                }
+                requestBody.content = content;
+            } else {
+                const filePath = document.getElementById('docFilePath').value.trim();
+                if (!filePath) {
+                    showToast('Please enter a file path', 'error');
+                    return;
+                }
+                requestBody.file_path = filePath;
+            }
+
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing document... This may take a while for documents with many references.</div>';
+
+            try {
+                const res = await fetch(`${API}/api/process-document`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    lastProcessedDoc = data.processed_content;
+                    const stats = data.statistics;
+                    
+                    container.innerHTML = `
+                        <div class="stats-grid" style="margin-top: 20px;">
+                            <div class="stat-card">
+                                <div class="stat-value">${stats.total_references}</div>
+                                <div class="stat-label">Total References</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" style="color: var(--success);">${stats.processed}</div>
+                                <div class="stat-label">Successfully Processed</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" style="color: ${stats.failed > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed}</div>
+                                <div class="stat-label">Failed</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value">${stats.inline_replacements}</div>
+                                <div class="stat-label">Inline Replacements</div>
+                            </div>
+                        </div>
+                        ${data.failed_references && data.failed_references.length > 0 ? `
+                            <div class="message error" style="margin-bottom: 16px;">
+                                <span>⚠️</span>
+                                <span>Could not resolve: ${data.failed_references.map(r => `#${r.original_number}`).join(', ')}</span>
+                            </div>
+                        ` : ''}
+                        <div class="result-box">
+                            <div class="result-header">
+                                <span class="result-label">Processed Document</span>
+                            </div>
+                            <div class="result-content">
+                                <textarea readonly style="width: 100%; min-height: 400px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${escHtml(data.processed_content)}</textarea>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error || 'Processing failed')}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        function copyProcessedDoc() {
+            if (lastProcessedDoc) {
+                copyText(lastProcessedDoc);
+            } else {
+                showToast('No processed document to copy', 'error');
+            }
+        }
+
+        function downloadProcessedDoc() {
+            if (!lastProcessedDoc) {
+                showToast('No processed document to download', 'error');
+                return;
+            }
+            const blob = new Blob([lastProcessedDoc], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'processed_document.md';
+            a.click();
+            URL.revokeObjectURL(url);
         }
 
         // Utilities

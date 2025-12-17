@@ -42,6 +42,9 @@ from modules.ris_handler import RISParser, RISExporter
 from modules.citation_database import CitationDatabase
 from modules.duplicate_detector import DuplicateDetector
 from modules.bibliography_generator import BibliographyGenerator
+from modules.reference_parser import ReferenceParser, ParsedReference
+from modules.type_detector import CitationTypeDetector, CitationType
+from modules.inline_replacer import InlineReplacer
 from modules.arxiv_client import ArxivClient
 from modules.preprint_client import PreprintClient
 from modules.book_client import BookClient
@@ -67,6 +70,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
     citation_db: CitationDatabase = None
     duplicate_detector: DuplicateDetector = None
     bibliography_gen: BibliographyGenerator = None
+    type_detector: CitationTypeDetector = None
     arxiv_client: ArxivClient = None
     preprint_client: PreprintClient = None
     book_client: BookClient = None
@@ -163,7 +167,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if path == '/health':
             self._send_json({
                 'status': 'ok',
-                'version': '2.0.0',
+                'version': '2.0.1',
                 'features': {
                     'pdf_support': PYMUPDF_AVAILABLE,
                     'citation_styles': get_available_styles(),
@@ -186,7 +190,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'search': ['pubmed', 'openalex', 'semantic_scholar'],
                 'import': ['bibtex', 'ris'],
                 'export': ['bibtex', 'ris'],
-                'features': ['pdf_extraction', 'duplicate_detection', 'bibliography_generation', 'citation_database'],
+                'features': ['document_processing', 'pdf_extraction', 'duplicate_detection', 'bibliography_generation', 'citation_database'],
                 'pdf_support': PYMUPDF_AVAILABLE,
             })
             return
@@ -748,6 +752,36 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
             return
         
+        # === Document Processing ===
+        if path == '/api/process-document':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            style = data.get('style', 'vancouver')
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = os.path.expanduser(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except FileNotFoundError:
+                    self._send_json({'error': f'File not found: {file_path}'}, 404)
+                    return
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                result = self._process_document_content(content, style)
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
         # Default: 404
         self._send_json({'error': f'Unknown endpoint: {path}'}, 404)
     
@@ -791,6 +825,135 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'notes': citation.notes,
             'created_at': citation.created_at,
         }
+    
+    def _process_document_content(self, content: str, style: str = 'vancouver') -> Dict[str, Any]:
+        """
+        Process a markdown document, looking up all citations and replacing inline references.
+        
+        Returns a dict with:
+        - processed_content: The document with updated inline references
+        - citations: List of processed citations
+        - statistics: Processing stats
+        """
+        # Set citation style
+        if style != self.lookup.style:
+            self.lookup.set_style(style)
+        
+        # Parse references
+        parser = ReferenceParser(content)
+        parser.find_reference_section()
+        parser.parse_references()
+        
+        if not parser.references:
+            return {
+                'success': True,
+                'message': 'No references found in document',
+                'processed_content': content,
+                'citations': [],
+                'statistics': {
+                    'total_references': 0,
+                    'processed': 0,
+                    'failed': 0,
+                },
+            }
+        
+        # Categorize references by type
+        categorized = self.type_detector.categorize_references(parser.references)
+        
+        # Get body content
+        body = parser.get_body_content()
+        inline_style = parser._detect_inline_style(body)
+        
+        # Track results
+        processed_citations = []
+        number_to_label_map = {}
+        failed_refs = []
+        
+        # Process each reference
+        for ref in parser.references:
+            result = self._process_single_reference(ref)
+            
+            if result and result.get('success'):
+                # Create a FormattedCitation-like structure for inline replacement
+                label = result.get('inline_mark', '').strip('[]^')
+                number_to_label_map[ref.original_number] = label
+                processed_citations.append({
+                    'original_number': ref.original_number,
+                    'title': ref.title,
+                    'inline_mark': result.get('inline_mark', ''),
+                    'full_citation': result.get('full_citation', ''),
+                    'identifier': result.get('identifier', ''),
+                    'identifier_type': result.get('identifier_type', ''),
+                })
+            else:
+                failed_refs.append({
+                    'original_number': ref.original_number,
+                    'title': ref.title[:100] if ref.title else 'Unknown',
+                    'error': result.get('error', 'Unknown error') if result else 'Lookup returned None',
+                })
+        
+        # Update inline references in body
+        if number_to_label_map:
+            replacer = InlineReplacer(number_to_label_map, style=inline_style)
+            result = replacer.replace_all(body)
+            updated_body = result.modified_text
+            replacements_made = result.replacements_made
+        else:
+            updated_body = body
+            replacements_made = 0
+        
+        # Generate new reference section
+        reference_section = "\n## References\n\n"
+        sorted_citations = sorted(processed_citations, key=lambda c: c.get('inline_mark', '').lower())
+        for citation in sorted_citations:
+            reference_section += f"{citation['full_citation']}\n\n"
+        
+        # Combine updated body with new references
+        processed_content = updated_body + "\n\n" + reference_section.strip()
+        
+        return {
+            'success': True,
+            'processed_content': processed_content,
+            'citations': processed_citations,
+            'failed_references': failed_refs,
+            'statistics': {
+                'total_references': len(parser.references),
+                'processed': len(processed_citations),
+                'failed': len(failed_refs),
+                'inline_replacements': replacements_made,
+            },
+        }
+    
+    def _process_single_reference(self, ref: ParsedReference) -> Optional[Dict[str, Any]]:
+        """Process a single reference, attempting to look it up."""
+        # Try to extract identifiers from URL
+        pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
+        pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
+        doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+        
+        # Attempt lookup by identifier priority
+        if pmid:
+            result = self.lookup.lookup_pmid(pmid)
+            if result.success:
+                return self._format_result(result)
+        
+        if pmcid:
+            result = self.lookup.lookup_pmcid(pmcid)
+            if result.success:
+                return self._format_result(result)
+        
+        if doi:
+            result = self.lookup.lookup_doi(doi)
+            if result.success:
+                return self._format_result(result)
+        
+        # Try title search as last resort
+        if ref.title:
+            result = self.lookup.lookup_auto(ref.title)
+            if result.success:
+                return self._format_result(result)
+        
+        return {'success': False, 'error': 'Could not find citation'}
 
 
 def run_server(port: int = 3019, host: str = '127.0.0.1'):
@@ -808,6 +971,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     CitationHTTPHandler.citation_db = CitationDatabase(str(DATA_DIR / 'citations.db'))
     CitationHTTPHandler.duplicate_detector = DuplicateDetector()
     CitationHTTPHandler.bibliography_gen = BibliographyGenerator()
+    CitationHTTPHandler.type_detector = CitationTypeDetector()
     CitationHTTPHandler.arxiv_client = ArxivClient()
     CitationHTTPHandler.preprint_client = PreprintClient()
     CitationHTTPHandler.book_client = BookClient()
@@ -819,7 +983,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════════╗")
-    print(f"  ║           📚 CitationSculptor HTTP Server v2.0.0              ║")
+    print(f"  ║           📚 CitationSculptor HTTP Server v2.0.1              ║")
     print(f"  ╚═══════════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")
@@ -828,6 +992,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     print(f"  Features:")
     print(f"    ✓ Multi-source lookup (PubMed, arXiv, ISBN, DOI)")
     print(f"    ✓ Multiple citation styles (Vancouver, APA, MLA, etc.)")
+    print(f"    ✓ Document processing (Markdown files)")
     print(f"    {'✓' if PYMUPDF_AVAILABLE else '✗'} PDF metadata extraction")
     print(f"    ✓ BibTeX/RIS import & export")
     print(f"    ✓ Citation library with search")
