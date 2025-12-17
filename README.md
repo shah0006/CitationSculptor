@@ -275,7 +275,7 @@ CitationSculptor/
 │   ├── file_handler.py       # File I/O and backup
 │   ├── reference_parser.py   # Parse reference sections (multi-section support)
 │   ├── type_detector.py      # Detect citation types, extract DOIs
-│   ├── pubmed_client.py      # PubMed, CrossRef MCP client + webpage scraper
+│   ├── pubmed_client.py      # PubMed/CrossRef API client + webpage scraper
 │   ├── vancouver_formatter.py # Format citations
 │   ├── inline_replacer.py    # Replace inline references
 │   ├── output_generator.py   # Generate output files

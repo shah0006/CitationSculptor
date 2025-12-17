@@ -18,9 +18,14 @@ Converted MCP server from HTTP to stdio transport for compatibility with Abacus 
 
 ---
 
-## ✅ Recently Completed (Dec 2024)
+## ✅ Recently Completed (May 2025)
 
-### MCP Server Conversion (v1.3.0)
+### API Client Refactor (v1.3.1)
+- **Direct API Integration**: Restored direct E-utilities/CrossRef access in `PubMedClient` to fix server dependency issues.
+- **Bug Fixes**: Resolved valid-but-crashing type errors in ID conversion and missing methods in CrossRef lookup.
+- **Cleanup**: Removed unused legacy code and temporary methods (`_parse_conversion_result`, etc.).
+
+### MCP Server Conversion (v1.3.0) - Dec 2024
 - **Transport:** HTTP (aiohttp port 3018) → stdio (stdin/stdout)
 - **SDK:** Now uses official `mcp` Python SDK
 - **Python:** Requires 3.10+ (MCP SDK requirement)

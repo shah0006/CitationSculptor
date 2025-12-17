@@ -2,6 +2,7 @@
 
 import json
 import re
+import xml.etree.ElementTree as ET
 import time
 from typing import Optional, List, Dict, Any, Literal, Tuple
 from dataclasses import dataclass, field
@@ -176,102 +177,50 @@ class ArticleMetadata:
 
 
 class PubMedClient:
-    """Client for PubMed MCP server with rate limiting, retry logic, and caching."""
+    """Client for PubMed using direct NCBI E-utilities API with rate limiting and caching."""
 
-    DEFAULT_SERVER_URL = "http://127.0.0.1:3017/mcp"
-    MAX_RETRIES = 4
-    # Backoff sequence: 5s, 10s, 20s, 40s (total ~75s max wait)
-    RETRY_BACKOFF_SECONDS = [5, 10, 20, 40]
+    EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    EFETCH_URL = f"{EUTILS_BASE}/efetch.fcgi"
+    ESEARCH_URL = f"{EUTILS_BASE}/esearch.fcgi"
+    ID_CONVERTER_URL = "https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/"
+    MAX_RETRIES = 3
+    RETRY_BACKOFF_SECONDS = [1, 2, 4]
 
     def __init__(self, server_url: Optional[str] = None, requests_per_second: float = 2.5):
-        self.server_url = server_url or self.DEFAULT_SERVER_URL
         self.session = requests.Session()
-        
-        # Caches to avoid duplicate API calls
-        self._pmid_cache = SimpleCache(max_size=500)      # PMID -> ArticleMetadata
-        self._conversion_cache = SimpleCache(max_size=500)  # ID -> IdConversionResult
-        self._crossref_cache = SimpleCache(max_size=200)   # DOI -> CrossRefMetadata
-        
-        self.session.headers.update({
-            'Content-Type': 'application/json',
-            'Accept': 'application/json, text/event-stream',
-        })
-        self._request_id = 0
+        self._pmid_cache = SimpleCache(max_size=500)
+        self._conversion_cache = SimpleCache(max_size=500)
+        self._crossref_cache = SimpleCache(max_size=200)
+        self.session.headers.update({'User-Agent': 'CitationSculptor/1.0'})
         self._rate_limiter = RateLimiter(requests_per_second)
 
-    def _send_request(self, method: str, params: Dict[str, Any]) -> Optional[Dict]:
-        """Send JSON-RPC request to MCP server with rate limiting and retries."""
-        payload = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-            "id": self._request_id,
-        }
-        self._request_id += 1
-
+    def _eutils_request(self, url: str, params: Dict[str, Any]) -> Optional[Any]:
+        """Make request to NCBI E-utilities with rate limiting and retries."""
         for attempt in range(self.MAX_RETRIES):
             try:
-                # Apply rate limiting before each request
                 self._rate_limiter.wait_if_needed()
-                
-                logger.debug(f"Sending request: {method} (attempt {attempt + 1})")
-                response = self.session.post(self.server_url, json=payload, timeout=30)
-                
-                # Handle rate limit (429) with backoff
+                response = self.session.get(url, params=params, timeout=30)
                 if response.status_code == 429:
                     if attempt < self.MAX_RETRIES - 1:
-                        backoff_time = self.RETRY_BACKOFF_SECONDS[attempt]
-                        logger.warning(f"Rate limited (429). Waiting {backoff_time}s before retry {attempt + 2}/{self.MAX_RETRIES}...")
-                        time.sleep(backoff_time)
+                        time.sleep(self.RETRY_BACKOFF_SECONDS[attempt])
                         continue
-                    else:
-                        logger.error("Rate limit exceeded after all retries")
-                        return None
-                
-                response.raise_for_status()
-
-                text = response.text
-                if 'data: ' in text:
-                    json_str = text.split('data: ', 1)[1].strip()
-                    result = json.loads(json_str)
-                else:
-                    result = response.json()
-
-                if 'error' in result:
-                    logger.error(f"MCP error: {result['error']}")
                     return None
-
-                return result.get('result', {})
-
-            except requests.exceptions.ConnectionError:
-                logger.error(f"Cannot connect to PubMed MCP at {self.server_url}")
-                return None
-            except requests.exceptions.Timeout:
-                if attempt < self.MAX_RETRIES - 1:
-                    logger.warning(f"Request timed out. Retrying...")
-                    time.sleep(1)
-                    continue
-                logger.error("Request timed out after all retries")
-                return None
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parse error: {e}")
-                return None
-            except requests.exceptions.HTTPError as e:
-                if response.status_code != 429:  # Already handled above
-                    logger.error(f"HTTP error: {e}")
-                return None
+                response.raise_for_status()
+                return ET.fromstring(response.content)
             except Exception as e:
-                logger.error(f"Unexpected error: {e}")
+                logger.error(f"E-utilities error: {e}")
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(self.RETRY_BACKOFF_SECONDS[attempt])
+                    continue
                 return None
-        
         return None
 
     def test_connection(self) -> bool:
-        """Test MCP server connection."""
+        """Test connection to NCBI E-utilities."""
         try:
-            result = self._send_request("tools/list", {})
-            if result:
-                logger.info("Connected to PubMed MCP server")
+            root = self._eutils_request(self.ESEARCH_URL, {'db': 'pubmed', 'term': 'test', 'retmax': 1, 'retmode': 'xml'})
+            if root is not None:
+                logger.info("Connected to NCBI E-utilities")
                 return True
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
@@ -295,21 +244,42 @@ class PubMedClient:
             List of IdConversionResult objects
         """
         logger.info(f"Converting {len(ids)} IDs (type={id_type}, target={target_type})")
+        # Ensure all IDs are strings
+        id_list = [str(x) for x in ids]
         
-        result = self._send_request("tools/call", {
-            "name": "pubmed_convert_ids",
-            "arguments": {
-                "ids": ids,
-                "idType": id_type,
-                "targetIdType": target_type,
-            }
-        })
+        params = {
+            'ids': ','.join(id_list),
+            'format': 'json',
+        }
+        if id_type != 'auto':
+            params['idtype'] = id_type
         
-        if not result:
-            logger.error("ID conversion request failed")
-            return [IdConversionResult(input_id=id_, status="error", error="Request failed") for id_ in ids]
-        
-        return self._parse_conversion_result(result, ids)
+        try:
+            self._rate_limiter.wait_if_needed()
+            response = self.session.get(self.ID_CONVERTER_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            results = []
+            for record in data.get('records', []):
+                results.append(IdConversionResult(
+                    input_id=record.get('requested-id', ''),
+                    pmid=record.get('pmid'),
+                    pmcid=record.get('pmcid'),
+                    doi=record.get('doi'),
+                    status='success' if 'pmid' in record or 'doi' in record else 'error',
+                    error=record.get('errmsg'),
+                ))
+            
+            found_ids = {r.input_id for r in results}
+            for id_ in ids:
+                if id_ not in found_ids:
+                    results.append(IdConversionResult(input_id=id_, status="error", error="Not in response"))
+            
+            return results
+        except Exception as e:
+            logger.error(f"ID conversion failed: {e}")
+            return [IdConversionResult(input_id=id_, status="error", error=str(e)) for id_ in ids]
     
     def _parse_conversion_result(self, result: Dict, original_ids: List[str]) -> List[IdConversionResult]:
         """Parse ID conversion response."""
@@ -389,6 +359,148 @@ class PubMedClient:
         logger.warning(f"Could not convert DOI {doi} to PMID")
         return None
 
+    def _fetch_from_eutils(self, pmids: List[str]) -> List[ArticleMetadata]:
+        """Fetch metadata for PMIDs directly from NCBI E-utilities."""
+        if not pmids:
+            return []
+            
+        # Ensure all IDs are strings
+        pmid_list = [str(x) for x in pmids]
+        
+        params = {
+            'db': 'pubmed',
+            'id': ','.join(pmid_list),
+            'retmode': 'xml',
+        }
+        
+        root = self._eutils_request(self.EFETCH_URL, params)
+        if root is None:
+            return []
+            
+        articles = []
+        for article_xml in root.findall('.//PubmedArticle'):
+            meta = self._parse_pubmed_article_xml(article_xml)
+            if meta:
+                articles.append(meta)
+                
+        return articles
+
+    def _parse_pubmed_article_xml(self, article_xml) -> Optional[ArticleMetadata]:
+        try:
+            medline = article_xml.find('MedlineCitation')
+            if medline is None:
+                return None
+                
+            pmid = medline.findtext('PMID')
+            article = medline.find('Article')
+            if article is None:
+                return None
+                
+            title = article.findtext('ArticleTitle', '')
+            
+            # Authors
+            authors = []
+            author_list = article.find('AuthorList')
+            if author_list is not None:
+                for a in author_list.findall('Author'):
+                    last = a.findtext('LastName', '')
+                    initials = a.findtext('Initials', '')
+                    if last:
+                        authors.append(f"{last} {initials}".strip())
+                    elif a.findtext('CollectiveName'):
+                        authors.append(a.findtext('CollectiveName'))
+            
+            # Journal
+            journal_elem = article.find('Journal')
+            journal_title = journal_elem.findtext('Title', '')
+            journal_abbrev = journal_elem.findtext('ISOAbbreviation', '') or journal_title
+            
+            issue_elem = journal_elem.find('JournalIssue')
+            if issue_elem is not None:
+                volume = issue_elem.findtext('Volume', '')
+                issue = issue_elem.findtext('Issue', '')
+                pub_date_elem = issue_elem.find('PubDate')
+                year = ''
+                month = ''
+                if pub_date_elem is not None:
+                    year = pub_date_elem.findtext('Year', '')
+                    month = pub_date_elem.findtext('Month', '')
+                    if not year:
+                        medline_date = pub_date_elem.findtext('MedlineDate', '')
+                        if medline_date:
+                            match = re.search(r'(\d{4})', medline_date)
+                            if match:
+                                year = match.group(1)
+            else:
+                volume = ''
+                issue = ''
+                year = ''
+                month = ''
+
+            # If year missing from PubDate, try ArticleDate
+            if not year:
+                article_year = article.findtext('ArticleDate/Year')
+                if article_year:
+                    year = article_year
+            
+            pages = article.findtext('Pagination/MedlinePgn', '')
+            
+            # DOI and PMCID
+            doi = None
+            pmcid = None
+            
+            # ELocationID for DOI
+            for eloc in article.findall('ELocationID'):
+                if eloc.get('EIdType') == 'doi':
+                    doi = eloc.text
+                    
+            # ArticleIdList for DOI and PMCID
+            pubmed_data = article_xml.find('PubmedData/ArticleIdList')
+            if pubmed_data is not None:
+                for id_elem in pubmed_data.findall('ArticleId'):
+                    id_type = id_elem.get('IdType')
+                    if id_type == 'doi' and not doi:
+                        doi = id_elem.text
+                    elif id_type == 'pmc':
+                        pmcid = id_elem.text
+                        if not pmcid.upper().startswith('PMC'):
+                            pmcid = f"PMC{pmcid}"
+
+            # Abstract
+            abstract_text = ""
+            abstract = article.find('Abstract')
+            if abstract is not None:
+                parts = []
+                for abs_text in abstract.findall('AbstractText'):
+                    label = abs_text.get('Label')
+                    text = abs_text.text
+                    if text:
+                        if label:
+                            parts.append(f"{label}: {text}")
+                        else:
+                            parts.append(text)
+                abstract_text = "\\n\\n".join(parts)
+
+            return ArticleMetadata(
+                pmid=pmid,
+                title=title,
+                authors=authors,
+                journal=journal_title,
+                journal_abbreviation=journal_abbrev,
+                year=year,
+                month=month,
+                volume=volume,
+                issue=issue,
+                pages=pages,
+                doi=doi,
+                abstract=abstract_text,
+                pub_date=f"{year} {month}".strip(),
+                pmcid=pmcid
+            )
+        except Exception as e:
+            logger.error(f"Error parsing XML article: {e}")
+            return None
+
     def fetch_article_by_pmid(self, pmid: str) -> Optional[ArticleMetadata]:
         """Fetch article metadata by PMID with caching."""
         # Check cache first
@@ -399,20 +511,12 @@ class PubMedClient:
         
         logger.info(f"Fetching PMID: {pmid}")
 
-        result = self._send_request("tools/call", {
-            "name": "pubmed_fetch_contents",
-            "arguments": {
-                "pmids": [pmid],
-                "detailLevel": "abstract_plus",
-                "includeMeshTerms": False,
-                "includeGrantInfo": False,
-            }
-        })
+        results = self._fetch_from_eutils([pmid])
 
-        if not result:
+        if not results:
             return None
 
-        metadata = self._parse_fetch_result(result, pmid)
+        metadata = results[0]
         
         # Supplement missing DOI using ID converter (check conversion cache first)
         if metadata and not metadata.doi:
@@ -446,20 +550,25 @@ class PubMedClient:
             clean_title = clean_title[:100].rsplit(' ', 1)[0]
         logger.info(f"Searching: {clean_title[:60]}...")
 
-        result = self._send_request("tools/call", {
-            "name": "pubmed_search_articles",
-            "arguments": {
-                "queryTerm": clean_title,
-                "maxResults": max_results,
-                "sortBy": "relevance",
-                "fetchBriefSummaries": max_results,
-            }
-        })
-
-        if not result:
+        params = {
+            'db': 'pubmed',
+            'term': clean_title,
+            'retmax': max_results,
+            'retmode': 'xml'
+        }
+        root = self._eutils_request(self.ESEARCH_URL, params)
+        if root is None:
             return []
-
-        return self._parse_search_result(result)
+            
+        id_list = root.find('IdList')
+        if id_list is None:
+            return []
+            
+        pmids = [id_elem.text for id_elem in id_list.findall('Id')]
+        if not pmids:
+            return []
+            
+        return self._fetch_from_eutils(pmids)
 
     def verify_article_exists(self, title: str) -> Optional[ArticleMetadata]:
         """Verify article exists in PubMed and return full metadata."""
@@ -544,22 +653,22 @@ class PubMedClient:
         # 3. Fallback: Direct search (legacy, but might catch something)
         logger.info(f"ID converter failed, trying direct search for {pmcid}")
         clean_pmcid = pmcid.replace('PMC', '')
-        result = self._send_request("tools/call", {
-            "name": "pubmed_search_articles",
-            "arguments": {
-                "queryTerm": f"PMC{clean_pmcid}",
-                "maxResults": 3,
-                "fetchBriefSummaries": 3,
-            }
-        })
-
-        if result:
-            articles = self._parse_search_result(result)
-            for article in articles:
-                if article.pmcid and clean_pmcid in article.pmcid:
-                    logger.info(f"Found PMID {article.pmid} for {pmcid} via search")
-                    return self.fetch_article_by_pmid(article.pmid)
-
+        
+        params = {
+            'db': 'pubmed',
+            'term': f"PMC{clean_pmcid}",
+            'retmax': 1,
+            'retmode': 'xml'
+        }
+        root = self._eutils_request(self.ESEARCH_URL, params)
+        if root:
+            id_list = root.find('IdList')
+            if id_list:
+                pmids = [id_elem.text for id_elem in id_list.findall('Id')]
+                if pmids:
+                    logger.info(f"Found PMID {pmids[0]} for {pmcid} via search")
+                    return self.fetch_article_by_pmid(pmids[0])
+        
         logger.warning(f"Could not find PMID or usable metadata for {pmcid}")
         return None
 
@@ -596,20 +705,21 @@ class PubMedClient:
         
         # Fallback: Search PubMed using DOI field tag
         logger.info(f"ID converter failed for DOI, trying PubMed search...")
-        result = self._send_request("tools/call", {
-            "name": "pubmed_search_articles",
-            "arguments": {
-                "queryTerm": f"{doi}[doi]",
-                "maxResults": 1,
-                "fetchBriefSummaries": 1,
-            }
-        })
-
-        if result:
-            articles = self._parse_search_result(result)
-            if articles:
-                logger.info(f"Found PMID {articles[0].pmid} for DOI {doi} via search")
-                return self.fetch_article_by_pmid(articles[0].pmid)
+        
+        params = {
+            'db': 'pubmed',
+            'term': f"{doi}[doi]",
+            'retmax': 1,
+            'retmode': 'xml'
+        }
+        root = self._eutils_request(self.ESEARCH_URL, params)
+        if root:
+            id_list = root.find('IdList')
+            if id_list:
+                pmids = [id_elem.text for id_elem in id_list.findall('Id')]
+                if pmids:
+                    logger.info(f"Found PMID {pmids[0]} for DOI {doi} via search")
+                    return self.fetch_article_by_pmid(pmids[0])
 
         logger.warning(f"Could not find PMID for DOI {doi}")
         return None
@@ -871,23 +981,28 @@ class PubMedClient:
         
         logger.info(f"CrossRef lookup for DOI: {doi}")
         
-        result = self._send_request("tools/call", {
-            "name": "crossref_lookup_doi",
-            "arguments": {
-                "doi": doi,
-            }
-        })
-        
-        if not result:
-            logger.warning(f"CrossRef lookup failed for DOI: {doi}")
+        try:
+            url = f"https://api.crossref.org/works/{doi}"
+            response = requests.get(url, headers={
+                'User-Agent': 'CitationSculptor/1.0 (mailto:support@example.com)'
+            }, timeout=15)
+            
+            if response.status_code == 404:
+                logger.warning(f"DOI not found in CrossRef: {doi}")
+                self._crossref_cache.set(doi, None) # Cache negative result
+                return None
+                
+            response.raise_for_status()
+            data = response.json()
+            item = data.get('message', {})
+            
+            metadata = self._parse_crossref_item(item, doi)
+            self._crossref_cache.set(doi, metadata)
+            return metadata
+            
+        except Exception as e:
+            logger.warning(f"CrossRef lookup failed for DOI {doi}: {e}")
             return None
-        
-        metadata = self._parse_crossref_result(result, doi)
-        
-        # Cache the result (even if None to avoid re-fetching)
-        self._crossref_cache.set(doi, metadata)
-        
-        return metadata
 
     def _parse_crossref_result(self, result: Dict, doi: str) -> Optional[CrossRefMetadata]:
         """Parse CrossRef API response into CrossRefMetadata."""

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2025-05-27
+
+### Fixed
+- **PubMed Client Integration**: 
+    - Fixed `TypeError` in `convert_ids` where integer IDs caused string concatenation failures.
+    - Fixed `AttributeError` in `crossref_lookup_doi` by removing call to non-existent `_send_request`.
+- **API Reliability**:
+    - Refactored `PubMedClient` to communicate directly with NCBI E-utilities and CrossRef APIs using `requests`.
+    - Removed legacy dependency logic that assumed a separate running PubMed MCP server.
+    - Added robust error handling and type conversion for ID operations.
+
 ## [1.3.0] - 2024-12-15
 
 ### Changed
