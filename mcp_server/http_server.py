@@ -129,6 +129,38 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, str(e))
     
+    def _list_directories(self, path: str) -> list:
+        """List subdirectories in a path (for folder browser)."""
+        import os
+        try:
+            entries = []
+            for entry in sorted(os.listdir(path)):
+                # Skip hidden files/folders
+                if entry.startswith('.'):
+                    continue
+                full_path = os.path.join(path, entry)
+                if os.path.isdir(full_path):
+                    try:
+                        # Check if we can access it
+                        os.listdir(full_path)
+                        entries.append({
+                            'name': entry,
+                            'path': full_path,
+                            'is_obsidian_vault': self._is_obsidian_vault(full_path),
+                        })
+                    except PermissionError:
+                        # Skip inaccessible directories
+                        pass
+            return entries
+        except Exception:
+            return []
+    
+    def _is_obsidian_vault(self, path: str) -> bool:
+        """Check if a directory is an Obsidian vault (contains .obsidian folder)."""
+        import os
+        obsidian_dir = os.path.join(path, '.obsidian')
+        return os.path.isdir(obsidian_dir)
+    
     def _send_text(self, text: str, content_type: str = 'text/plain', filename: str = None):
         """Send text response with optional download filename."""
         self.send_response(200)
@@ -242,6 +274,42 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'path': vault_path or None,
                 'hint': 'Configure via Settings page or set OBSIDIAN_VAULT_PATH in .env',
             })
+            return
+        
+        # === Directory Browser (for folder selection in Web UI) ===
+        if path == '/api/browse-directories':
+            browse_path = query.get('path', [None])[0]
+            
+            # Default starting locations
+            if not browse_path:
+                import os
+                home = os.path.expanduser('~')
+                self._send_json({
+                    'current': home,
+                    'parent': os.path.dirname(home) if home != '/' else None,
+                    'directories': self._list_directories(home),
+                    'is_obsidian_vault': self._is_obsidian_vault(home),
+                })
+                return
+            
+            import os
+            # Validate and resolve path
+            try:
+                resolved = os.path.abspath(os.path.expanduser(browse_path))
+                if not os.path.isdir(resolved):
+                    self._send_json({'error': 'Not a valid directory'}, 400)
+                    return
+                
+                parent = os.path.dirname(resolved) if resolved != '/' else None
+                
+                self._send_json({
+                    'current': resolved,
+                    'parent': parent,
+                    'directories': self._list_directories(resolved),
+                    'is_obsidian_vault': self._is_obsidian_vault(resolved),
+                })
+            except Exception as e:
+                self._send_json({'error': str(e)}, 400)
             return
         
         # === Settings API ===
