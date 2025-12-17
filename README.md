@@ -48,6 +48,19 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 - **Compliance Checker**: Detect uncited quotes, claims, and statistics
 - **LLM Extraction**: AI-powered metadata extraction for edge cases
 
+### 🛡️ Safety & Reliability
+- **Automatic Backups**: Creates timestamped backup before any file modification
+- **One-Click Restore**: Instantly restore original file from Web UI
+- **Detailed Error Messages**: Clear explanations when references fail to resolve
+- **Real-Time Progress**: Live progress bar and statistics during processing
+- **Comprehensive Logging**: Persistent log files for troubleshooting
+
+### 📊 Real-Time Progress (Web UI)
+- Live progress bar with percentage
+- Running statistics (processed/failed/total)
+- Current reference being looked up
+- Streaming updates via Server-Sent Events
+
 ---
 
 ## 🚀 Quick Start
@@ -440,7 +453,51 @@ python -m pytest tests/test_pubmed_client.py -v
 python -m pytest tests/ --cov=modules
 ```
 
-**Test Coverage:** 185 tests across 6 test files
+**Test Coverage:** 292+ tests across all modules
+
+---
+
+## ⚙️ Configuration
+
+Settings can be configured via environment variables or `.env` file:
+
+### Logging Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ENABLE_FILE_LOGGING` | `true` | Enable persistent log files |
+| `LOG_LEVEL` | `INFO` | Console log level (DEBUG, INFO, WARNING, ERROR) |
+| `LOG_ROTATION_SIZE_MB` | `10` | Rotate logs at this size |
+| `LOG_RETENTION_COUNT` | `5` | Number of log files to keep |
+
+### Log Files Location
+```
+.data/logs/
+├── citationsculptor.log      # Main application log
+├── errors.log                 # Critical errors only
+└── document_processing.log    # Backup/restore/save operations
+```
+
+### Viewing Logs via API
+```bash
+# Get log file information
+curl http://127.0.0.1:3019/api/logs/info
+
+# View recent logs (last 100 lines)
+curl "http://127.0.0.1:3019/api/logs?type=main&lines=100"
+
+# View errors only
+curl "http://127.0.0.1:3019/api/logs?type=errors"
+
+# View document operations
+curl "http://127.0.0.1:3019/api/logs?type=processing"
+```
+
+### Other Settings
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `OBSIDIAN_VAULT_PATH` | *(empty)* | Path to Obsidian vault for relative path resolution |
+| `CREATE_BACKUP` | `true` | Auto-backup before processing |
+| `MAX_AUTHORS` | `3` | Authors before "et al." |
 
 ---
 

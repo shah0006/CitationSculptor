@@ -18,13 +18,18 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 ## ✅ All Phases Complete - v2.1.0 Achieved!
 
-### v2.1.0 - Document Intelligence (Dec 2025) ✅
+### v2.1.0 - Document Intelligence & Safety (Dec 2025) ✅
 - **Link Verification**: Parallel URL checking with redirect/broken/archived detection
 - **Citation Suggestions**: Pattern-based detection of uncited statistics, claims, findings
 - **Citation Compliance**: Plagiarism-style checker for missing citations
 - **LLM Metadata Extraction**: Ollama-powered metadata extraction for edge cases
 - **HTTP API**: `/api/verify-links`, `/api/suggest-citations`, `/api/check-compliance`, `/api/analyze-document`
 - **MCP Tools**: 5 new tools for AI agents
+- **Auto-Save**: Save processed content directly to file with `save_to_file` parameter
+- **One-Click Restore**: "Restore Original" button in Web UI, `/api/restore-backup` endpoint
+- **Real-Time Progress**: SSE streaming with live progress bar and statistics
+- **Comprehensive Logging**: File-based logging with rotation in `.data/logs/`
+- **Improved Errors**: Detailed error types and suggestions for failed references
 
 ### v2.0.0 - Smart Features (Jun 2025) ✅
 - **Citation Database**: SQLite-backed storage with FTS5 search, tags, collections
@@ -192,4 +197,5 @@ python citation_sculptor.py "document.md" --multi-section
 | test_http_server.py | 11 | ✅ |
 | test_document_intelligence.py | 30 | ✅ |
 | test_document_intelligence_integration.py | 24 | ✅ |
-| **Total** | **280** | ✅ |
+| test_save_to_file_safety.py | 12 | ✅ |
+| **Total** | **292+** | ✅ |

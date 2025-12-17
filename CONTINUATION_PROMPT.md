@@ -152,6 +152,55 @@ The MCP server is configured in `~/.cursor/mcp.json`:
    - Backup path shown in output
    - New `create_backup` parameter (default: true)
 
+### Dec 17, 2025 - Auto-Save & One-Click Restore
+1. **Auto-Save Feature:**
+   - New `save_to_file` parameter in `/api/process-document`
+   - When enabled, writes processed content directly back to original file
+   - Backup ALWAYS created first (enforced when saving)
+   - Web UI checkbox "💾 Save to original file" in File Path mode
+
+2. **One-Click Restore:**
+   - "🔄 Restore Original" button in Web UI after saving
+   - `/api/restore-backup` endpoint for programmatic restore
+   - Confirmation dialog prevents accidental restores
+   - Success message shows restored file path
+
+3. **Improved Error Messages:**
+   - Detailed error types: `pubmed_not_found`, `invalid_doi_url`, `url_not_recognized`, etc.
+   - Actionable suggestions for each error type
+   - Shows URL and title for failed references
+   - Expandable error panel with full details
+
+### Dec 17, 2025 - Real-Time Progress & Streaming
+1. **Server-Sent Events (SSE) Streaming:**
+   - New `/api/process-document-stream` endpoint
+   - Events: `status`, `progress`, `ref_processed`, `complete`, `error`
+   - Real-time statistics as each reference is processed
+
+2. **Web UI Progress Display:**
+   - Live progress bar with percentage
+   - Running statistics (Total/Processed/Failed)
+   - Current reference being looked up
+   - Smooth fallback to regular endpoint if streaming fails
+
+### Dec 17, 2025 - Comprehensive File Logging
+1. **Logging System:**
+   - New `modules/logging_setup.py` module
+   - Loguru-based with file rotation
+   - Three log files in `.data/logs/`:
+     - `citationsculptor.log` - Main application log (DEBUG level)
+     - `errors.log` - Critical errors only
+     - `document_processing.log` - Backup/restore/save operations
+
+2. **Log Configuration:**
+   - `ENABLE_FILE_LOGGING` (default: true)
+   - `LOG_ROTATION_SIZE_MB` (default: 10)
+   - `LOG_RETENTION_COUNT` (default: 5)
+
+3. **Log API Endpoints:**
+   - `/api/logs/info` - List log files with sizes
+   - `/api/logs?type=main&lines=100` - View recent logs
+
 ### Dec 17, 2025 - Maintenance & Testing
 1. Fixed asyncio deprecation warning in `tests/test_mcp_server.py`
    - Updated `run_async()` helper to use `asyncio.new_event_loop()` instead of deprecated `asyncio.get_event_loop()`
@@ -200,9 +249,11 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 ## Notes
 
 - HTTP server runs on port 3019 (localhost only, secure)
-- All tests pass (280 tests including document intelligence core + integration tests)
+- All tests pass (292+ tests including document intelligence, safety, and integration tests)
 - bioRxiv/medRxiv API can be finicky (marked as ⚠️ Partial for Lookup)
 - Obsidian plugin requires HTTP server to be running for best performance
 - LLM metadata extraction requires Ollama running locally with llama3:8b model
 - Link verification makes actual HTTP requests (may be slow for many URLs)
+- Logs are stored in `.data/logs/` with automatic rotation
+- Backups are created in the same directory as the original file
 
