@@ -118,7 +118,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # API Endpoints
         if path == '/health':
-            self._send_json({'status': 'ok', 'version': '1.6.0'})
+            self._send_json({'status': 'ok', 'version': '2.0.0'})
             return
         
         if path == '/api/styles':
@@ -297,7 +297,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     server = HTTPServer((host, port), CitationHTTPHandler)
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════╗")
-    print(f"  ║          📚 CitationSculptor HTTP Server v1.5.1           ║")
+    print(f"  ║          📚 CitationSculptor HTTP Server v2.0.0            ║")
     print(f"  ╚═══════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")
