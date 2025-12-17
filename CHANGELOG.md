@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2025-06-17
+
+### Added - Smart Features
+- **Citation Database** (`modules/citation_database.py`):
+  - SQLite-backed persistent storage for all citations
+  - Full-text search (FTS5) across titles, authors, notes
+  - Tag and collection support for organization
+  - Citation relationship tracking (cites, cited_by, related)
+  - Database statistics and export
+  
+- **Duplicate Detection** (`modules/duplicate_detector.py`):
+  - Multi-strategy duplicate finding:
+    - Exact DOI/PMID matching (100% confidence)
+    - Fuzzy title matching (configurable threshold)
+    - Author/year heuristics
+  - Fingerprint generation for quick lookups
+  - Merge suggestions for duplicate pairs
+  
+- **Auto-Bibliography Generator** (`modules/bibliography_generator.py`):
+  - Extract citations from document text
+  - Multiple citation patterns (footnote, numeric, author-year)
+  - Generate formatted bibliographies
+  - Find undefined/unused citations
+  - Update document bibliography sections
+  - Support for appearance/alphabetical/year sorting
+
+### Changed
+- All formatters now inherit from `BaseFormatter`
+- Comprehensive source type detection
+
+---
+
+## [1.10.0] - 2025-06-17
+
+### Added - Import/Export
+- **BibTeX Handler** (`modules/bibtex_handler.py`):
+  - Full BibTeX file parsing
+  - Export articles, books, preprints to BibTeX
+  - Auto-generate cite keys
+  - Handle special characters and LaTeX escaping
+  
+- **RIS Handler** (`modules/ris_handler.py`):
+  - Complete RIS format parsing
+  - Export to RIS format
+  - Support all standard RIS tags
+  - Multi-value field handling (authors, keywords)
+
+---
+
+## [1.9.0] - 2025-06-17
+
+### Added - PDF Support
+- **PDF Metadata Extractor** (`modules/pdf_extractor.py`):
+  - Extract document metadata (title, authors, date)
+  - DOI extraction from PDF text content
+  - arXiv ID and PMID detection
+  - First-page title extraction (font-size heuristic)
+  - Batch extraction from directories
+  - Optional PyMuPDF dependency for full functionality
+
+---
+
+## [1.8.0] - 2025-06-17
+
+### Added - Enhanced Sources
+- **Wayback Machine Integration** (`modules/wayback_client.py`):
+  - Check if URLs are archived
+  - Get closest snapshot to any timestamp
+  - List all snapshots for a URL
+  - Format citations with archived URLs
+  - Request new page archival
+  
+- **OpenAlex API Client** (`modules/openalex_client.py`):
+  - Lookup by DOI, PMID, or OpenAlex ID
+  - Full-text search with type filtering
+  - Citation and reference retrieval
+  - Open access URL detection
+  - Polite pool support (100k requests/day)
+  
+- **Semantic Scholar API Client** (`modules/semantic_scholar_client.py`):
+  - Lookup by DOI, arXiv ID, PMID
+  - AI-powered search and recommendations
+  - Citation and reference networks
+  - TLDR summaries (AI-generated abstracts)
+  - Influential citation counts
+
+---
+
 ## [1.7.0] - 2025-06-17
 
 ### Added
