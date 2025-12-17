@@ -354,15 +354,39 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 ## 🔮 Future Roadmap
 
-### v2.1.0 - Enhanced Integration
-- [ ] Zotero sync
-- [ ] Mendeley integration
-- [ ] Citation graph visualization
+We're always looking to improve CitationSculptor. Here's what's planned:
 
-### v2.2.0 - Advanced Features
+### v2.1.0 - Reference Manager Integration
+- [ ] Zotero library sync (two-way)
+- [ ] Mendeley integration
+- [ ] EndNote support
+- [ ] Papers app integration
+
+### v2.2.0 - Visualization & Analytics
+- [ ] Citation network graph visualization
+- [ ] Co-author network mapping
+- [ ] Research trend analysis
+- [ ] Journal impact metrics display
+
+### v2.3.0 - Document Intelligence
 - [ ] LLM-powered metadata extraction for edge cases
 - [ ] Link verification & broken link detection
-- [ ] Batch PDF processing
+- [ ] Automatic citation suggestions based on content
+- [ ] Plagiarism-style citation checker
+
+### v2.4.0 - Collaboration Features
+- [ ] Shared citation libraries
+- [ ] Team workspaces
+- [ ] Citation annotation & notes sharing
+- [ ] Export to collaborative writing platforms (Overleaf, Google Docs)
+
+### Continuous Improvements
+- Performance optimizations
+- Additional citation styles on request
+- More source integrations (JSTOR, Google Scholar, etc.)
+- Mobile-friendly web interface
+
+**Have a feature request?** Open an issue on [GitHub](https://github.com/shah0006/CitationSculptor/issues).
 
 See [PLANNING.md](PLANNING.md) and [CHANGELOG.md](CHANGELOG.md) for details.
 
