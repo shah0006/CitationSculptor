@@ -1952,6 +1952,361 @@
         let currentDocTab = 'content';
         let lastProcessedDoc = null;
 
+        async function processDocumentWithProgress(requestBody, container) {
+            return new Promise((resolve) => {
+                try {
+                    // Create a fetch request that we'll read as a stream
+                    fetch(`${API}/api/process-document-stream`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(requestBody)
+                    }).then(response => {
+                        if (!response.ok) {
+                            resolve(false); // Fallback to regular endpoint
+                            return;
+                        }
+                        
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        
+                        function processSSE(text) {
+                            const lines = text.split('\n');
+                            let eventType = null;
+                            let eventData = null;
+                            
+                            for (const line of lines) {
+                                if (line.startsWith('event: ')) {
+                                    eventType = line.slice(7).trim();
+                                } else if (line.startsWith('data: ')) {
+                                    eventData = line.slice(6);
+                                    if (eventType && eventData) {
+                                        try {
+                                            const data = JSON.parse(eventData);
+                                            handleSSEEvent(eventType, data, container, resolve);
+                                        } catch (e) {
+                                            console.warn('Failed to parse SSE data:', e);
+                                        }
+                                        eventType = null;
+                                        eventData = null;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        function read() {
+                            reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    if (buffer) processSSE(buffer);
+                                    return;
+                                }
+                                
+                                buffer += decoder.decode(value, { stream: true });
+                                
+                                // Process complete events from buffer
+                                const events = buffer.split('\n\n');
+                                buffer = events.pop() || ''; // Keep incomplete event in buffer
+                                
+                                for (const event of events) {
+                                    if (event.trim()) {
+                                        processSSE(event + '\n');
+                                    }
+                                }
+                                
+                                read();
+                            }).catch(err => {
+                                console.error('Stream read error:', err);
+                                resolve(false);
+                            });
+                        }
+                        
+                        read();
+                    }).catch(err => {
+                        console.error('Fetch error:', err);
+                        resolve(false);
+                    });
+                } catch (e) {
+                    console.error('Stream setup error:', e);
+                    resolve(false);
+                }
+            });
+        }
+        
+        function handleSSEEvent(eventType, data, container, resolve) {
+            const progressBar = document.getElementById('progressBar');
+            const progressPercent = document.getElementById('progressPercent');
+            const progressPhase = document.getElementById('progressPhase');
+            const progressMessage = document.getElementById('progressMessage');
+            const liveTotal = document.getElementById('liveTotal');
+            const liveProcessed = document.getElementById('liveProcessed');
+            const liveFailed = document.getElementById('liveFailed');
+            const currentRef = document.getElementById('currentRef');
+            const currentRefTitle = document.getElementById('currentRefTitle');
+            
+            switch (eventType) {
+                case 'status':
+                    if (progressPhase) {
+                        const icons = {
+                            'analyzing': '🔍',
+                            'parsing': '📝',
+                            'finalizing': '✨',
+                            'saving': '💾'
+                        };
+                        progressPhase.textContent = `${icons[data.phase] || '🔄'} ${data.message}`;
+                    }
+                    if (progressMessage) progressMessage.textContent = data.message;
+                    break;
+                    
+                case 'analysis':
+                    if (progressMessage) progressMessage.textContent = 'Document analyzed - found existing citations and references';
+                    break;
+                    
+                case 'refs_found':
+                    if (liveTotal) liveTotal.textContent = data.total;
+                    if (progressMessage) progressMessage.textContent = data.message;
+                    if (data.total === 0) {
+                        if (progressPhase) progressPhase.textContent = '✅ Analysis complete';
+                    }
+                    break;
+                    
+                case 'progress':
+                    if (progressBar) progressBar.style.width = `${data.percent}%`;
+                    if (progressPercent) progressPercent.textContent = `${data.percent}%`;
+                    if (progressPhase) progressPhase.textContent = `⚙️ Processing reference ${data.current} of ${data.total}`;
+                    if (progressMessage) progressMessage.textContent = `Looking up: ${data.processing}`;
+                    if (liveProcessed) liveProcessed.textContent = data.stats.processed;
+                    if (liveFailed) {
+                        liveFailed.textContent = data.stats.failed;
+                        liveFailed.style.color = data.stats.failed > 0 ? 'var(--error)' : 'var(--text-muted)';
+                    }
+                    if (currentRef) {
+                        currentRef.style.display = 'block';
+                        currentRefTitle.textContent = data.processing;
+                    }
+                    break;
+                    
+                case 'ref_processed':
+                    // Update live counters immediately
+                    const processed = parseInt(liveProcessed?.textContent || '0');
+                    const failed = parseInt(liveFailed?.textContent || '0');
+                    if (data.success) {
+                        if (liveProcessed) liveProcessed.textContent = processed + 1;
+                    } else {
+                        if (liveFailed) {
+                            liveFailed.textContent = failed + 1;
+                            liveFailed.style.color = 'var(--error)';
+                        }
+                    }
+                    break;
+                    
+                case 'error':
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    if (data.backup_path) {
+                        container.innerHTML += `<div class="message info" style="margin-top: 8px;">📦 Backup available at: <code>${escHtml(data.backup_path)}</code></div>`;
+                    }
+                    resolve(true); // Handled (with error)
+                    break;
+                    
+                case 'complete':
+                    // Render final results
+                    lastProcessedDoc = data.processed_content;
+                    renderDocumentResults(data, container);
+                    resolve(true); // Successfully handled
+                    break;
+            }
+        }
+        
+        function renderDocumentResults(data, container) {
+            const stats = data.statistics || {};
+            const docStats = stats.document_analysis || {};
+            
+            container.innerHTML = `
+                <h4 style="margin: 20px 0 12px 0; color: var(--accent);">📊 Document Analysis</h4>
+                <div class="stats-grid" style="margin-bottom: 20px;">
+                    <div class="stat-card">
+                        <div class="stat-value">${docStats.total_inline_references ?? 0}</div>
+                        <div class="stat-label">Inline References</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${docStats.total_citations ?? 0}</div>
+                        <div class="stat-label">Citations in Doc</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${docStats.total_identifiers ?? 0}</div>
+                        <div class="stat-label">Identifiers Found</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${docStats.markdown_links ?? 0}</div>
+                        <div class="stat-label">Markdown Links</div>
+                    </div>
+                </div>
+                
+                <details style="margin-bottom: 16px;">
+                    <summary style="cursor: pointer; color: var(--accent); font-weight: 500;">📋 Detailed Breakdown</summary>
+                    <div style="margin-top: 12px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; font-size: 0.9rem;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                            <div><strong>Inline References:</strong>
+                                <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                    <li>Numeric [1]: ${docStats.inline_numeric ?? 0}</li>
+                                    <li>Footnote [^ref]: ${docStats.inline_footnote ?? 0}</li>
+                                    <li>Author-year: ${docStats.inline_author_year ?? 0}</li>
+                                </ul>
+                            </div>
+                            <div><strong>Reference Section:</strong>
+                                <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                    <li>Items: ${docStats.reference_section_items ?? 0}</li>
+                                    <li>Footnote defs: ${docStats.footnote_definitions ?? 0}</li>
+                                </ul>
+                            </div>
+                            <div><strong>Identifiers:</strong>
+                                <ul style="margin: 4px 0 0 20px; padding: 0;">
+                                    <li>PubMed URLs: ${docStats.pubmed_urls ?? 0}</li>
+                                    <li>DOI links: ${docStats.doi_links ?? 0}</li>
+                                    <li>PMID mentions: ${docStats.pmid_mentions ?? 0}</li>
+                                    <li>PMC IDs: ${docStats.pmcid_mentions ?? 0}</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </details>
+                
+                <h4 style="margin: 20px 0 12px 0; color: var(--accent);">⚙️ Processing Results</h4>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.total_references ?? 0}</div>
+                        <div class="stat-label">Refs to Process</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: var(--success);">${stats.processed ?? 0}</div>
+                        <div class="stat-label">Processed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: ${(stats.failed || 0) > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed ?? 0}</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.inline_replacements ?? 0}</div>
+                        <div class="stat-label">Replacements</div>
+                    </div>
+                </div>
+                ${data.saved_to_file ? `
+                    <div class="message success" style="margin: 16px 0; padding: 16px;">
+                        <span>💾</span>
+                        <div style="flex: 1;">
+                            <strong>File saved successfully!</strong><br>
+                            <span style="font-size: 0.9rem;">📄 Saved to: <code>${escHtml(data.saved_path || '')}</code></span><br>
+                            ${data.backup_path ? `<span style="font-size: 0.9rem;">📦 Backup at: <code>${escHtml(data.backup_path)}</code></span>` : ''}
+                        </div>
+                    </div>
+                    ${data.backup_path ? `
+                    <div style="margin: 8px 0 16px 0; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--warning);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                            <div>
+                                <div style="font-weight: 600; color: var(--warning); margin-bottom: 4px;">⚠️ Need to undo these changes?</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Click the button to restore the original file from backup.</div>
+                            </div>
+                            <button onclick="restoreFromBackup('${escHtml(data.backup_path)}', '${escHtml(data.saved_path || '')}')" 
+                                    style="background: var(--warning); color: #000; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; white-space: nowrap;">
+                                🔄 Restore Original
+                            </button>
+                        </div>
+                        
+                        <details style="margin-top: 12px;">
+                            <summary style="cursor: pointer; font-size: 0.85rem; color: var(--text-muted);">
+                                Show manual restore options
+                            </summary>
+                            <div style="margin-top: 12px; font-size: 0.9rem;">
+                                <div style="margin-bottom: 12px;">
+                                    <strong>Option 1: In Finder</strong>
+                                    <ol style="margin: 4px 0 0 20px; padding: 0;">
+                                        <li>Navigate to the backup file location</li>
+                                        <li>Delete or rename the current file</li>
+                                        <li>Rename the backup file (remove the _backup_YYYYMMDD_HHMMSS part)</li>
+                                    </ol>
+                                </div>
+                                <div style="margin-bottom: 12px;">
+                                    <strong>Option 2: Terminal command</strong>
+                                    <div style="background: var(--bg-base); padding: 8px 12px; border-radius: 4px; margin-top: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; position: relative;">
+                                        <code>cp "${escHtml(data.backup_path)}" "${escHtml(data.saved_path || '')}"</code>
+                                        <button onclick="navigator.clipboard.writeText('cp \\'${escHtml(data.backup_path)}\\' \\'${escHtml(data.saved_path || '')}\\''); showToast('Restore command copied!', 'success');" 
+                                                style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: var(--accent); border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; color: white;">
+                                            📋 Copy
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                    ` : ''}
+                ` : data.backup_path && !data.saved_to_file ? `
+                    <div class="message info" style="margin: 16px 0;">
+                        <span>📦</span>
+                        <span>Backup created: <code style="font-size: 0.85rem;">${escHtml(data.backup_path)}</code></span>
+                    </div>
+                ` : ''}
+                ${data.save_error ? `
+                    <div class="message error" style="margin: 16px 0;">
+                        <span>⚠️</span>
+                        <span>Failed to save file: ${escHtml(data.save_error)}. Use "Download" to save manually.</span>
+                    </div>
+                ` : ''}
+                ${(stats.total_references ?? 0) === 0 && (docStats.total_citations ?? 0) > 0 ? `
+                    <div class="message success" style="margin: 16px 0;">
+                        <span>✅</span>
+                        <span>This document already has ${docStats.total_citations} formatted citations with ${docStats.total_inline_references} inline references. No processing needed!</span>
+                    </div>
+                ` : (stats.total_references ?? 0) === 0 ? `
+                    <div class="message info" style="margin: 16px 0;">
+                        <span>💡</span>
+                        <span>No processable references found. Add PubMed URLs or citation markers to process.</span>
+                    </div>
+                ` : ''}
+                ${data.failed_references && data.failed_references.length > 0 ? `
+                    <details style="margin-bottom: 16px;" open>
+                        <summary style="cursor: pointer; padding: 12px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; color: var(--error);">
+                            <strong>⚠️ ${data.failed_references.length} reference(s) could not be resolved</strong>
+                        </summary>
+                        <div style="margin-top: 8px; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; overflow: hidden;">
+                            ${data.failed_references.map((r, i) => `
+                                <div style="padding: 12px; ${i > 0 ? 'border-top: 1px solid var(--border);' : ''} background: var(--bg-secondary);">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                        <strong style="color: var(--error);">Reference #${r.original_number}</strong>
+                                        <span style="font-size: 0.75rem; padding: 2px 8px; background: rgba(239, 68, 68, 0.15); border-radius: 4px; color: var(--error);">${escHtml(r.error_type || 'unknown')}</span>
+                                    </div>
+                                    <div style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 6px;">
+                                        ${r.title ? `<strong>Title:</strong> ${escHtml(r.title.substring(0, 80))}${r.title.length > 80 ? '...' : ''}<br>` : ''}
+                                        ${r.url ? `<strong>URL:</strong> <code style="font-size: 0.8rem;">${escHtml(r.url.substring(0, 60))}${r.url.length > 60 ? '...' : ''}</code><br>` : ''}
+                                    </div>
+                                    <div style="font-size: 0.85rem; color: var(--error); margin-bottom: 4px;">
+                                        <strong>Error:</strong> ${escHtml(r.error || 'Unknown error')}
+                                    </div>
+                                    ${r.suggestion ? `
+                                        <div style="font-size: 0.85rem; color: var(--accent); background: var(--accent-muted); padding: 8px; border-radius: 4px; margin-top: 8px;">
+                                            💡 <strong>Suggestion:</strong> ${escHtml(r.suggestion)}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
+                ` : ''}
+                <div class="result-box">
+                    <div class="result-header">
+                        <span class="result-label">Processed Document</span>
+                    </div>
+                    <div class="result-content">
+                        <textarea readonly style="width: 100%; min-height: 400px; background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${escHtml(data.processed_content)}</textarea>
+                    </div>
+                </div>
+            `;
+            
+            // Store backup path for restore functionality
+            if (data.backup_path && data.saved_to_file) {
+                window.lastBackupPath = data.backup_path;
+                window.lastSavedPath = data.saved_path;
+            }
+        }
+        
         function switchDocTab(tab) {
             currentDocTab = tab;
             document.querySelectorAll('#document .tabs .tab').forEach((t, i) => {
@@ -1989,7 +2344,46 @@
                 requestBody.create_backup = true; // Always create backup
             }
 
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing document... This may take a while for documents with many references.</div>';
+            // Show progress UI
+            container.innerHTML = `
+                <div class="progress-container" style="padding: 20px 0;">
+                    <div class="progress-header" style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                        <span id="progressPhase" style="font-weight: 600; color: var(--accent);">🔄 Initializing...</span>
+                        <span id="progressPercent" style="color: var(--text-muted);">0%</span>
+                    </div>
+                    <div class="progress-bar-outer" style="height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
+                        <div id="progressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #a78bfa); transition: width 0.3s ease;"></div>
+                    </div>
+                    <div id="progressMessage" style="margin-top: 8px; font-size: 0.9rem; color: var(--text-secondary);">Connecting...</div>
+                    
+                    <div class="live-stats" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px;">
+                        <div style="text-align: center; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div id="liveTotal" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary);">-</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">Total Refs</div>
+                        </div>
+                        <div style="text-align: center; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div id="liveProcessed" style="font-size: 1.5rem; font-weight: 700; color: var(--success);">0</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">Processed</div>
+                        </div>
+                        <div style="text-align: center; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+                            <div id="liveFailed" style="font-size: 1.5rem; font-weight: 700; color: var(--text-muted);">0</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">Failed</div>
+                        </div>
+                    </div>
+                    
+                    <div id="currentRef" style="margin-top: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; display: none;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">Currently processing:</div>
+                        <div id="currentRefTitle" style="font-size: 0.9rem; color: var(--text-primary); font-family: 'JetBrains Mono', monospace;"></div>
+                    </div>
+                </div>
+            `;
+            
+            // Use streaming endpoint for real-time progress
+            const streamSuccess = await processDocumentWithProgress(requestBody, container);
+            if (streamSuccess) return; // Streaming handled everything
+            
+            // Fallback to regular endpoint if streaming fails
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing document...</div>';
 
             try {
                 const res = await fetch(`${API}/api/process-document`, {
@@ -2162,6 +2556,49 @@
             }
         }
 
+        async function restoreFromBackup(backupPath, targetPath) {
+            if (!confirm('Are you sure you want to restore the original file? This will overwrite the current processed version.')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/restore-backup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        backup_path: backupPath,
+                        target_path: targetPath
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showToast('✅ Original file restored successfully!', 'success');
+                    // Update the UI to reflect the restore
+                    const container = document.getElementById('docResult');
+                    container.innerHTML = `
+                        <div class="message success" style="margin: 16px 0; padding: 16px;">
+                            <span>✅</span>
+                            <div>
+                                <strong>Original file restored!</strong><br>
+                                <span style="font-size: 0.9rem;">The file has been reverted to its original state before processing.</span><br>
+                                <span style="font-size: 0.85rem; color: var(--text-muted);">Restored: ${escHtml(targetPath)}</span>
+                            </div>
+                        </div>
+                        <div class="message info" style="margin-top: 8px;">
+                            <span>💡</span>
+                            <span>You can process the document again if needed.</span>
+                        </div>
+                    `;
+                } else {
+                    showToast('❌ Restore failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                showToast('❌ Restore failed: ' + e.message, 'error');
+            }
+        }
+        
         function copyProcessedDoc() {
             if (lastProcessedDoc) {
                 copyText(lastProcessedDoc);

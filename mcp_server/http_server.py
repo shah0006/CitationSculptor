@@ -681,6 +681,42 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
             return
         
+        # === Restore from Backup API ===
+        if path == '/api/restore-backup':
+            backup_path = data.get('backup_path')
+            target_path = data.get('target_path')
+            
+            if not backup_path or not target_path:
+                self._send_json({'error': 'Missing backup_path or target_path'}, 400)
+                return
+            
+            try:
+                # Verify backup exists
+                if not os.path.exists(backup_path):
+                    self._send_json({'error': f'Backup file not found: {backup_path}'}, 404)
+                    return
+                
+                # Read backup content
+                with open(backup_path, 'r', encoding='utf-8') as f:
+                    backup_content = f.read()
+                
+                # Write to target
+                with open(target_path, 'w', encoding='utf-8') as f:
+                    f.write(backup_content)
+                
+                logger.info(f"Restored {target_path} from backup {backup_path}")
+                
+                self._send_json({
+                    'success': True,
+                    'message': f'Successfully restored from backup',
+                    'restored_path': target_path,
+                    'backup_used': backup_path,
+                })
+            except Exception as e:
+                logger.error(f"Restore failed: {e}")
+                self._send_json({'error': f'Restore failed: {str(e)}'}, 500)
+            return
+        
         if path == '/api/settings/reset':
             try:
                 success = settings_manager.reset_to_defaults()
@@ -975,6 +1011,47 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             return
         
         # === Document Processing ===
+        # === Streaming Document Processing with Progress ===
+        if path == '/api/process-document-stream':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            style = data.get('style', 'vancouver')
+            create_backup = data.get('create_backup', True)
+            save_to_file = data.get('save_to_file', False)
+            
+            backup_path = None
+            resolved_file_path = None
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    resolved_file_path = resolve_vault_path(file_path)
+                    with open(resolved_file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    if create_backup or save_to_file:
+                        backup_path = self._create_backup(resolved_file_path, content)
+                        
+                except FileNotFoundError:
+                    self._send_sse_error(f'File not found: {file_path}')
+                    return
+                except Exception as e:
+                    self._send_sse_error(f'Error reading file: {e}')
+                    return
+            
+            if not content:
+                self._send_sse_error('Missing content or file_path')
+                return
+            
+            # Process with streaming progress
+            try:
+                self._process_document_with_progress(
+                    content, style, backup_path, resolved_file_path, save_to_file
+                )
+            except Exception as e:
+                self._send_sse_error(str(e), backup_path)
+            return
+        
         if path == '/api/process-document':
             content = data.get('content')
             file_path = data.get('file_path')
@@ -1242,6 +1319,230 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'created_at': citation.created_at,
         }
     
+    def _send_sse_event(self, event_type: str, data: dict):
+        """Send a Server-Sent Event."""
+        import json
+        event_data = json.dumps(data)
+        self.wfile.write(f"event: {event_type}\n".encode('utf-8'))
+        self.wfile.write(f"data: {event_data}\n\n".encode('utf-8'))
+        self.wfile.flush()
+    
+    def _send_sse_error(self, error: str, backup_path: str = None):
+        """Send an SSE error and close the stream."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        error_data = {'error': error}
+        if backup_path:
+            error_data['backup_path'] = backup_path
+        self._send_sse_event('error', error_data)
+    
+    def _process_document_with_progress(self, content: str, style: str, 
+                                         backup_path: str = None, 
+                                         resolved_file_path: str = None,
+                                         save_to_file: bool = False):
+        """Process document with streaming progress updates via SSE."""
+        # Send SSE headers
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Connection', 'keep-alive')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        # Send initial status
+        self._send_sse_event('status', {
+            'phase': 'analyzing',
+            'message': 'Analyzing document structure...',
+        })
+        
+        # Analyze document statistics
+        doc_stats = self._analyze_document_statistics(content)
+        self._send_sse_event('analysis', {
+            'document_stats': doc_stats,
+            'message': 'Document analysis complete',
+        })
+        
+        # Set citation style
+        if style != self.lookup.style:
+            self.lookup.set_style(style)
+        
+        # Parse references
+        self._send_sse_event('status', {
+            'phase': 'parsing',
+            'message': 'Finding references in document...',
+        })
+        
+        parser = ReferenceParser(content)
+        parser.find_reference_section()
+        parser.parse_references()
+        
+        total_refs = len(parser.references) if parser.references else 0
+        
+        self._send_sse_event('refs_found', {
+            'total': total_refs,
+            'message': f'Found {total_refs} references to process',
+        })
+        
+        if not parser.references:
+            # No references to process
+            result = {
+                'success': True,
+                'message': 'No processable references found in document',
+                'processed_content': content,
+                'citations': [],
+                'statistics': {
+                    'total_references': 0,
+                    'processed': 0,
+                    'failed': 0,
+                    'inline_replacements': 0,
+                    'document_analysis': doc_stats,
+                },
+            }
+            if backup_path:
+                result['backup_path'] = backup_path
+            self._send_sse_event('complete', result)
+            return
+        
+        # Categorize references
+        categorized = self.type_detector.categorize_references(parser.references)
+        
+        # Get body content
+        body = parser.get_body_content()
+        inline_style = parser._detect_inline_style(body)
+        
+        # Track results
+        processed_citations = []
+        number_to_label_map = {}
+        failed_refs = []
+        
+        # Process each reference with progress updates
+        for idx, ref in enumerate(parser.references):
+            # Send progress update
+            self._send_sse_event('progress', {
+                'current': idx + 1,
+                'total': total_refs,
+                'percent': round((idx + 1) / total_refs * 100),
+                'processing': ref.title[:60] + '...' if ref.title and len(ref.title) > 60 else (ref.title or f'Reference #{ref.original_number}'),
+                'stats': {
+                    'processed': len(processed_citations),
+                    'failed': len(failed_refs),
+                },
+            })
+            
+            # Process the reference
+            result = self._process_single_reference(ref)
+            
+            if result and result.get('success'):
+                # Keep the full inline mark format for proper replacement
+                inline_mark = result.get('inline_mark', '')
+                number_to_label_map[ref.original_number] = inline_mark
+                processed_citations.append({
+                    'original_number': ref.original_number,
+                    'title': ref.title,
+                    'inline_mark': inline_mark,
+                    'full_citation': result.get('full_citation', ''),
+                    'identifier': result.get('identifier', ''),
+                    'identifier_type': result.get('identifier_type', ''),
+                })
+                
+                # Send success event for this reference
+                self._send_sse_event('ref_processed', {
+                    'number': ref.original_number,
+                    'success': True,
+                    'title': ref.title[:50] if ref.title else 'Unknown',
+                })
+            else:
+                # Provide detailed error information
+                error_detail = self._get_detailed_error(ref, result)
+                failed_refs.append({
+                    'original_number': ref.original_number,
+                    'title': ref.title[:100] if ref.title else 'Unknown',
+                    'url': ref.url if hasattr(ref, 'url') else None,
+                    'error': error_detail['message'],
+                    'error_type': error_detail['type'],
+                    'suggestion': error_detail['suggestion'],
+                })
+                
+                # Send failure event for this reference with detailed info
+                self._send_sse_event('ref_processed', {
+                    'number': ref.original_number,
+                    'success': False,
+                    'error': error_detail['message'],
+                    'error_type': error_detail['type'],
+                    'suggestion': error_detail['suggestion'],
+                })
+        
+        # Update status
+        self._send_sse_event('status', {
+            'phase': 'finalizing',
+            'message': 'Updating inline references...',
+        })
+        
+        # Update inline references in body
+        if number_to_label_map:
+            replacer = InlineReplacer(number_to_label_map, style=inline_style)
+            replace_result = replacer.replace_all(body)
+            updated_body = replace_result.modified_text
+            replacements_made = replace_result.replacements_made
+        else:
+            updated_body = body
+            replacements_made = 0
+        
+        # Generate new reference section
+        reference_section = "\n## References\n\n"
+        sorted_citations = sorted(processed_citations, key=lambda c: c.get('inline_mark', '').lower())
+        for citation in sorted_citations:
+            reference_section += f"{citation['full_citation']}\n\n"
+        
+        # Combine updated body with new references
+        processed_content = updated_body + "\n\n" + reference_section.strip()
+        
+        # Build final result
+        final_result = {
+            'success': True,
+            'processed_content': processed_content,
+            'citations': processed_citations,
+            'failed_references': failed_refs,
+            'statistics': {
+                'total_references': len(parser.references),
+                'processed': len(processed_citations),
+                'failed': len(failed_refs),
+                'inline_replacements': replacements_made,
+                'document_analysis': doc_stats,
+            },
+        }
+        
+        if backup_path:
+            final_result['backup_path'] = backup_path
+        
+        # Save to file if requested
+        if save_to_file and resolved_file_path:
+            self._send_sse_event('status', {
+                'phase': 'saving',
+                'message': f'Saving to {resolved_file_path}...',
+            })
+            
+            try:
+                with open(resolved_file_path, 'w', encoding='utf-8') as f:
+                    f.write(processed_content)
+                final_result['saved_to_file'] = True
+                final_result['saved_path'] = str(resolved_file_path)
+                final_result['message'] = f'Processed document saved to: {resolved_file_path}'
+                logger.info(f"Saved processed document to: {resolved_file_path}")
+            except Exception as e:
+                final_result['saved_to_file'] = False
+                final_result['save_error'] = str(e)
+                final_result['message'] = f'Processing succeeded but failed to save: {e}'
+                logger.error(f"Failed to save processed document: {e}")
+        
+        # Send completion event
+        self._send_sse_event('complete', final_result)
+    
     def _create_backup(self, file_path: str, content: str) -> str:
         """
         Create a timestamped backup of a file before processing.
@@ -1442,21 +1743,27 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             
             if result and result.get('success'):
                 # Create a FormattedCitation-like structure for inline replacement
-                label = result.get('inline_mark', '').strip('[]^')
-                number_to_label_map[ref.original_number] = label
+                # Keep the full inline mark format for proper replacement (e.g., [^SmithJA-2024-12345])
+                inline_mark = result.get('inline_mark', '')
+                number_to_label_map[ref.original_number] = inline_mark
                 processed_citations.append({
                     'original_number': ref.original_number,
                     'title': ref.title,
-                    'inline_mark': result.get('inline_mark', ''),
+                    'inline_mark': inline_mark,
                     'full_citation': result.get('full_citation', ''),
                     'identifier': result.get('identifier', ''),
                     'identifier_type': result.get('identifier_type', ''),
                 })
             else:
+                # Provide detailed error information
+                error_detail = self._get_detailed_error(ref, result)
                 failed_refs.append({
                     'original_number': ref.original_number,
                     'title': ref.title[:100] if ref.title else 'Unknown',
-                    'error': result.get('error', 'Unknown error') if result else 'Lookup returned None',
+                    'url': ref.url if hasattr(ref, 'url') else None,
+                    'error': error_detail['message'],
+                    'error_type': error_detail['type'],
+                    'suggestion': error_detail['suggestion'],
                 })
         
         # Update inline references in body
@@ -1491,6 +1798,79 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 # Include comprehensive document analysis stats
                 'document_analysis': doc_stats,
             },
+        }
+    
+    def _get_detailed_error(self, ref, result: Optional[Dict]) -> Dict[str, str]:
+        """Generate detailed error information for a failed reference lookup."""
+        url = ref.url if hasattr(ref, 'url') else None
+        title = ref.title if hasattr(ref, 'title') else None
+        
+        # Determine error type and provide helpful suggestions
+        if result is None:
+            return {
+                'type': 'lookup_failed',
+                'message': 'Citation lookup returned no result',
+                'suggestion': 'The source may be unavailable or the identifier format is not recognized.',
+            }
+        
+        error_msg = result.get('error', 'Unknown error')
+        
+        # Check for specific error patterns
+        if url:
+            # Check if URL format is problematic
+            if 'pubmed' in url.lower():
+                pmid = self.type_detector.extract_pmid(url)
+                if not pmid:
+                    return {
+                        'type': 'invalid_pubmed_url',
+                        'message': f'Could not extract PMID from URL: {url[:50]}...',
+                        'suggestion': 'Ensure the PubMed URL contains a valid PMID (e.g., https://pubmed.ncbi.nlm.nih.gov/12345678/)',
+                    }
+                else:
+                    return {
+                        'type': 'pubmed_not_found',
+                        'message': f'PMID {pmid} not found in PubMed database',
+                        'suggestion': 'The article may have been retracted, or the PMID may be incorrect. Verify the PMID at pubmed.ncbi.nlm.nih.gov',
+                    }
+            elif 'doi.org' in url.lower():
+                doi = self.type_detector.extract_doi(url)
+                if not doi:
+                    return {
+                        'type': 'invalid_doi_url',
+                        'message': f'Could not extract DOI from URL: {url[:50]}...',
+                        'suggestion': 'Ensure the DOI URL is properly formatted (e.g., https://doi.org/10.1234/example)',
+                    }
+                else:
+                    return {
+                        'type': 'doi_not_found',
+                        'message': f'DOI {doi} not found in CrossRef database',
+                        'suggestion': 'The DOI may be incorrect or the article is not indexed in CrossRef.',
+                    }
+            elif 'pmc' in url.lower():
+                pmcid = self.type_detector.extract_pmcid(url)
+                return {
+                    'type': 'pmc_not_found',
+                    'message': f'PMC ID {pmcid or "unknown"} could not be resolved',
+                    'suggestion': 'Try using the PubMed URL instead, or verify the PMC ID at ncbi.nlm.nih.gov/pmc/',
+                }
+            else:
+                return {
+                    'type': 'url_not_recognized',
+                    'message': f'URL format not recognized: {url[:50]}...',
+                    'suggestion': 'Supported sources: PubMed, DOI, PMC, arXiv, bioRxiv/medRxiv. Use direct links to these databases.',
+                }
+        
+        if title and not url:
+            return {
+                'type': 'title_search_failed',
+                'message': f'Could not find article by title: "{title[:40]}..."',
+                'suggestion': 'Title searches are less reliable. Add a PubMed URL, DOI, or PMID for better results.',
+            }
+        
+        return {
+            'type': 'unknown',
+            'message': error_msg,
+            'suggestion': 'Check the reference format and ensure it contains a valid identifier (PMID, DOI, or URL).',
         }
     
     def _process_single_reference(self, ref: ParsedReference) -> Optional[Dict[str, Any]]:
