@@ -1,0 +1,11 @@
+{
+  "id": "citation-sculptor",
+  "name": "CitationSculptor",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Look up and insert Vancouver-style citations from PubMed, DOI, or article titles",
+  "author": "CitationSculptor",
+  "authorUrl": "https://github.com/shah0006/CitationSculptor",
+  "isDesktopOnly": true
+}
+

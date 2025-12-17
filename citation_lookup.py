@@ -333,6 +333,109 @@ def display_search_results(results: List[Dict[str, Any]]) -> Optional[int]:
     return None
 
 
+def run_interactive_mode(lookup: CitationLookup, output_format: str, auto_copy: bool):
+    """Run in interactive REPL mode."""
+    console.print("\n[bold cyan]CitationSculptor Interactive Mode[/bold cyan]")
+    console.print("[dim]Enter identifiers (PMID, DOI, PMC ID, or title)[/dim]")
+    console.print("[dim]Commands: /search <query>, /format <inline|endnote|full|json>, /help, /quit[/dim]\n")
+    
+    current_format = output_format
+    
+    while True:
+        try:
+            user_input = Prompt.ask("[bold green]>[/bold green]").strip()
+            
+            if not user_input:
+                continue
+            
+            # Handle commands
+            if user_input.startswith('/'):
+                cmd_parts = user_input[1:].split(maxsplit=1)
+                cmd = cmd_parts[0].lower()
+                cmd_arg = cmd_parts[1] if len(cmd_parts) > 1 else ""
+                
+                if cmd in ('quit', 'q', 'exit'):
+                    console.print("[yellow]Goodbye![/yellow]")
+                    break
+                
+                elif cmd == 'help':
+                    console.print("""
+[bold]Commands:[/bold]
+  /search <query>  - Search PubMed and select from results
+  /format <type>   - Set output format (inline, endnote, full, json)
+  /cache clear     - Clear the citation cache
+  /cache stats     - Show cache statistics
+  /help            - Show this help
+  /quit            - Exit interactive mode
+
+[bold]Direct Input:[/bold]
+  Just type a PMID, DOI, PMC ID, or article title to look it up.
+  Examples:
+    37622666
+    10.1093/eurheartj/ehad195
+    PMC7039045
+    ESC Guidelines heart failure
+""")
+                    continue
+                
+                elif cmd == 'search' and cmd_arg:
+                    search_results = lookup.search_multiple(cmd_arg)
+                    idx = display_search_results(search_results)
+                    if idx is not None:
+                        pmid = search_results[idx].get('pmid')
+                        if pmid:
+                            result = lookup.lookup_pmid(str(pmid))
+                            output = format_output(result, current_format)
+                            console.print(f"\n{output}\n")
+                            if auto_copy and result.success:
+                                if copy_to_clipboard(output.strip()):
+                                    console.print("[dim green]✓ Copied to clipboard[/dim green]\n")
+                    continue
+                
+                elif cmd == 'format' and cmd_arg:
+                    if cmd_arg in ('inline', 'endnote', 'full', 'json'):
+                        current_format = cmd_arg
+                        console.print(f"[green]Output format set to: {current_format}[/green]")
+                    else:
+                        console.print("[red]Invalid format. Use: inline, endnote, full, json[/red]")
+                    continue
+                
+                elif cmd == 'cache':
+                    if cmd_arg == 'clear':
+                        if lookup.cache:
+                            lookup.cache.cache = {}
+                            lookup.cache._save_cache()
+                            console.print("[green]Cache cleared[/green]")
+                    elif cmd_arg == 'stats':
+                        if lookup.cache:
+                            count = len(lookup.cache.cache)
+                            console.print(f"[cyan]Cache entries: {count}[/cyan]")
+                        else:
+                            console.print("[yellow]Cache is disabled[/yellow]")
+                    continue
+                
+                else:
+                    console.print(f"[red]Unknown command: /{cmd}[/red]")
+                    continue
+            
+            # Regular lookup
+            result = lookup.lookup_auto(user_input)
+            output = format_output(result, current_format)
+            
+            if result.success:
+                console.print(f"\n{output}\n")
+                if auto_copy:
+                    if copy_to_clipboard(output.strip()):
+                        console.print("[dim green]✓ Copied to clipboard[/dim green]\n")
+            else:
+                console.print(f"[red]{output}[/red]\n")
+        
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Use /quit to exit[/yellow]")
+        except EOFError:
+            break
+
+
 def main():
     parser = argparse.ArgumentParser(description="Look up citations and generate Vancouver-style references")
     
@@ -345,6 +448,8 @@ def main():
     id_group.add_argument('--batch', help='File with identifiers (one per line)')
     id_group.add_argument('--search-multi', dest='search_multi', metavar='QUERY',
                          help='Search PubMed and select from multiple results')
+    id_group.add_argument('--interactive', '-i', action='store_true',
+                         help='Run in interactive mode (REPL)')
     
     parser.add_argument('--format', '-f', choices=['inline', 'endnote', 'full', 'json'], default='full')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
@@ -354,7 +459,7 @@ def main():
     
     args = parser.parse_args()
     
-    if not any([args.pmid, args.doi, args.pmcid, args.title, args.auto, args.batch, args.search_multi]):
+    if not any([args.pmid, args.doi, args.pmcid, args.title, args.auto, args.batch, args.search_multi, args.interactive]):
         parser.print_help()
         sys.exit(1)
     
@@ -363,6 +468,11 @@ def main():
     if not lookup.test_connection():
         console.print("[red]Error: Cannot connect to PubMed API[/red]")
         sys.exit(1)
+    
+    # Interactive mode
+    if args.interactive:
+        run_interactive_mode(lookup, args.format, args.copy)
+        sys.exit(0)
     
     results = []
     

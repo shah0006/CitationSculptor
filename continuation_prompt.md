@@ -1,61 +1,85 @@
-# Continuation Prompt: CitationSculptor MCP Server Fix
+# CitationSculptor v1.4.0 Development Continuation
 
-## Background
-The user has an Obsidian vault with MCP (Model Context Protocol) servers configured in Abacus Desktop. Two custom MCP servers were not working: `citation-lookup` (CitationSculptor) and `vault-organizer`.
+## Project Location
+```
+/Users/tusharshah/Developer/MCP-Servers/CitationSculptor
+```
 
-## Problems Identified
+## Current State (2025-06-17)
 
-1. **Transport Mismatch**: CitationSculptor's `pubmed_client.py` was designed to communicate with a separate `pubmed-mcp-server` via JSON-RPC HTTP (`http://127.0.0.1:3017/mcp`), but that server uses SSE transport, making them incompatible.
+### Completed Features (v1.4.0)
+Three new features implemented in `citation_lookup.py`:
 
-2. **File Editing Tool Failures**: The native Abacus Desktop `edit` tool repeatedly truncated files when making partial edits, even with `# ... existing code ...` markers. This caused `pubmed_client.py` to be corrupted multiple times (reduced from 1999 lines to 19-53 lines).
+1. **Clipboard Integration** (`--copy` / `-c`) - Copies to macOS clipboard via pbcopy
+2. **Result Caching** - JSON cache at `.cache/citation_cache.json`, 30-day expiry, `--no-cache` to bypass
+3. **Search Multiple** (`--search-multi QUERY`) - Interactive PubMed search with Rich table display
 
-## Solutions Implemented
+### Files Modified
+- `citation_lookup.py` - Complete rewrite with all 3 features
+- `modules/pubmed_client.py` - Added `search_pubmed()` method at line 615
 
-1. **Added Developer directory to MCP filesystem server**: Modified `/Users/tusharshah/Library/Application Support/AbacusAI/User/mcp.json` to include `/Users/tusharshah/Developer` in the `dropbox-local` server args. This enabled use of the reliable `mcp_edit_file` tool.
+### Files Needing Updates (INCOMPLETE)
+- `CHANGELOG.md` - Add v1.4.0 entry
+- `PLANNING.md` - Move features from "Next Steps" to "Recently Completed"
 
-2. **Refactored pubmed_client.py**: Using `mcp_edit_file`, successfully modified `/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/modules/pubmed_client.py` to use direct NCBI E-utilities API instead of the problematic `pubmed-mcp-server`:
-   - Changed class constants to E-utilities URLs
-   - Replaced `_send_request()` (JSON-RPC) with `_eutils_request()` (direct HTTP to NCBI)
-   - Updated `test_connection()` to test E-utilities
-   - Updated `convert_ids()` to call NCBI ID Converter directly
+## CHANGELOG.md Update Required
+Add after line 9 (after first `---`):
 
-3. **Verified changes work**: 
-   - File has 1967 lines (intact)
-   - Python syntax check passes
-   - Direct test of `PubMedClient.test_connection()` returns `True`
-   - Direct test of `convert_ids(['32089132'])` successfully returns PMID/PMCID/DOI
+```markdown
+## [1.4.0] - 2025-06-17
 
-## Current Problem
-The MCP citation tools (`mcp_citation_lookup_pmid`, etc.) are still being cancelled when called. The CitationSculptor MCP server process is not running (verified via `ps aux | grep citation`).
+### Added
+- **Clipboard Integration**: `--copy` / `-c` flag copies citation to clipboard via pbcopy (macOS)
+- **Result Caching**: Persistent JSON cache (`.cache/citation_cache.json`) with 30-day expiry
+- **Search Multiple**: `--search-multi QUERY` shows interactive table of up to 5 PubMed results
 
-## What Needs To Be Done
+---
+```
 
-1. **Debug MCP server startup**: Run the server manually to see errors:
-   ```bash
-   cd /Users/tusharshah/Developer/MCP-Servers/CitationSculptor
-   .venv/bin/python -m mcp_server.server
-   ```
+## MCP Server Configuration for Cursor
 
-2. **Check server.py for issues**: The server at `/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/mcp_server/server.py` may have code that still references the old `pubmed-mcp-server` or `_send_request`. Search for and update any remaining references.
+Add to Cursor MCP settings (Settings > MCP or `.cursor/mcp.json`):
 
-3. **Verify MCP configuration**: Ensure `/Users/tusharshah/Library/Application Support/AbacusAI/User/mcp.json` has correct paths for `citation-lookup`.
+```json
+{
+  "mcpServers": {
+    "citation-lookup": {
+      "command": "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/.venv/bin/python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/Users/tusharshah/Developer/MCP-Servers/CitationSculptor"
+    }
+  }
+}
+```
 
-4. **Test the MCP tools**: After fixes, test:
-   ```
-   mcp_citation_test_connection
-   mcp_citation_lookup_pmid with PMID 32089132
-   ```
+## Testing Commands
+```bash
+cd /Users/tusharshah/Developer/MCP-Servers/CitationSculptor
+.venv/bin/python citation_lookup.py --pmid 32089132 --copy -f inline
+.venv/bin/python citation_lookup.py --search-multi "heart failure guidelines"
+.venv/bin/python citation_lookup.py --help
+```
 
-## Key Files
+## Remaining Tasks
+1. Update CHANGELOG.md - Add v1.4.0 entry (content above)
+2. Update PLANNING.md - Move completed features, update version to 1.4.0
+3. Add `.cache` to `.gitignore`
+4. Run test suite: `.venv/bin/python -m pytest tests/ -v`
+5. Commit and push as v1.4.0
 
-- **MCP Config**: `/Users/tusharshah/Library/Application Support/AbacusAI/User/mcp.json`
-- **PubMed Client** (already fixed): `/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/modules/pubmed_client.py`
-- **MCP Server** (needs checking): `/Users/tusharshah/Developer/MCP-Servers/CitationSculptor/mcp_server/server.py`
+## Git Status
+- Modified: `citation_lookup.py`, `modules/pubmed_client.py`
+- Untracked: `.cache/`
 
-## Critical Instructions for Next Agent
+## Key Files to Review First
+1. `PLANNING.md` - Project roadmap and feature status
+2. `CHANGELOG.md` - Version history
+3. `README.md` - Full documentation
+4. `citation_lookup.py` - Main CLI tool (newly modified)
+5. `modules/pubmed_client.py` - PubMed API client (newly modified)
 
-1. **Use `mcp_edit_file` for edits** - NOT the native `edit` tool, which truncates files.
-2. **Always verify file line count** after edits with `wc -l`.
-3. **Test syntax** with `python3 -m py_compile <file>`.
-4. **Test functionality** before declaring success.
-5. **Do not use heredocs** in terminal - they don't work reliably; write Python scripts to files instead.
+## Important Notes
+- MCP server uses **stdio transport** (not HTTP)
+- Python 3.12 venv at `.venv/`
+- Rate limit: 2.5 req/sec to NCBI
+- The Abacus Desktop edit tool was corrupting large files - use careful targeted edits

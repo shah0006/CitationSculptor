@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.0] - 2025-06-17
+
+### Added
+- **Interactive Mode**: `--interactive` / `-i` flag runs REPL-style continuous lookups
+  - Commands: `/search <query>`, `/format <type>`, `/cache clear|stats`, `/help`, `/quit`
+  - Auto-copy to clipboard on each lookup
+- **Obsidian Plugin**: Native Obsidian plugin for citation lookup
+  - Command palette integration: "Open Citation Lookup", "Quick Lookup", "Look Up Selected Text"
+  - Ribbon icon for quick access
+  - Search modal with PubMed search results
+  - One-click insert at cursor
+  - Auto-creates References section if needed
+  - Configurable settings (paths, format, auto-copy)
+
+---
+
 ## [1.4.0] - 2025-06-17
 
 ### Added
