@@ -2285,7 +2285,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if not label_org or label_org.lower() in ['web', 'unknown', 'authors']:
             label_org = domain.split('.')[0].title()[:12] if domain else 'Ref'
         
-        inline_label = f"[^{label_org}-{title_part}-{year}]"
+        # CRITICAL: Include reference number for uniqueness
+        # This prevents duplicate labels for different references from the same source
+        ref_num = getattr(ref, 'original_number', None)
+        if ref_num:
+            inline_label = f"[^{label_org}-{title_part[:6]}-{year}-ref{ref_num}]"
+        else:
+            # Use URL hash for uniqueness if no ref number
+            import hashlib
+            url_hash = hashlib.md5(url.encode()).hexdigest()[:6] if url else 'x'
+            inline_label = f"[^{label_org}-{title_part[:6]}-{year}-{url_hash}]"
         
         # Format the full citation based on type
         if citation_type == 'clinical_trial':
@@ -2546,8 +2555,45 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.debug(f"Webpage scraping failed for {ref.url}: {e}")
         
-        # 6. Try title search as last resort
-        if ref.title:
+        # 6. Try title search as last resort (but only for academic sources)
+        # Skip title search for non-academic domains that would return wrong CrossRef results
+        NON_ACADEMIC_DOMAINS = {
+            'wikipedia.org', 'en.wikipedia.org',  # Encyclopedia
+            'novonordisk.com', 'pfizer.com', 'merck.com', 'lilly.com', 'abbvie.com',
+            'gsk.com', 'astrazeneca.com', 'sanofi.com', 'bms.com', 'jnj.com',
+            'roche.com', 'boehringer-ingelheim.com', 'ventyxbio.com', 'olatec.com',  # Pharma
+            'prnewswire.com', 'businesswire.com', 'globenewswire.com',  # Press releases
+            'firstwordpharma.com', 'clinicaltrialsarena.com', 'barchart.com',
+            'fiercepharma.com', 'statnews.com', 'medpagetoday.com',  # News
+            'reuters.com', 'nytimes.com', 'washingtonpost.com',
+            'acc.org', 'aha.org', 'heart.org', 'escardio.org',  # Organizations (non-journal)
+            'cdc.gov', 'nih.gov', 'fda.gov', 'who.int', 'ema.europa.eu',  # Government
+            'researchgate.net', 'academia.edu',  # Social academic (often wrong matches)
+        }
+        
+        should_skip_title_search = False
+        if ref.url:
+            from urllib.parse import urlparse
+            try:
+                domain = urlparse(ref.url).netloc.lower().replace('www.', '')
+                if any(nd in domain for nd in NON_ACADEMIC_DOMAINS):
+                    should_skip_title_search = True
+                    logger.debug(f"Skipping title search for non-academic domain: {domain}")
+            except:
+                pass
+        
+        # Also skip title search if title looks like a company/organization name (not an article title)
+        COMPANY_NAME_PATTERNS = {
+            'novo nordisk', 'pfizer', 'merck', 'eli lilly', 'lilly', 'abbvie',
+            'gsk', 'glaxosmithkline', 'astrazeneca', 'sanofi', 'bristol-myers', 'bms',
+            'johnson & johnson', 'j&j', 'roche', 'boehringer', 'ventyx', 'olatec',
+            'wikipedia', 'pubmed', 'google', 'microsoft', 'apple', 'amazon',
+        }
+        if ref.title and ref.title.lower().strip() in COMPANY_NAME_PATTERNS:
+            should_skip_title_search = True
+            logger.debug(f"Skipping title search for company/organization name: {ref.title}")
+        
+        if ref.title and not should_skip_title_search:
             attempted_strategies.append('title_search')
             result = self.lookup.lookup_auto(ref.title)
             if result.success:

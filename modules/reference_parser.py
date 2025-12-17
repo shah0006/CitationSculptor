@@ -510,7 +510,7 @@ class ReferenceParser:
         if match:
             number = int(match.group(1))
             full_title = match.group(2)
-            url = match.group(3)
+            url = self._clean_url(match.group(3))
             title, source = self._split_title_source(full_title)
             return ParsedReference(
                 original_number=number,
@@ -527,7 +527,7 @@ class ReferenceParser:
         if match:
             number = int(match.group(1))
             title = match.group(2)
-            url = match.group(3)
+            url = self._clean_url(match.group(3))
             extra_info = match.group(4).strip() if match.group(4) else ""
             
             # Parse V7 format metadata from extra_info
@@ -596,12 +596,12 @@ class ReferenceParser:
             # Check for markdown link [DOI](url) or just link
             md_link_match = re.search(r'\[([^\]]*)\]\(([^)]+)\)', content)
             if md_link_match:
-                url = md_link_match.group(2)
+                url = self._clean_url(md_link_match.group(2))
             else:
                 # Raw URL
                 url_match = re.search(r'https?://[^\s\)]+', content)
                 if url_match:
-                    url = url_match.group(0).rstrip(').,')
+                    url = self._clean_url(url_match.group(0))
             
             # ALWAYS try to extract DOI from text and store in metadata
             # DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
@@ -646,9 +646,26 @@ class ReferenceParser:
                 number = int(number_match.group(1))
                 content = number_match.group(2).strip()
                 
-                # Check if it has a URL hidden in brackets
-                url_match = re.search(r'\(([^)]*https?://[^)]+)\)', content)
-                url = url_match.group(1) if url_match else None
+                # Check if it has a URL - try multiple patterns:
+                # 1. Markdown link with closing paren: [text](url)
+                # 2. Markdown link without closing paren: [text](url  (malformed)
+                # 3. URL in parentheses: (url)
+                # 4. Raw URL: https://...
+                url = None
+                # Try markdown link first (handles both complete and incomplete)
+                md_link_match = re.search(r'\]\((https?://[^\s\)]+)', content)
+                if md_link_match:
+                    url = self._clean_url(md_link_match.group(1))
+                else:
+                    # Try URL in parentheses
+                    url_match = re.search(r'\((https?://[^\s\)]+)\)', content)
+                    if url_match:
+                        url = self._clean_url(url_match.group(1))
+                    else:
+                        # Try raw URL
+                        raw_url_match = re.search(r'https?://[^\s]+', content)
+                        if raw_url_match:
+                            url = self._clean_url(raw_url_match.group(0))
                 
                 # ALWAYS try to extract DOI from text and store in metadata
                 # This helps even when URL is present but doesn't contain the DOI
@@ -686,6 +703,39 @@ class ReferenceParser:
                 )
         
         return None
+    
+    def _clean_url(self, url: str) -> str:
+        """
+        Clean extracted URLs that may have malformed markdown syntax.
+        
+        Handles cases like:
+        - [https://url](https://url)  -> https://url
+        - [URL](https://url)          -> https://url  
+        - https://url                 -> https://url (unchanged)
+        """
+        if not url:
+            return url
+        
+        # Strip whitespace
+        url = url.strip()
+        
+        # If URL starts with '[', it's likely a nested markdown link like [url](url)
+        if url.startswith('['):
+            # Try to extract URL from markdown link format
+            # Pattern: [text](actual_url) -> actual_url
+            md_link_match = re.search(r'\]\((https?://[^)]+)', url)
+            if md_link_match:
+                url = md_link_match.group(1)
+            else:
+                # Just strip the leading bracket and extract URL
+                url_match = re.search(r'https?://[^\]\)\s]+', url)
+                if url_match:
+                    url = url_match.group(0)
+        
+        # Clean trailing characters
+        url = url.rstrip('.,;)]')
+        
+        return url
 
     def _split_title_source(self, full_title: str) -> Tuple[str, Optional[str]]:
         """Split 'Title - Source' string.

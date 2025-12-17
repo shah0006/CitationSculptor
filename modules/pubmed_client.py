@@ -1435,12 +1435,16 @@ class WebpageScraper:
         doi = self._get_first_value(meta_tags, self.ACADEMIC_PATTERNS['doi']) or ""
         if doi:
             doi = re.sub(r'^doi:\s*', '', doi, flags=re.IGNORECASE)
-            m = re.search(r'(10\.\d{4,}/[^\s]+)', doi)
+            m = re.search(r'(10\.\d{4,}/[^\s\)\]<>]+)', doi)
             if m:
-                doi = m.group(1)
+                doi = m.group(1).rstrip('.,;')
             else:
                 # Not a valid DOI, clear it
                 doi = ""
+        
+        # If no DOI in meta tags, search the HTML body
+        if not doi:
+            doi = self._extract_doi_from_body(html)
         
         year, month, day = self._extract_date(meta_tags, self.ACADEMIC_PATTERNS['date'])
         
@@ -1593,11 +1597,14 @@ class WebpageScraper:
         elif year and month:
             published_date = f"{year}-{month}"
         
-        logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}, evergreen={is_evergreen}")
+        # Try to extract DOI from HTML body (general pages may have DOI links)
+        doi = self._extract_doi_from_body(html)
+        
+        logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}, doi={doi[:30] if doi else 'none'}, evergreen={is_evergreen}")
         return WebpageMetadata(
             title=title.strip(), url=url, authors=authors, journal="",
             volume="", issue="", first_page="", last_page="",
-            year=year, month=month, doi="",
+            year=year, month=month, doi=doi,
             site_name=site_name.strip(), published_date=published_date,
             is_evergreen=is_evergreen
         )
@@ -2055,6 +2062,44 @@ Organization name:"""
                     return result
         
         return "", "", ""
+    
+    def _extract_doi_from_body(self, html: str) -> str:
+        """
+        Extract DOI from HTML body text when not found in meta tags.
+        
+        Searches for common DOI patterns in visible page content:
+        - "DOI: 10.xxxx/..." 
+        - "doi.org/10.xxxx/..."
+        - Links with DOI URLs
+        """
+        # Clean HTML for searching (remove scripts, styles)
+        clean_html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        clean_html = re.sub(r'<style[^>]*>.*?</style>', '', clean_html, flags=re.DOTALL | re.IGNORECASE)
+        
+        # DOI patterns to search for
+        doi_patterns = [
+            # DOI: 10.xxxx/... (common text format)
+            r'(?:DOI|doi)[:\s]+\s*(10\.\d{4,}/[^\s<>\)\]\'"]+)',
+            # https://doi.org/10.xxxx/...
+            r'(?:https?://)?doi\.org/(10\.\d{4,}/[^\s<>\)\]\'"]+)',
+            # href="...doi.org/10.xxxx/..."
+            r'href=["\'](?:https?://)?doi\.org/(10\.\d{4,}/[^"\'<>]+)["\']',
+            # data-doi or similar attributes
+            r'data-doi=["\']([^"\']+)["\']',
+        ]
+        
+        for pattern in doi_patterns:
+            match = re.search(pattern, clean_html, re.IGNORECASE)
+            if match:
+                doi = match.group(1)
+                # Clean up the DOI
+                doi = doi.rstrip('.,;)')
+                # Verify it looks like a valid DOI
+                if re.match(r'^10\.\d{4,}/', doi):
+                    logger.debug(f"Found DOI in body text: {doi}")
+                    return doi
+        
+        return ""
     
     def _extract_meta_tags(self, html: str) -> Dict[str, List[str]]:
         tags: Dict[str, List[str]] = {}
