@@ -414,6 +414,65 @@ Guidelines 2024. AHA. 2024 Mar 15. Available from: https://...
 
 ---
 
+## 🏷️ Why Unique Reference Tags?
+
+CitationSculptor uses **semantic reference tags** like `[^AuthorY-Year-PMID]` instead of traditional numbered references (`[1]`, `[2]`, etc.) for important reasons:
+
+### The Problem with Numbered References
+
+When working with long documents, especially those assembled from multiple sources (LLM outputs, literature searches, copied content), numbered references create serious issues:
+
+1. **Duplicate Numbers**: Content pasted from different sources often reuses the same reference numbers (`[1]`, `[2]`), causing conflicts and broken links.
+
+2. **Renumbering Nightmare**: Adding a reference early in a document requires renumbering all subsequent citations—error-prone and tedious.
+
+3. **Context Loss**: Seeing `[1]` in text tells you nothing about what it references without scrolling to the reference section.
+
+4. **Merge Conflicts**: Combining sections from different documents with numbered references is nearly impossible without manual renumbering.
+
+### The Unique Tag Solution
+
+Our format `[^AuthorY-Year-Identifier]` solves all of these:
+
+| Tag Component | Example | Purpose |
+|---------------|---------|---------|
+| `Author` | `McDonaghT` | First author's surname + first initial |
+| `Year` | `2023` | Publication year |
+| `Identifier` | `37622666` | PMID, DOI hash, or unique string |
+
+**Benefits:**
+
+- ✅ **Globally Unique**: Each citation has a distinct tag that won't collide with others
+- ✅ **Self-Describing**: Glancing at `[^McDonaghT-2023-37622666]` tells you it's a 2023 paper by McDonagh
+- ✅ **Merge-Friendly**: Combine documents freely without renumbering
+- ✅ **LLM-Compatible**: Paste AI-generated content without citation conflicts
+- ✅ **Obsidian-Native**: Works with Obsidian's footnote syntax for clickable links
+
+### Example Comparison
+
+**Traditional (problematic):**
+```markdown
+Heart failure affects 6.2 million Americans[1]. The 2023 ESC guidelines[2]...
+
+## References
+[1]: CDC statistics...
+[2]: McDonagh TA, et al. 2023 ESC Guidelines...
+```
+
+**CitationSculptor (robust):**
+```markdown
+Heart failure affects 6.2 million Americans[^CDC-HeartStats-2024]. 
+The 2023 ESC guidelines[^McDonaghT-2023-37622666]...
+
+## References
+[^CDC-HeartStats-2024]: Centers for Disease Control...
+[^McDonaghT-2023-37622666]: McDonagh TA, et al. 2023 ESC Guidelines...
+```
+
+The second format can be freely combined with any other document without conflicts.
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository
