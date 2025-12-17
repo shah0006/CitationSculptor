@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-2.0.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -41,6 +41,12 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 - Multi-section support (multiple reference lists)
 - 8 reference format variants (V1-V8)
 - Inline reference transformation (`[1]` → `[^Author-2024-PMID]`)
+
+### 🧠 Document Intelligence (v2.1)
+- **Link Verification**: Check for broken links with Wayback Machine fallback
+- **Citation Suggestions**: Find passages that may need citations
+- **Compliance Checker**: Detect uncited quotes, claims, and statistics
+- **LLM Extraction**: AI-powered metadata extraction for edge cases
 
 ---
 
@@ -321,6 +327,14 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 ## 🗺️ Version History
 
+### ✅ v2.1.0 - Document Intelligence (Complete)
+- [x] Link verification & broken link detection
+- [x] Automatic citation suggestions based on content
+- [x] Plagiarism-style citation compliance checker
+- [x] LLM-powered metadata extraction for edge cases
+- [x] HTTP API: `/api/verify-links`, `/api/suggest-citations`, `/api/check-compliance`, `/api/analyze-document`
+- [x] MCP tools for AI agents
+
 ### ✅ v2.0.0 - Smart Features (Complete)
 - [x] Citation database (SQLite) with full-text search
 - [x] Duplicate detection with fuzzy matching
@@ -356,23 +370,17 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 We're always looking to improve CitationSculptor. Here's what's planned:
 
-### v2.1.0 - Reference Manager Integration
+### v2.2.0 - Reference Manager Integration
 - [ ] Zotero library sync (two-way)
 - [ ] Mendeley integration
 - [ ] EndNote support
 - [ ] Papers app integration
 
-### v2.2.0 - Visualization & Analytics
+### v2.3.0 - Visualization & Analytics
 - [ ] Citation network graph visualization
 - [ ] Co-author network mapping
 - [ ] Research trend analysis
 - [ ] Journal impact metrics display
-
-### v2.3.0 - Document Intelligence
-- [ ] LLM-powered metadata extraction for edge cases
-- [ ] Link verification & broken link detection
-- [ ] Automatic citation suggestions based on content
-- [ ] Plagiarism-style citation checker
 
 ### v2.4.0 - Collaboration Features
 - [ ] Shared citation libraries
