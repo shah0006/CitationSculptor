@@ -2008,6 +2008,164 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             },
         }
     
+    def _create_fallback_citation(self, ref: ParsedReference, attempted_strategies: List[str]) -> Optional[Dict[str, Any]]:
+        """
+        Create a fallback webpage/organizational citation when database lookups fail.
+        
+        This ensures we always produce a valid citation, even for:
+        - Company websites (Novo Nordisk, Ventyx, etc.)
+        - Press releases (PR Newswire, etc.)
+        - Wikipedia
+        - ClinicalTrials.gov
+        - News sites
+        - Any other URL-based reference
+        """
+        if not ref.url and not ref.title:
+            return None
+        
+        from urllib.parse import urlparse
+        from datetime import datetime
+        
+        url = ref.url or ''
+        title = ref.title or 'Untitled'
+        
+        # Parse URL for domain info
+        domain = ''
+        org_name = ''
+        if url:
+            try:
+                parsed = urlparse(url)
+                domain = parsed.netloc.lower().replace('www.', '')
+            except:
+                pass
+        
+        # Determine citation type and organization based on domain
+        citation_type = 'webpage'
+        year = datetime.now().strftime('%Y')
+        
+        # Domain-specific handling
+        domain_orgs = {
+            'novonordisk.com': ('Novo Nordisk', 'pharmaceutical'),
+            'ventyxbio.com': ('Ventyx Biosciences', 'pharmaceutical'),
+            'ir.ventyxbio.com': ('Ventyx Biosciences', 'pharmaceutical'),
+            'olatec.com': ('Olatec Therapeutics', 'pharmaceutical'),
+            'prnewswire.com': ('PR Newswire', 'press_release'),
+            'businesswire.com': ('Business Wire', 'press_release'),
+            'globenewswire.com': ('GlobeNewswire', 'press_release'),
+            'firstwordpharma.com': ('FirstWord Pharma', 'news'),
+            'clinicaltrialsarena.com': ('Clinical Trials Arena', 'news'),
+            'barchart.com': ('Barchart', 'news'),
+            'wikipedia.org': ('Wikipedia', 'encyclopedia'),
+            'en.wikipedia.org': ('Wikipedia', 'encyclopedia'),
+            'clinicaltrials.gov': ('ClinicalTrials.gov', 'clinical_trial'),
+            'acc.org': ('American College of Cardiology', 'organization'),
+            'aha.org': ('American Heart Association', 'organization'),
+            'researchgate.net': ('ResearchGate', 'preprint'),
+            'jstage.jst.go.jp': ('J-STAGE', 'journal'),
+            'imrpress.com': ('IMR Press', 'journal'),
+            'aging-us.com': ('Aging', 'journal'),
+        }
+        
+        # Find matching domain
+        for dom, (org, ctype) in domain_orgs.items():
+            if dom in domain:
+                org_name = org
+                citation_type = ctype
+                break
+        
+        # If no match, try to extract organization from domain
+        if not org_name and domain:
+            # Convert domain to organization name
+            parts = domain.split('.')
+            if len(parts) >= 2:
+                org_name = parts[0].replace('-', ' ').title()
+        
+        # Try to scrape for more metadata
+        scraped_metadata = None
+        if url:
+            try:
+                scraper = WebpageScraper(timeout=8)
+                scraped_metadata = scraper.extract_metadata(url)
+            except:
+                pass
+        
+        # Use scraped data if available
+        if scraped_metadata:
+            if scraped_metadata.title and len(scraped_metadata.title) > len(title):
+                title = scraped_metadata.title
+            if scraped_metadata.site_name:
+                org_name = scraped_metadata.site_name
+            if scraped_metadata.year:
+                year = scraped_metadata.year
+            elif scraped_metadata.published_date:
+                import re
+                year_match = re.search(r'(\d{4})', scraped_metadata.published_date)
+                if year_match:
+                    year = year_match.group(1)
+        
+        # Extract year from URL if available
+        if url and year == datetime.now().strftime('%Y'):
+            import re
+            year_match = re.search(r'/(\d{4})/', url)
+            if year_match:
+                year = year_match.group(1)
+        
+        # Clean up title
+        title = title.strip()
+        if title.endswith('.'):
+            title = title[:-1]
+        
+        # Truncate very long titles
+        if len(title) > 150:
+            title = title[:147] + '...'
+        
+        # Create inline label based on organization and year
+        # Format: [^OrgName-Year] or [^OrgName-Title-Year]
+        label_org = org_name.replace(' ', '')[:10] if org_name else 'Web'
+        title_part = ''.join(c for c in title[:20] if c.isalnum())[:10]
+        inline_label = f"[^{label_org}-{title_part}-{year}]"
+        
+        # Format the full citation based on type
+        if citation_type == 'clinical_trial':
+            # Extract NCT number if present
+            import re
+            nct_match = re.search(r'NCT\d{8}', url, re.IGNORECASE)
+            nct = nct_match.group(0) if nct_match else ''
+            if nct:
+                full_citation = f"{inline_label}: {title}. ClinicalTrials.gov Identifier: {nct}. [{nct}]({url})"
+            else:
+                full_citation = f"{inline_label}: {title}. ClinicalTrials.gov. [Link]({url})"
+        
+        elif citation_type == 'press_release':
+            full_citation = f"{inline_label}: {org_name}. {title}. {year}. [Press Release]({url})"
+        
+        elif citation_type == 'encyclopedia':
+            full_citation = f"{inline_label}: {title}. Wikipedia. Accessed {year}. [Link]({url})"
+        
+        elif citation_type in ('pharmaceutical', 'organization'):
+            full_citation = f"{inline_label}: {org_name}. {title}. {year}. [Link]({url})"
+        
+        elif citation_type == 'news':
+            full_citation = f"{inline_label}: {title}. {org_name}. {year}. [Link]({url})"
+        
+        else:
+            # Generic webpage format
+            if org_name:
+                full_citation = f"{inline_label}: {title}. {org_name}. {year}. [Link]({url})"
+            else:
+                full_citation = f"{inline_label}: {title}. {year}. [Link]({url})"
+        
+        logger.info(f"Created fallback {citation_type} citation for: {domain or title[:30]}")
+        
+        return {
+            'success': True,
+            'inline_mark': inline_label,
+            'full_citation': full_citation,
+            'citation_type': citation_type,
+            'is_fallback': True,
+            'fallback_reason': f'No database record found; formatted as {citation_type}',
+        }
+    
     def _get_detailed_error(self, ref, result: Optional[Dict]) -> Dict[str, str]:
         """Generate detailed error information for a failed reference lookup."""
         url = ref.url if hasattr(ref, 'url') else None
@@ -2206,8 +2364,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     learning.record_success(ref.url, result.identifier, result.identifier_type or 'unknown', 'title_search')
                 return self._format_result(result)
         
-        # 7. Record failure for future learning
-        failure_reason = 'Could not find citation via any method'
+        # 7. FALLBACK: Create a webpage/organizational citation instead of failing
+        # This ensures we always produce a valid citation, even for non-academic sources
+        attempted_strategies.append('fallback_citation')
+        fallback_result = self._create_fallback_citation(ref, attempted_strategies)
+        if fallback_result:
+            learning.record_success(ref.url, 'fallback', 'webpage', 'fallback_citation')
+            return fallback_result
+        
+        # 8. Only fail if we truly can't create any citation
+        failure_reason = 'Could not find or create citation via any method'
         learning.record_failure(
             url=ref.url,
             title=ref.title,

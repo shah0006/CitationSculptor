@@ -229,6 +229,42 @@ class LearningEngine:
                 'requires_scraping': 1,
                 'notes': 'Dove Medical Press - DOI in meta tag'
             },
+            {
+                'domain': 'jstage.jst.go.jp',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'J-STAGE Japanese academic - DOI in meta tag'
+            },
+            {
+                'domain': 'aging-us.com',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'Aging journal - DOI in meta tag'
+            },
+            {
+                'domain': 'diabetesjournals.org',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'ADA Diabetes journals - DOI in meta tag'
+            },
+            {
+                'domain': 'acc.org',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'American College of Cardiology - may have DOI'
+            },
+            {
+                'domain': 'imrpress.com',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'IMR Press - DOI in meta tag'
+            },
+            {
+                'domain': 'researchgate.net',
+                'doi_meta_tag': 'citation_doi',
+                'requires_scraping': 1,
+                'notes': 'ResearchGate - may have DOI in meta'
+            },
         ]
         
         with sqlite3.connect(self.db_path) as conn:
