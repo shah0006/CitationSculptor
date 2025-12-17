@@ -2076,12 +2076,46 @@
                         ${data.saved_to_file ? `
                             <div class="message success" style="margin: 16px 0; padding: 16px;">
                                 <span>💾</span>
-                                <div>
+                                <div style="flex: 1;">
                                     <strong>File saved successfully!</strong><br>
                                     <span style="font-size: 0.9rem;">📄 Saved to: <code>${escHtml(data.saved_path || '')}</code></span><br>
                                     ${data.backup_path ? `<span style="font-size: 0.9rem;">📦 Backup at: <code>${escHtml(data.backup_path)}</code></span>` : ''}
                                 </div>
                             </div>
+                            ${data.backup_path ? `
+                            <details style="margin: 8px 0 16px 0; padding: 12px 16px; background: var(--bg-secondary); border-radius: 8px; border-left: 3px solid var(--warning);">
+                                <summary style="cursor: pointer; font-weight: 600; color: var(--warning);">
+                                    ⚠️ Need to undo? Click here for restore instructions
+                                </summary>
+                                <div style="margin-top: 12px; font-size: 0.9rem;">
+                                    <p style="margin: 0 0 12px 0;">If you need to restore the original file, use one of these methods:</p>
+                                    
+                                    <div style="margin-bottom: 12px;">
+                                        <strong>Option 1: In Finder</strong>
+                                        <ol style="margin: 4px 0 0 20px; padding: 0;">
+                                            <li>Navigate to the backup file location</li>
+                                            <li>Delete or rename the current file</li>
+                                            <li>Rename the backup file (remove the _backup_YYYYMMDD_HHMMSS part)</li>
+                                        </ol>
+                                    </div>
+                                    
+                                    <div style="margin-bottom: 12px;">
+                                        <strong>Option 2: Terminal command</strong>
+                                        <div style="background: var(--bg-base); padding: 8px 12px; border-radius: 4px; margin-top: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; position: relative;">
+                                            <code>cp "${escHtml(data.backup_path)}" "${escHtml(data.saved_path || '')}"</code>
+                                            <button onclick="navigator.clipboard.writeText('cp \\'${escHtml(data.backup_path)}\\' \\'${escHtml(data.saved_path || '')}\\''); showToast('Restore command copied!', 'success');" 
+                                                    style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: var(--accent); border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; color: white;">
+                                                📋 Copy
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <p style="margin: 12px 0 0 0; color: var(--text-muted); font-size: 0.85rem;">
+                                        💡 <strong>Tip:</strong> The backup file is saved in the same folder as your original document.
+                                    </p>
+                                </div>
+                            </details>
+                            ` : ''}
                         ` : data.backup_path && !data.saved_to_file ? `
                             <div class="message info" style="margin: 16px 0;">
                                 <span>📦</span>
