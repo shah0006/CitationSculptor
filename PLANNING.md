@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 2.0.0 | **Updated:** Jun 2025 | **Status:** ✅ v2.0 Complete!
+**Version:** 2.3.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.3 Complete!
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -16,7 +16,15 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 ---
 
-## ✅ All Phases Complete - v2.0.0 Achieved!
+## ✅ All Phases Complete - v2.3.0 Achieved!
+
+### v2.3.0 - Document Intelligence (Dec 2025) ✅
+- **Link Verification**: Parallel URL checking with redirect/broken/archived detection
+- **Citation Suggestions**: Pattern-based detection of uncited statistics, claims, findings
+- **Citation Compliance**: Plagiarism-style checker for missing citations
+- **LLM Metadata Extraction**: Ollama-powered metadata extraction for edge cases
+- **HTTP API**: `/api/verify-links`, `/api/suggest-citations`, `/api/check-compliance`, `/api/analyze-document`
+- **MCP Tools**: 5 new tools for AI agents
 
 ### v2.0.0 - Smart Features (Jun 2025) ✅
 - **Citation Database**: SQLite-backed storage with FTS5 search, tags, collections
@@ -65,17 +73,19 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### ✅ Phase 5: v1.10.0 - Import/Export
 ### ✅ Phase 6: v2.0.0 - Smart Features
 
-## 🎯 Future Enhancements (Post v2.0)
+## 🎯 Future Enhancements (Post v2.3)
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
 | Zotero sync integration | Medium | Bi-directional sync |
 | CSL-JSON export | Medium | For Pandoc/Citation.js |
 | Citation graph visualization | Low | D3.js or Obsidian Graph |
-| LLM-powered metadata extraction | Low | Use local LLMs |
-| Link rot detection | Low | Periodic URL checking |
 | SSRN support | Low | Niche academic |
 | WorldCat integration | Low | Library catalog |
+| Shared citation libraries | Low | Team collaboration |
+| Real-time sync | Low | Multi-device support |
+
+> **Note:** LLM metadata extraction and link verification are now available in v2.3.0
 
 ---
 
@@ -97,6 +107,10 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 - `modules/citation_database.py` - SQLite citation storage
 - `modules/duplicate_detector.py` - Duplicate finding
 - `modules/bibliography_generator.py` - Auto-bibliography
+
+### v2.3.0 - Document Intelligence
+- `modules/document_intelligence.py` - Link verification, citation suggestions, compliance checker
+- `modules/llm_extractor.py` - LLM-powered metadata extraction (enhanced)
 
 ---
 
@@ -145,7 +159,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### MCP Server
 - Transport: stdio (stdin/stdout)
 - Python 3.10+ required
-- 12 tools available
+- 17 tools available (12 core + 5 document intelligence)
 
 ### Key Commands
 ```bash
@@ -176,4 +190,5 @@ python citation_sculptor.py "document.md" --multi-section
 | test_citation_lookup.py | 20 | ✅ |
 | test_mcp_server.py | 21 | ✅ |
 | test_http_server.py | 11 | ✅ |
-| **Total** | **226** | ✅ |
+| test_document_intelligence.py | 28 | ✅ |
+| **Total** | **254** | ✅ |

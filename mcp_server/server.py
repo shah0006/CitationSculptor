@@ -29,14 +29,21 @@ from citation_lookup import CitationLookup, LookupResult
 from modules.reference_parser import ReferenceParser
 from modules.type_detector import CitationTypeDetector
 from modules.inline_replacer import InlineReplacer
+from modules.document_intelligence import (
+    DocumentIntelligence,
+    verify_document_links,
+    suggest_document_citations,
+    check_citation_compliance,
+)
 
 
 
 
-# Initialize server and lookup
+# Initialize server and components
 server = Server("citation-lookup-mcp")
 lookup = CitationLookup()
 type_detector = CitationTypeDetector()
+doc_intelligence = DocumentIntelligence(pubmed_client=lookup.pubmed_client, use_llm=True)
 
 
 def format_result(result: LookupResult) -> str:
@@ -235,6 +242,127 @@ async def list_tools():
                 "required": []
             }
         ),
+        # === Document Intelligence Tools (v2.3.0) ===
+        Tool(
+            name="citation_verify_links",
+            description="Verify all URLs in a document to check for broken links, redirects, and archived versions. Returns status for each URL found.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to analyze"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to analyze (alternative to file_path)"
+                    },
+                    "urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of specific URLs to verify (alternative to file/content)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="citation_suggest_citations",
+            description="Analyze document content to identify passages that may need citations (statistics, claims, research findings without sources). Optionally searches PubMed for suggested citations.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to analyze"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to analyze (alternative to file_path)"
+                    },
+                    "search_pubmed": {
+                        "type": "boolean",
+                        "description": "Search PubMed for suggested citations (slower but more helpful)",
+                        "default": False
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="citation_check_compliance",
+            description="Check document for citation compliance issues: uncited quotes, claims presented as fact without evidence, academic phrases that need sources. Returns a compliance score and list of issues.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to check"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to check (alternative to file_path)"
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="citation_analyze_document",
+            description="Comprehensive document analysis: verify all links, suggest missing citations, and check citation compliance. Returns overall document health score.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to analyze"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to analyze (alternative to file_path)"
+                    },
+                    "verify_links": {
+                        "type": "boolean",
+                        "description": "Verify all URLs (default: true)",
+                        "default": True
+                    },
+                    "suggest_citations": {
+                        "type": "boolean",
+                        "description": "Suggest missing citations (default: true)",
+                        "default": True
+                    },
+                    "check_compliance": {
+                        "type": "boolean",
+                        "description": "Check citation compliance (default: true)",
+                        "default": True
+                    },
+                    "search_pubmed": {
+                        "type": "boolean",
+                        "description": "Search PubMed for citation suggestions (slower)",
+                        "default": False
+                    }
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="citation_extract_metadata_llm",
+            description="Use LLM to extract citation metadata from a webpage that doesn't have standard metadata. Requires Ollama to be running locally.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL of the webpage"
+                    },
+                    "html_content": {
+                        "type": "string",
+                        "description": "HTML content of the webpage"
+                    }
+                },
+                "required": ["url", "html_content"]
+            }
+        ),
     ]
 
 
@@ -372,6 +500,58 @@ async def call_tool(name: str, arguments: dict):
                 arguments.get('content'),
                 arguments.get('style', 'vancouver'),
                 arguments.get('create_backup', True)
+            )
+            return [TextContent(type="text", text=result)]
+
+        # === Document Intelligence Tools ===
+        elif name == "citation_verify_links":
+            result = await loop.run_in_executor(
+                None,
+                handle_verify_links,
+                arguments.get('file_path'),
+                arguments.get('content'),
+                arguments.get('urls')
+            )
+            return [TextContent(type="text", text=result)]
+        
+        elif name == "citation_suggest_citations":
+            result = await loop.run_in_executor(
+                None,
+                handle_suggest_citations,
+                arguments.get('file_path'),
+                arguments.get('content'),
+                arguments.get('search_pubmed', False)
+            )
+            return [TextContent(type="text", text=result)]
+        
+        elif name == "citation_check_compliance":
+            result = await loop.run_in_executor(
+                None,
+                handle_check_compliance,
+                arguments.get('file_path'),
+                arguments.get('content')
+            )
+            return [TextContent(type="text", text=result)]
+        
+        elif name == "citation_analyze_document":
+            result = await loop.run_in_executor(
+                None,
+                handle_analyze_document,
+                arguments.get('file_path'),
+                arguments.get('content'),
+                arguments.get('verify_links', True),
+                arguments.get('suggest_citations', True),
+                arguments.get('check_compliance', True),
+                arguments.get('search_pubmed', False)
+            )
+            return [TextContent(type="text", text=result)]
+        
+        elif name == "citation_extract_metadata_llm":
+            result = await loop.run_in_executor(
+                None,
+                handle_extract_metadata_llm,
+                arguments.get('url'),
+                arguments.get('html_content')
             )
             return [TextContent(type="text", text=result)]
 
@@ -559,6 +739,290 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
     ])
     
     return "\n".join(output_lines)
+
+
+def get_content(file_path: Optional[str], content: Optional[str]) -> tuple:
+    """Helper to get content from file or direct input."""
+    if file_path:
+        file_path = os.path.expanduser(file_path)
+        if not os.path.exists(file_path):
+            return None, f"Error: File not found: {file_path}"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content, None
+        except Exception as e:
+            return None, f"Error reading file: {e}"
+    elif content:
+        return content, None
+    else:
+        return None, "Error: No content provided. Specify either file_path or content."
+
+
+def handle_verify_links(file_path: Optional[str], content: Optional[str], urls: Optional[list]) -> str:
+    """Handle link verification."""
+    if urls:
+        # Verify provided URLs directly
+        results = doc_intelligence.verify_links_batch(urls)
+        output_lines = ["# Link Verification Results", "", f"**URLs checked:** {len(results)}", ""]
+        
+        ok_count = sum(1 for r in results if r.get('status') == 'ok')
+        broken_count = sum(1 for r in results if r.get('status') in ('broken', 'error'))
+        
+        output_lines.append(f"✅ OK: {ok_count}")
+        output_lines.append(f"❌ Broken/Error: {broken_count}")
+        output_lines.append("")
+        
+        for r in results:
+            status_emoji = {
+                'ok': '✅', 'redirect': '↪️', 'broken': '❌', 
+                'error': '❌', 'timeout': '⏱️', 'paywall': '🔒', 
+                'archived': '📦', 'skipped': '⏭️'
+            }.get(r.get('status'), '❓')
+            
+            output_lines.append(f"{status_emoji} **{r.get('status', 'unknown').upper()}**: {r.get('url', 'N/A')}")
+            if r.get('archived_url'):
+                output_lines.append(f"   📦 Archive: {r.get('archived_url')}")
+            if r.get('error_message'):
+                output_lines.append(f"   ⚠️ {r.get('error_message')}")
+            output_lines.append("")
+        
+        return "\n".join(output_lines)
+    
+    # Get content from file or direct input
+    text_content, error = get_content(file_path, content)
+    if error:
+        return error
+    
+    result = verify_document_links(text_content)
+    
+    output_lines = ["# Link Verification Results", ""]
+    output_lines.append(f"**Total URLs found:** {result.get('total_urls', 0)}")
+    
+    status = result.get('status_summary', {})
+    output_lines.append("")
+    output_lines.append("## Summary")
+    for status_type, count in status.items():
+        emoji = {'ok': '✅', 'redirect': '↪️', 'broken': '❌', 'error': '❌', 
+                 'timeout': '⏱️', 'paywall': '🔒', 'archived': '📦'}.get(status_type, '❓')
+        output_lines.append(f"- {emoji} {status_type}: {count}")
+    
+    broken = result.get('broken_links', [])
+    if broken:
+        output_lines.extend(["", "## ❌ Broken Links"])
+        for link in broken:
+            output_lines.append(f"- **{link.get('url', 'N/A')}**")
+            if link.get('error_message'):
+                output_lines.append(f"  - Error: {link.get('error_message')}")
+            if link.get('archived_url'):
+                output_lines.append(f"  - 📦 Archive available: {link.get('archived_url')}")
+    
+    redirects = result.get('redirected_links', [])
+    if redirects:
+        output_lines.extend(["", "## ↪️ Redirected Links"])
+        for link in redirects:
+            output_lines.append(f"- {link.get('url', 'N/A')}")
+            output_lines.append(f"  → {link.get('final_url', 'N/A')}")
+    
+    return "\n".join(output_lines)
+
+
+def handle_suggest_citations(file_path: Optional[str], content: Optional[str], search_pubmed: bool = False) -> str:
+    """Handle citation suggestions."""
+    text_content, error = get_content(file_path, content)
+    if error:
+        return error
+    
+    from modules.document_intelligence import CitationSuggestor
+    suggestor = CitationSuggestor(pubmed_client=lookup.pubmed_client if search_pubmed else None)
+    suggestions = suggestor.analyze_document(text_content, search_suggestions=search_pubmed)
+    
+    output_lines = ["# Citation Suggestions", ""]
+    output_lines.append(f"**Potential citations needed:** {len(suggestions)}")
+    output_lines.append("")
+    
+    if not suggestions:
+        output_lines.append("✅ No obvious missing citations detected.")
+        return "\n".join(output_lines)
+    
+    # Group by category
+    categories = {}
+    for s in suggestions:
+        cat = s.category
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(s)
+    
+    for category, items in categories.items():
+        emoji = {'statistic': '📊', 'claim': '💬', 'definition': '📖', 'finding': '🔬'}.get(category, '📝')
+        output_lines.append(f"## {emoji} {category.title()}s ({len(items)})")
+        output_lines.append("")
+        
+        for item in items:
+            output_lines.append(f"**Line {item.line_number}** (confidence: {item.confidence:.0%})")
+            output_lines.append(f"> {item.text_excerpt}")
+            output_lines.append(f"*{item.reason}*")
+            
+            if item.suggested_search_terms:
+                output_lines.append(f"Search: `{' '.join(item.suggested_search_terms)}`")
+            
+            if item.pubmed_results:
+                output_lines.append("**Suggested citations:**")
+                for r in item.pubmed_results[:3]:
+                    authors = ', '.join(r.get('authors', [])[:2])
+                    if len(r.get('authors', [])) > 2:
+                        authors += ' et al.'
+                    output_lines.append(f"  - {r.get('title', 'N/A')} ({authors}, {r.get('year', 'N/A')}) [PMID: {r.get('pmid', 'N/A')}]")
+            
+            output_lines.append("")
+    
+    return "\n".join(output_lines)
+
+
+def handle_check_compliance(file_path: Optional[str], content: Optional[str]) -> str:
+    """Handle citation compliance check."""
+    text_content, error = get_content(file_path, content)
+    if error:
+        return error
+    
+    result = check_citation_compliance(text_content)
+    
+    output_lines = ["# Citation Compliance Check", ""]
+    
+    score = result.get('compliance_score', 100)
+    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+    output_lines.append(f"## {score_emoji} Compliance Score: {score}/100")
+    output_lines.append("")
+    
+    output_lines.append("### Summary")
+    output_lines.append(f"- Total issues: {result.get('total_issues', 0)}")
+    output_lines.append(f"- 🔴 High severity: {result.get('high_severity_count', 0)}")
+    output_lines.append(f"- 🟡 Medium severity: {result.get('medium_severity_count', 0)}")
+    output_lines.append(f"- 🟢 Low severity: {result.get('low_severity_count', 0)}")
+    output_lines.append("")
+    
+    recommendations = result.get('recommendations', [])
+    if recommendations:
+        output_lines.append("### Recommendations")
+        for rec in recommendations:
+            output_lines.append(f"- {rec}")
+        output_lines.append("")
+    
+    issues = result.get('issues', [])
+    if issues:
+        output_lines.append("### Issues Found")
+        output_lines.append("")
+        
+        for issue in issues:
+            severity_emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(issue.get('severity'), '⚪')
+            output_lines.append(f"**Line {issue.get('line_number', 'N/A')}** {severity_emoji}")
+            output_lines.append(f"> {issue.get('text', 'N/A')[:100]}...")
+            output_lines.append(f"*{issue.get('explanation', 'N/A')}*")
+            if issue.get('suggested_action'):
+                output_lines.append(f"💡 {issue.get('suggested_action')}")
+            output_lines.append("")
+    
+    return "\n".join(output_lines)
+
+
+def handle_analyze_document(file_path: Optional[str], content: Optional[str], 
+                           verify_links: bool = True, suggest_citations: bool = True,
+                           check_compliance: bool = True, search_pubmed: bool = False) -> str:
+    """Handle comprehensive document analysis."""
+    text_content, error = get_content(file_path, content)
+    if error:
+        return error
+    
+    result = doc_intelligence.analyze_document(
+        text_content,
+        verify_links=verify_links,
+        suggest_citations=suggest_citations,
+        check_plagiarism=check_compliance,
+        search_suggestions=search_pubmed
+    )
+    
+    output_lines = ["# 📊 Document Analysis Report", ""]
+    
+    # Overall health score
+    health = result.get('overall_health_score', 100)
+    health_emoji = "🟢" if health >= 80 else "🟡" if health >= 60 else "🔴"
+    output_lines.append(f"## {health_emoji} Overall Health Score: {health}/100")
+    output_lines.append("")
+    output_lines.append(f"*Analysis timestamp: {result.get('timestamp', 'N/A')}*")
+    output_lines.append(f"*Document: {result.get('line_count', 0)} lines*")
+    output_lines.append("")
+    
+    # Link verification
+    if 'link_verification' in result:
+        lv = result['link_verification']
+        broken = len(lv.get('broken_links', []))
+        total = lv.get('total_urls', 0)
+        ok = total - broken
+        output_lines.append(f"### 🔗 Link Verification")
+        output_lines.append(f"- {ok}/{total} links OK")
+        if broken > 0:
+            output_lines.append(f"- ❌ {broken} broken links found")
+        output_lines.append("")
+    
+    # Citation suggestions
+    if 'citation_suggestions' in result:
+        cs = result['citation_suggestions']
+        count = cs.get('count', 0)
+        output_lines.append(f"### 📝 Citation Suggestions")
+        output_lines.append(f"- {count} passages may need citations")
+        output_lines.append("")
+    
+    # Compliance check
+    if 'citation_compliance' in result:
+        cc = result['citation_compliance']
+        score = cc.get('compliance_score', 100)
+        output_lines.append(f"### ✅ Citation Compliance")
+        output_lines.append(f"- Compliance score: {score}/100")
+        output_lines.append(f"- Issues: {cc.get('total_issues', 0)}")
+        output_lines.append("")
+    
+    output_lines.append("---")
+    output_lines.append("*Use individual tools for detailed results:*")
+    output_lines.append("- `citation_verify_links` for link details")
+    output_lines.append("- `citation_suggest_citations` for suggested citations")
+    output_lines.append("- `citation_check_compliance` for compliance issues")
+    
+    return "\n".join(output_lines)
+
+
+def handle_extract_metadata_llm(url: str, html_content: str) -> str:
+    """Handle LLM metadata extraction."""
+    if not url or not html_content:
+        return "Error: Both url and html_content are required."
+    
+    result = doc_intelligence.extract_metadata_llm(url, html_content)
+    
+    if result:
+        output_lines = ["# LLM Metadata Extraction", "", "**Success!**", ""]
+        output_lines.append(f"**Title:** {result.get('title', 'N/A')}")
+        
+        authors = result.get('authors', [])
+        if authors:
+            output_lines.append(f"**Authors:** {', '.join(authors)}")
+        
+        if result.get('date'):
+            output_lines.append(f"**Date:** {result.get('date')}")
+        elif result.get('year'):
+            output_lines.append(f"**Year:** {result.get('year')}")
+        
+        if result.get('organization'):
+            output_lines.append(f"**Organization:** {result.get('organization')}")
+        
+        if result.get('publication_name'):
+            output_lines.append(f"**Publication:** {result.get('publication_name')}")
+        
+        output_lines.append("")
+        output_lines.append("**Raw metadata:**")
+        output_lines.append(f"```json\n{json.dumps(result, indent=2)}\n```")
+        
+        return "\n".join(output_lines)
+    else:
+        return "**Error:** LLM extraction failed. Make sure Ollama is running locally with llama3:8b model."
 
 
 async def main():

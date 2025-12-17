@@ -1,8 +1,8 @@
 # CitationSculptor Continuation Prompt
 
-## Current State: v2.0.1 (Complete)
+## Current State: v2.3.0 (Complete)
 
-CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.0. All major features are implemented and working.
+CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.3. All major features are implemented and working, including the new Document Intelligence features.
 
 ## What's Been Completed
 
@@ -40,6 +40,14 @@ CitationSculptor is a comprehensive citation management toolkit that has been fu
 - ✅ Duplicate detection (`modules/duplicate_detector.py`)
 - ✅ Bibliography generation (`modules/bibliography_generator.py`)
 - ✅ Document processing across all interfaces
+
+### v2.3.0 - Document Intelligence (Dec 2025)
+- ✅ Link verification & broken link detection (`modules/document_intelligence.py`)
+- ✅ Automatic citation suggestions based on content
+- ✅ Plagiarism-style citation compliance checker
+- ✅ LLM-powered metadata extraction for edge cases
+- ✅ HTTP API endpoints: `/api/verify-links`, `/api/suggest-citations`, `/api/check-compliance`, `/api/analyze-document`
+- ✅ MCP tools: `citation_verify_links`, `citation_suggest_citations`, `citation_check_compliance`, `citation_analyze_document`, `citation_extract_metadata_llm`
 
 ### Interfaces
 - ✅ CLI: `citation_lookup.py` (single lookups, interactive mode)
@@ -98,6 +106,35 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Recent Updates (Just Completed)
 
+### Dec 17, 2025 - Document Intelligence (v2.3.0)
+1. **Link Verification & Broken Link Detection:**
+   - Parallel URL checking with configurable workers
+   - Detects: OK, broken, redirect, timeout, paywall, archived
+   - Wayback Machine fallback for broken links
+   - Document scanning extracts all URLs automatically
+
+2. **Citation Suggestions:**
+   - Pattern-based detection of uncited content
+   - Categories: statistics, claims, definitions, findings
+   - Optional PubMed search for suggested citations
+   - Confidence scoring and search term extraction
+
+3. **Citation Compliance Checker:**
+   - Detects uncited quotes, academic phrases, medical claims
+   - Severity levels: high, medium, low
+   - Compliance score (0-100) and recommendations
+   - Skips headers, code blocks, and already-cited content
+
+4. **Comprehensive Document Analysis:**
+   - `/api/analyze-document` endpoint for full analysis
+   - Overall health score combining all checks
+   - MCP tool `citation_analyze_document` for AI agents
+
+5. **LLM Metadata Extraction:**
+   - Uses local Ollama (llama3:8b) for edge case extraction
+   - Site rules database for domain-specific hints
+   - Learning capability for new domains
+
 ### Dec 17, 2025 - Safety Features & Backup System
 1. **Obsidian Plugin Safety Features:**
    - Added automatic backup before processing notes (creates timestamped `filename_backup_YYYYMMDD_HHMMSS.md`)
@@ -139,32 +176,33 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Future Roadmap (Planned)
 
-### v2.1.0 - Reference Manager Integration
+### v2.4.0 - Reference Manager Integration
 - Zotero library sync (two-way)
 - Mendeley integration
 - EndNote support
 
-### v2.2.0 - Visualization & Analytics
+### v2.5.0 - Visualization & Analytics
 - Citation network graph visualization
 - Co-author network mapping
 
-### v2.3.0 - Document Intelligence
-- LLM-powered metadata extraction for edge cases
-- Link verification & broken link detection
-
-### v2.4.0 - Collaboration Features
+### v2.6.0 - Collaboration Features
 - Shared citation libraries
 - Team workspaces
 
+> **v2.3.0 Document Intelligence - COMPLETED!**
+
 ## Pending Tasks
 
-- Push latest README changes to GitHub
-- User may need to hard-refresh browser (Cmd+Shift+R) to see updated About page
+- Push v2.3.0 changes to GitHub
+- Run full test suite to verify all new features
+- User may need to hard-refresh browser (Cmd+Shift+R) to see updated features
 
 ## Notes
 
 - HTTP server runs on port 3019 (localhost only, secure)
-- All tests pass (226 tests, 0 warnings)
+- All tests pass (254 tests including new document intelligence tests)
 - bioRxiv/medRxiv API can be finicky (marked as ⚠️ Partial for Lookup)
 - Obsidian plugin requires HTTP server to be running for best performance
+- LLM metadata extraction requires Ollama running locally with llama3:8b model
+- Link verification makes actual HTTP requests (may be slow for many URLs)
 

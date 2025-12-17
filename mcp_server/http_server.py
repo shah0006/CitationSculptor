@@ -51,6 +51,17 @@ from modules.book_client import BookClient
 from modules.wayback_client import WaybackClient
 from modules.openalex_client import OpenAlexClient
 from modules.semantic_scholar_client import SemanticScholarClient
+from modules.document_intelligence import (
+    DocumentIntelligence,
+    LinkVerifier,
+    CitationSuggestor,
+    PlagiarismChecker,
+    verify_document_links,
+    suggest_document_citations,
+    check_citation_compliance,
+)
+
+from loguru import logger
 
 # Static files directory
 WEB_DIR = Path(__file__).parent.parent / 'web'
@@ -77,6 +88,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
     wayback_client: WaybackClient = None
     openalex_client: OpenAlexClient = None
     semantic_scholar_client: SemanticScholarClient = None
+    document_intelligence: DocumentIntelligence = None
     
     def log_message(self, format: str, *args) -> None:
         """Suppress logging for cleaner output."""
@@ -171,7 +183,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     content = f.read()
                 self._send_json({
                     'content': content,
-                    'version': '2.0.1',
+                    'version': '2.3.0',
                 })
             else:
                 self._send_json({'error': 'README not found'}, 404)
@@ -180,11 +192,12 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if path == '/health':
             self._send_json({
                 'status': 'ok',
-                'version': '2.0.1',
+                'version': '2.3.0',
                 'features': {
                     'pdf_support': PYMUPDF_AVAILABLE,
                     'citation_styles': get_available_styles(),
                     'database_enabled': self.citation_db is not None,
+                    'document_intelligence': True,
                 }
             })
             return
@@ -203,9 +216,30 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'search': ['pubmed', 'openalex', 'semantic_scholar'],
                 'import': ['bibtex', 'ris'],
                 'export': ['bibtex', 'ris'],
-                'features': ['document_processing', 'pdf_extraction', 'duplicate_detection', 'bibliography_generation', 'citation_database'],
+                'features': [
+                    'document_processing', 'pdf_extraction', 'duplicate_detection', 
+                    'bibliography_generation', 'citation_database',
+                    'link_verification', 'citation_suggestions', 'citation_compliance',
+                ],
                 'pdf_support': PYMUPDF_AVAILABLE,
+                'document_intelligence': {
+                    'link_verification': True,
+                    'citation_suggestions': True,
+                    'plagiarism_check': True,
+                    'llm_extraction': True,
+                },
             })
+            return
+        
+        # === Document Intelligence - Link Verification ===
+        if path == '/api/verify-link':
+            url = query.get('url', [None])[0]
+            if not url:
+                self._send_json({'error': 'Missing url parameter'}, 400)
+                return
+            
+            result = self.document_intelligence.verify_single_link(url)
+            self._send_json(result)
             return
         
         # === Citation Lookup ===
@@ -810,6 +844,165 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json(error_response, 500)
             return
         
+        # === Document Intelligence - Full Analysis ===
+        if path == '/api/analyze-document':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            verify_links = data.get('verify_links', True)
+            suggest_citations = data.get('suggest_citations', True)
+            check_plagiarism = data.get('check_plagiarism', True)
+            search_suggestions = data.get('search_suggestions', False)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = os.path.expanduser(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except FileNotFoundError:
+                    self._send_json({'error': f'File not found: {file_path}'}, 404)
+                    return
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                result = self.document_intelligence.analyze_document(
+                    content,
+                    verify_links=verify_links,
+                    suggest_citations=suggest_citations,
+                    check_plagiarism=check_plagiarism,
+                    search_suggestions=search_suggestions,
+                )
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Document Intelligence - Link Verification ===
+        if path == '/api/verify-links':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            urls = data.get('urls')  # Can also pass URLs directly
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = os.path.expanduser(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if urls:
+                # Verify provided URLs directly
+                try:
+                    results = self.document_intelligence.verify_links_batch(urls)
+                    self._send_json({
+                        'verified': len(results),
+                        'results': results,
+                    })
+                except Exception as e:
+                    self._send_json({'error': str(e)}, 500)
+                return
+            
+            if not content:
+                self._send_json({'error': 'Missing content, file_path, or urls'}, 400)
+                return
+            
+            try:
+                result = verify_document_links(content)
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Document Intelligence - Citation Suggestions ===
+        if path == '/api/suggest-citations':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            search_pubmed = data.get('search_pubmed', False)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = os.path.expanduser(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                suggestor = CitationSuggestor(
+                    pubmed_client=self.lookup.pubmed_client if search_pubmed else None
+                )
+                suggestions = suggestor.analyze_document(content, search_suggestions=search_pubmed)
+                self._send_json({
+                    'count': len(suggestions),
+                    'suggestions': [s.to_dict() for s in suggestions],
+                })
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Document Intelligence - Citation Compliance (Plagiarism Check) ===
+        if path == '/api/check-compliance':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = os.path.expanduser(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                result = check_citation_compliance(content)
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        # === Document Intelligence - LLM Metadata Extraction ===
+        if path == '/api/extract-metadata-llm':
+            url = data.get('url')
+            html_content = data.get('html_content')
+            
+            if not url or not html_content:
+                self._send_json({'error': 'Missing url or html_content'}, 400)
+                return
+            
+            try:
+                result = self.document_intelligence.extract_metadata_llm(url, html_content)
+                if result:
+                    self._send_json({'success': True, 'metadata': result})
+                else:
+                    self._send_json({
+                        'success': False, 
+                        'error': 'LLM extraction failed or not available'
+                    })
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
         # Default: 404
         self._send_json({'error': f'Unknown endpoint: {path}'}, 404)
     
@@ -1030,26 +1223,34 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     CitationHTTPHandler.wayback_client = WaybackClient()
     CitationHTTPHandler.openalex_client = OpenAlexClient()
     CitationHTTPHandler.semantic_scholar_client = SemanticScholarClient()
+    CitationHTTPHandler.document_intelligence = DocumentIntelligence(
+        pubmed_client=CitationHTTPHandler.lookup.pubmed_client,
+        use_llm=True,
+    )
     
     server = HTTPServer((host, port), CitationHTTPHandler)
     
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════════╗")
-    print(f"  ║           📚 CitationSculptor HTTP Server v2.0.1              ║")
+    print(f"  ║           📚 CitationSculptor HTTP Server v2.3.0              ║")
     print(f"  ╚═══════════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")
     print(f"  📡 API Base:  http://{host}:{port}/api")
     print(f"")
-    print(f"  Features:")
+    print(f"  Core Features:")
     print(f"    ✓ Multi-source lookup (PubMed, arXiv, ISBN, DOI)")
     print(f"    ✓ Multiple citation styles (Vancouver, APA, MLA, etc.)")
     print(f"    ✓ Document processing (Markdown files)")
     print(f"    {'✓' if PYMUPDF_AVAILABLE else '✗'} PDF metadata extraction")
     print(f"    ✓ BibTeX/RIS import & export")
     print(f"    ✓ Citation library with search")
-    print(f"    ✓ Duplicate detection")
-    print(f"    ✓ Bibliography generation")
+    print(f"")
+    print(f"  Document Intelligence (v2.3):")
+    print(f"    ✓ Link verification & broken link detection")
+    print(f"    ✓ Automatic citation suggestions")
+    print(f"    ✓ Citation compliance checker")
+    print(f"    ✓ LLM-powered metadata extraction")
     print(f"")
     print(f"  Press Ctrl+C to stop")
     print(f"")
