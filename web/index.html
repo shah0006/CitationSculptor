@@ -2091,12 +2091,18 @@
         // =====================================================
         // Folder Browser for Vault Selection
         // =====================================================
+        // Note: We use a server-side folder browser instead of the native 
+        // File System Access API because:
+        // 1. Native API doesn't expose full file paths (browser security)
+        // 2. Safari/Firefox don't support showDirectoryPicker()
+        // 3. Our server can provide full paths needed for configuration
+        // =====================================================
         
         let currentBrowsePath = '';
         
         async function openFolderBrowser() {
             document.getElementById('folderBrowserModal').style.display = 'flex';
-            await loadDirectory(); // Start from home directory
+            await loadDirectory();
         }
         
         function closeFolderBrowser() {
