@@ -164,6 +164,19 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 return
         
         # === Health & Info ===
+        if path == '/api/about' or path == '/api/readme':
+            readme_path = Path(__file__).parent.parent / 'README.md'
+            if readme_path.exists():
+                with open(readme_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                self._send_json({
+                    'content': content,
+                    'version': '2.0.1',
+                })
+            else:
+                self._send_json({'error': 'README not found'}, 404)
+            return
+        
         if path == '/health':
             self._send_json({
                 'status': 'ok',

@@ -634,6 +634,156 @@
             color: var(--text-muted);
         }
 
+        /* About/Documentation Styles */
+        .markdown-content {
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        .markdown-content h1 {
+            font-size: 1.75rem;
+            margin: 32px 0 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+        }
+
+        .markdown-content h2 {
+            font-size: 1.35rem;
+            margin: 28px 0 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .markdown-content h3 {
+            font-size: 1.1rem;
+            margin: 20px 0 10px;
+            color: var(--text-primary);
+        }
+
+        .markdown-content h4 {
+            font-size: 1rem;
+            margin: 16px 0 8px;
+            color: var(--text-secondary);
+        }
+
+        .markdown-content p {
+            margin: 12px 0;
+        }
+
+        .markdown-content ul, .markdown-content ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+
+        .markdown-content li {
+            margin: 6px 0;
+        }
+
+        .markdown-content code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            padding: 2px 6px;
+            background: var(--bg-base);
+            border-radius: 4px;
+            color: var(--accent);
+        }
+
+        .markdown-content pre {
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            overflow-x: auto;
+            margin: 16px 0;
+        }
+
+        .markdown-content pre code {
+            padding: 0;
+            background: transparent;
+            color: var(--text-primary);
+        }
+
+        .markdown-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 13px;
+        }
+
+        .markdown-content th, .markdown-content td {
+            padding: 10px 12px;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+
+        .markdown-content th {
+            background: var(--bg-base);
+            font-weight: 600;
+        }
+
+        .markdown-content tr:nth-child(even) {
+            background: var(--bg-elevated);
+        }
+
+        .markdown-content blockquote {
+            margin: 16px 0;
+            padding: 12px 16px;
+            border-left: 4px solid var(--accent);
+            background: var(--accent-muted);
+            border-radius: 0 var(--radius) var(--radius) 0;
+        }
+
+        .markdown-content a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+
+        .markdown-content hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 32px 0;
+        }
+
+        .markdown-content img {
+            max-width: 100%;
+            border-radius: var(--radius);
+        }
+
+        /* Quick links at top of about page */
+        .about-quick-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .about-quick-links a {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-secondary);
+            font-size: 13px;
+            text-decoration: none;
+            transition: all 0.15s ease;
+        }
+
+        .about-quick-links a:hover {
+            background: var(--accent-muted);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .sidebar {
@@ -720,6 +870,14 @@
                 <button type="button" class="nav-item" data-page="export">
                     <span class="nav-item-icon">📤</span>
                     Export
+                </button>
+            </nav>
+
+            <nav class="nav-section">
+                <div class="nav-section-title">Help</div>
+                <button type="button" class="nav-item" data-page="about">
+                    <span class="nav-item-icon">ℹ️</span>
+                    About
                 </button>
             </nav>
 
@@ -1041,6 +1199,18 @@
                         </div>
                     </div>
                     <button class="btn" onclick="doExport()">📤 Export</button>
+                </div>
+            </div>
+
+            <!-- About Page -->
+            <div class="page" id="about">
+                <div class="page-header">
+                    <h2 class="page-title">About CitationSculptor</h2>
+                    <p class="page-subtitle">The comprehensive citation management toolkit for researchers</p>
+                </div>
+
+                <div class="card" id="aboutContent">
+                    <div class="loading"><div class="spinner"></div>Loading documentation...</div>
                 </div>
             </div>
         </main>
@@ -1683,12 +1853,125 @@
             return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/`/g, '\\`').replace(/\$/g, '\\$');
         }
 
+        // About Page
+        let aboutLoaded = false;
+
+        async function loadAbout() {
+            if (aboutLoaded) return;
+            
+            const container = document.getElementById('aboutContent');
+            
+            try {
+                const res = await fetch(`${API}/api/about`);
+                const data = await res.json();
+                
+                if (data.content) {
+                    const html = renderMarkdown(data.content);
+                    container.innerHTML = `
+                        <div class="about-quick-links">
+                            <a href="#features">✨ Features</a>
+                            <a href="#quick-start">🚀 Quick Start</a>
+                            <a href="#tools-overview">📖 Tools</a>
+                            <a href="#obsidian-plugin">🔌 Obsidian Plugin</a>
+                            <a href="#mcp-server">🤖 MCP Server</a>
+                            <a href="https://github.com/shah0006/CitationSculptor" target="_blank">📦 GitHub</a>
+                        </div>
+                        <div class="markdown-content">${html}</div>
+                    `;
+                    aboutLoaded = true;
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error || 'Could not load documentation')}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderMarkdown(md) {
+            // Simple markdown renderer
+            let html = md;
+            
+            // Code blocks (must be first to prevent interference)
+            html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+                return `<pre><code class="language-${lang || ''}">${escHtml(code.trim())}</code></pre>`;
+            });
+            
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Headers (process from h4 to h1 to avoid conflicts)
+            html = html.replace(/^#### (.+)$/gm, '<h4 id="$1">$1</h4>');
+            html = html.replace(/^### (.+)$/gm, '<h3 id="$1">$1</h3>');
+            html = html.replace(/^## (.+)$/gm, (_, title) => {
+                const id = title.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-|-$/g, '');
+                return `<h2 id="${id}">${title}</h2>`;
+            });
+            html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            
+            // Bold and italic
+            html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            
+            // Links
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+            
+            // Images (badges)
+            html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">');
+            
+            // Horizontal rules
+            html = html.replace(/^---$/gm, '<hr>');
+            
+            // Tables
+            html = html.replace(/^\|(.+)\|$/gm, (match) => {
+                const cells = match.split('|').filter(c => c.trim());
+                if (cells.every(c => /^[-:\s]+$/.test(c))) {
+                    return '<!-- table separator -->';
+                }
+                const isHeader = !html.includes('<!-- table separator -->') || 
+                               html.indexOf(match) < html.indexOf('<!-- table separator -->');
+                const tag = 'td';
+                const row = cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('');
+                return `<tr>${row}</tr>`;
+            });
+            html = html.replace(/<!-- table separator -->/g, '');
+            html = html.replace(/(<tr>[\s\S]*?<\/tr>[\s\n]*)+/g, (match) => {
+                // Convert first row to headers
+                const rows = match.match(/<tr>[\s\S]*?<\/tr>/g);
+                if (rows && rows.length > 0) {
+                    rows[0] = rows[0].replace(/<td>/g, '<th>').replace(/<\/td>/g, '</th>');
+                }
+                return `<table>${rows ? rows.join('') : match}</table>`;
+            });
+            
+            // Lists
+            html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+            html = html.replace(/(<li>[\s\S]*?<\/li>[\s\n]*)+/g, '<ul>$&</ul>');
+            
+            // Numbered lists
+            html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+            
+            // Blockquotes
+            html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+            
+            // Paragraphs (wrap remaining text blocks)
+            html = html.replace(/^(?!<[a-z]|$)(.+)$/gm, '<p>$1</p>');
+            
+            // Clean up multiple newlines
+            html = html.replace(/\n{3,}/g, '\n\n');
+            
+            return html;
+        }
+
         // Init
         checkServer();
         setInterval(checkServer, 30000);
 
         // Load library when that page is opened
         document.querySelector('[data-page="library"]').addEventListener('click', loadLibrary);
+
+        // Load about when that page is opened
+        document.querySelector('[data-page="about"]').addEventListener('click', loadAbout);
     </script>
 </body>
 </html>
