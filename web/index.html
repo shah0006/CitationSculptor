@@ -1987,27 +1987,33 @@
 
                 if (data.success) {
                     lastProcessedDoc = data.processed_content;
-                    const stats = data.statistics;
+                    const stats = data.statistics || {};
                     
                     container.innerHTML = `
                         <div class="stats-grid" style="margin-top: 20px;">
                             <div class="stat-card">
-                                <div class="stat-value">${stats.total_references}</div>
+                                <div class="stat-value">${stats.total_references ?? 0}</div>
                                 <div class="stat-label">Total References</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value" style="color: var(--success);">${stats.processed}</div>
+                                <div class="stat-value" style="color: var(--success);">${stats.processed ?? 0}</div>
                                 <div class="stat-label">Successfully Processed</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value" style="color: ${stats.failed > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed}</div>
+                                <div class="stat-value" style="color: ${(stats.failed || 0) > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed ?? 0}</div>
                                 <div class="stat-label">Failed</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-value">${stats.inline_replacements}</div>
+                                <div class="stat-value">${stats.inline_replacements ?? 0}</div>
                                 <div class="stat-label">Inline Replacements</div>
                             </div>
                         </div>
+                        ${(stats.total_references ?? 0) === 0 ? `
+                            <div class="message info" style="margin-bottom: 16px;">
+                                <span>💡</span>
+                                <span>No PubMed URLs or citation markers found. This document may already be formatted, or use a different citation style (e.g., Obsidian footnotes).</span>
+                            </div>
+                        ` : ''}
                         ${data.failed_references && data.failed_references.length > 0 ? `
                             <div class="message error" style="margin-bottom: 16px;">
                                 <span>⚠️</span>
