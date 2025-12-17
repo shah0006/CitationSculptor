@@ -30,12 +30,17 @@ class CitationTypeDetector:
     ]
     
     # DOI patterns - matches doi.org URLs and embedded DOIs in publisher URLs
+    # Note: DOIs contain registrant/suffix separated by /. We need to stop before
+    # trailing URL paths like /full, /abstract, /pdf, etc.
     DOI_PATTERNS = [
-        r'doi\.org/(10\.\d{4,}/[^\s\)\]]+)',           # doi.org/10.xxxx/...
-        r'/doi/(10\.\d{4,}/[^\s\)\]]+)',               # /doi/10.xxxx/... (Wiley, OUP)
-        r'/articles?/(10\.\d{4,}/[^\s\)\]]+)',         # /article/10.xxxx/... (BMC, Springer journals)
-        r'/chapter/(10\.\d{4,}/[^\s\)\]]+)',           # /chapter/10.xxxx/... (Springer book chapters)
+        r'doi\.org/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',  # doi.org/10.xxxx/yyy or 10.xxxx/yyy/zzz
+        r'/doi/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',      # /doi/10.xxxx/... (Wiley, OUP)
+        r'/articles?/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)', # /article/10.xxxx/... (BMC, Springer, Frontiers)
+        r'/chapter/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',  # /chapter/10.xxxx/... (Springer book chapters)
     ]
+    
+    # URL path suffixes that are NOT part of DOIs - used to strip trailing paths
+    DOI_TRAILING_PATHS = ['/full', '/abstract', '/pdf', '/html', '/epdf', '/summary', '/references']
 
     JOURNAL_DOMAINS = [
         'biomedcentral.com', 'springer.com', 'link.springer.com', 'sciencedirect.com',
@@ -124,6 +129,15 @@ class CitationTypeDetector:
                 
                 # Clean up trailing punctuation/parentheses
                 doi = re.sub(r'[\)\]\s]+$', '', doi)
+                
+                # Remove common URL path suffixes that are NOT part of DOIs
+                # e.g., /full, /abstract, /pdf, /html
+                for suffix in self.DOI_TRAILING_PATHS:
+                    if doi.lower().endswith(suffix.lower().lstrip('/')):
+                        doi = doi[:-len(suffix.lstrip('/'))]
+                        # Also remove trailing / if present
+                        doi = doi.rstrip('/')
+                        break
                 
                 # Only for OUP URLs: remove trailing numeric article ID
                 # OUP format: /doi/10.1093/journal/article_id/PAGE_NUMBER

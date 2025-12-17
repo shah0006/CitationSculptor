@@ -2557,21 +2557,34 @@
         }
 
         async function restoreFromBackup(backupPath, targetPath) {
+            console.log('Restore requested:', { backupPath, targetPath });
+            
+            if (!backupPath) {
+                showToast('❌ No backup path available', 'error');
+                return;
+            }
+            
             if (!confirm('Are you sure you want to restore the original file? This will overwrite the current processed version.')) {
                 return;
             }
             
             try {
+                // Server can infer target_path from backup_path if not provided
+                const requestBody = { backup_path: backupPath };
+                if (targetPath) {
+                    requestBody.target_path = targetPath;
+                }
+                
+                console.log('Sending restore request:', requestBody);
+                
                 const res = await fetch(`${API}/api/restore-backup`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        backup_path: backupPath,
-                        target_path: targetPath
-                    })
+                    body: JSON.stringify(requestBody)
                 });
                 
                 const data = await res.json();
+                console.log('Restore response:', data);
                 
                 if (data.success) {
                     showToast('✅ Original file restored successfully!', 'success');

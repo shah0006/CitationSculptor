@@ -51,6 +51,7 @@ from modules.book_client import BookClient
 from modules.wayback_client import WaybackClient
 from modules.openalex_client import OpenAlexClient
 from modules.semantic_scholar_client import SemanticScholarClient
+from modules.pubmed_client import WebpageScraper
 from modules.document_intelligence import (
     DocumentIntelligence,
     LinkVerifier,
@@ -750,9 +751,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             backup_path = data.get('backup_path')
             target_path = data.get('target_path')
             
-            if not backup_path or not target_path:
-                self._send_json({'error': 'Missing backup_path or target_path'}, 400)
+            if not backup_path:
+                self._send_json({'error': 'Missing backup_path'}, 400)
                 return
+            
+            # If target_path not provided, infer it from backup_path
+            # Backup format: filename_backup_YYYYMMDD_HHMMSS.ext
+            if not target_path:
+                import re
+                # Try to extract original filename from backup
+                match = re.search(r'^(.+)_backup_\d{8}_\d{6}(\.[^.]+)$', backup_path)
+                if match:
+                    target_path = match.group(1) + match.group(2)
+                    logger.info(f"Inferred target path from backup: {target_path}")
+                else:
+                    self._send_json({'error': 'Could not determine target path from backup filename. Please provide target_path.'}, 400)
+                    return
             
             try:
                 # Verify backup exists
@@ -1568,9 +1582,36 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # Generate new reference section
         reference_section = "\n## References\n\n"
+        
+        # Add successfully processed citations (sorted alphabetically)
         sorted_citations = sorted(processed_citations, key=lambda c: c.get('inline_mark', '').lower())
         for citation in sorted_citations:
             reference_section += f"{citation['full_citation']}\n\n"
+        
+        # Add failed references section if any failed
+        # This keeps the original numbers so users can track them down
+        if failed_refs:
+            reference_section += "\n---\n\n### ⚠️ Unresolved References\n\n"
+            reference_section += "_The following references could not be automatically resolved. Original numbers are preserved for tracking._\n\n"
+            
+            # Sort by original number for easy lookup
+            sorted_failed = sorted(failed_refs, key=lambda r: r.get('original_number', 0))
+            for ref in sorted_failed:
+                num = ref.get('original_number', '?')
+                title = ref.get('title', 'Unknown')[:80]
+                if len(ref.get('title', '')) > 80:
+                    title += '...'
+                url = ref.get('url', '')
+                error_type = ref.get('error_type', 'unknown')
+                suggestion = ref.get('suggestion', '')
+                
+                reference_section += f"**[{num}]** {title}\n"
+                if url:
+                    reference_section += f"- URL: {url}\n"
+                reference_section += f"- Issue: {error_type}\n"
+                if suggestion:
+                    reference_section += f"- Suggestion: {suggestion}\n"
+                reference_section += "\n"
         
         # Combine updated body with new references
         processed_content = updated_body + "\n\n" + reference_section.strip()
@@ -1677,13 +1718,13 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         in_reference_section = False
         
         for line in lines:
-            # Check for reference section start
-            if re.match(r'^##?\s*(References|Bibliography|Citations|Works Cited)', line, re.IGNORECASE):
+            # Check for reference section start (supports #, ##, ###, ####)
+            if re.match(r'^#{1,4}\s*(References|Bibliography|Citations|Works\s+[Cc]ited|Sources)', line, re.IGNORECASE):
                 in_reference_section = True
                 continue
             
             # Check for next section (end of references)
-            if in_reference_section and re.match(r'^##?\s+\w', line) and not re.match(r'^##?\s*(References|Bibliography)', line, re.IGNORECASE):
+            if in_reference_section and re.match(r'^#{1,4}\s+\w', line) and not re.match(r'^#{1,4}\s*(References|Bibliography)', line, re.IGNORECASE):
                 in_reference_section = False
             
             # Count footnote definitions [^name]: ...
@@ -1694,7 +1735,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 continue
             
             # Count numbered references in reference section (1. Author... or [1] Author...)
-            if in_reference_section and re.match(r'^(\d+\.|^\[\d+\])\s*\w', line):
+            if in_reference_section and re.match(r'^(\d+\.|\[\d+\])\s*\w', line):
                 stats['reference_section_items'] += 1
             
             # Count inline numeric references [1], [2], [1,2], [1-3]
@@ -1855,9 +1896,36 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # Generate new reference section
         reference_section = "\n## References\n\n"
+        
+        # Add successfully processed citations (sorted alphabetically)
         sorted_citations = sorted(processed_citations, key=lambda c: c.get('inline_mark', '').lower())
         for citation in sorted_citations:
             reference_section += f"{citation['full_citation']}\n\n"
+        
+        # Add failed references section if any failed
+        # This keeps the original numbers so users can track them down
+        if failed_refs:
+            reference_section += "\n---\n\n### ⚠️ Unresolved References\n\n"
+            reference_section += "_The following references could not be automatically resolved. Original numbers are preserved for tracking._\n\n"
+            
+            # Sort by original number for easy lookup
+            sorted_failed = sorted(failed_refs, key=lambda r: r.get('original_number', 0))
+            for ref in sorted_failed:
+                num = ref.get('original_number', '?')
+                title = ref.get('title', 'Unknown')[:80]
+                if len(ref.get('title', '')) > 80:
+                    title += '...'
+                url = ref.get('url', '')
+                error_type = ref.get('error_type', 'unknown')
+                suggestion = ref.get('suggestion', '')
+                
+                reference_section += f"**[{num}]** {title}\n"
+                if url:
+                    reference_section += f"- URL: {url}\n"
+                reference_section += f"- Issue: {error_type}\n"
+                if suggestion:
+                    reference_section += f"- Suggestion: {suggestion}\n"
+                reference_section += "\n"
         
         # Combine updated body with new references
         processed_content = updated_body + "\n\n" + reference_section.strip()
@@ -1951,11 +2019,25 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         }
     
     def _process_single_reference(self, ref: ParsedReference) -> Optional[Dict[str, Any]]:
-        """Process a single reference, attempting to look it up."""
+        """Process a single reference, attempting to look it up.
+        
+        Lookup priority:
+        1. Extract identifiers from URL (PMID, PMCID, DOI)
+        2. Check metadata for DOI (extracted from reference text)
+        3. Scrape webpage for DOI/metadata (if URL available)
+        4. Title search as last resort
+        """
         # Try to extract identifiers from URL
         pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
         pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
         doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+        
+        # Also check ref.metadata for DOI extracted from reference text
+        # Format in text: "doi:10.xxxx/yyyy" or "DOI: 10.xxxx/yyyy"
+        if not doi and ref.metadata:
+            doi = ref.metadata.get('doi')
+            if doi:
+                logger.debug(f"Found DOI in metadata: {doi}")
         
         # Attempt lookup by identifier priority
         if pmid:
@@ -1972,6 +2054,28 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             result = self.lookup.lookup_doi(doi)
             if result.success:
                 return self._format_result(result)
+        
+        # If no identifier found but we have a URL, try scraping the webpage for DOI
+        if ref.url and not (pmid or pmcid or doi):
+            try:
+                scraper = WebpageScraper(timeout=10)
+                scraped_metadata = scraper.extract_metadata(ref.url)
+                if scraped_metadata:
+                    # Check if scraping found a DOI
+                    if scraped_metadata.doi:
+                        logger.info(f"Found DOI via webpage scraping: {scraped_metadata.doi}")
+                        result = self.lookup.lookup_doi(scraped_metadata.doi)
+                        if result.success:
+                            return self._format_result(result)
+                    
+                    # Check if scraping found a PMID
+                    if scraped_metadata.pmid:
+                        logger.info(f"Found PMID via webpage scraping: {scraped_metadata.pmid}")
+                        result = self.lookup.lookup_pmid(scraped_metadata.pmid)
+                        if result.success:
+                            return self._format_result(result)
+            except Exception as e:
+                logger.debug(f"Webpage scraping failed for {ref.url}: {e}")
         
         # Try title search as last resort
         if ref.title:

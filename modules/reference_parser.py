@@ -588,6 +588,9 @@ class ReferenceParser:
             number = int(match.group(1))
             content = match.group(2).strip()
             
+            # Initialize metadata
+            metadata = {'raw_content': content}
+            
             # Try to extract URL/DOI from content
             url = None
             # Check for markdown link [DOI](url) or just link
@@ -600,13 +603,15 @@ class ReferenceParser:
                 if url_match:
                     url = url_match.group(0).rstrip(').,')
             
-            # If no URL, check for plain text DOI and construct URL
-            if not url:
-                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,]+)', content, re.IGNORECASE)
-                if doi_match:
-                    doi = doi_match.group(1).rstrip('.,;')
+            # ALWAYS try to extract DOI from text and store in metadata
+            doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,\)]+)', content, re.IGNORECASE)
+            if doi_match:
+                doi = doi_match.group(1).rstrip('.,;')
+                metadata['doi'] = doi
+                logger.debug(f"Extracted DOI from footnote text: {doi}")
+                # If no URL, construct one from DOI
+                if not url:
                     url = f"https://doi.org/{doi}"
-                    logger.debug(f"Extracted DOI from footnote text: {doi}")
             
             # Extract title (best guess: typically between authors and journal)
             # If we have a URL, title is less critical as we'll lookup by ID
@@ -630,7 +635,7 @@ class ReferenceParser:
                 url=url,
                 source_name=None,
                 line_number=line_number,
-                metadata={'raw_content': content}
+                metadata=metadata,
             )
 
         # Try Pattern 3: Text-only numbered reference "1. Title. Authors..."
@@ -644,14 +649,17 @@ class ReferenceParser:
                 url_match = re.search(r'\(([^)]*https?://[^)]+)\)', content)
                 url = url_match.group(1) if url_match else None
                 
-                # If no URL, check for plain text DOI and construct URL
-                # Patterns: "doi:10.xxx", "DOI: 10.xxx", "doi: 10.xxx/yyy"
-                if not url:
-                    doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,]+)', content, re.IGNORECASE)
-                    if doi_match:
-                        doi = doi_match.group(1).rstrip('.,;')
+                # ALWAYS try to extract DOI from text and store in metadata
+                # This helps even when URL is present but doesn't contain the DOI
+                metadata = {}
+                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\.\,\)]+)', content, re.IGNORECASE)
+                if doi_match:
+                    doi = doi_match.group(1).rstrip('.,;')
+                    metadata['doi'] = doi
+                    logger.debug(f"Extracted DOI from text: {doi}")
+                    # If no URL, construct one from DOI
+                    if not url:
                         url = f"https://doi.org/{doi}"
-                        logger.debug(f"Extracted DOI from text: {doi}")
                 
                 # Extract title (first sentence or up to first period)
                 title_parts = content.split('.')
@@ -672,6 +680,7 @@ class ReferenceParser:
                     line_number=line_number,
                     needs_review=url is None,  # Flag for review if no URL
                     review_reason="No URL found" if url is None else None,
+                    metadata=metadata,
                 )
         
         return None
