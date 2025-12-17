@@ -183,7 +183,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     content = f.read()
                 self._send_json({
                     'content': content,
-                    'version': '2.3.0',
+                    'version': '2.1.0',
                 })
             else:
                 self._send_json({'error': 'README not found'}, 404)
@@ -192,7 +192,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if path == '/health':
             self._send_json({
                 'status': 'ok',
-                'version': '2.3.0',
+                'version': '2.1.0',
                 'features': {
                     'pdf_support': PYMUPDF_AVAILABLE,
                     'citation_styles': get_available_styles(),
@@ -1232,7 +1232,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════════╗")
-    print(f"  ║           📚 CitationSculptor HTTP Server v2.3.0              ║")
+    print(f"  ║           📚 CitationSculptor HTTP Server v2.1.0              ║")
     print(f"  ╚═══════════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")
@@ -1246,7 +1246,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     print(f"    ✓ BibTeX/RIS import & export")
     print(f"    ✓ Citation library with search")
     print(f"")
-    print(f"  Document Intelligence (v2.3):")
+    print(f"  Document Intelligence (v2.1):")
     print(f"    ✓ Link verification & broken link detection")
     print(f"    ✓ Automatic citation suggestions")
     print(f"    ✓ Citation compliance checker")

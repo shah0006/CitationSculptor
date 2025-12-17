@@ -1,8 +1,8 @@
 # CitationSculptor Continuation Prompt
 
-## Current State: v2.3.0 (Complete)
+## Current State: v2.1.0 (Complete)
 
-CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.3. All major features are implemented and working, including the new Document Intelligence features.
+CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.1. All major features are implemented and working, including the new Document Intelligence features.
 
 ## What's Been Completed
 
@@ -41,7 +41,7 @@ CitationSculptor is a comprehensive citation management toolkit that has been fu
 - ✅ Bibliography generation (`modules/bibliography_generator.py`)
 - ✅ Document processing across all interfaces
 
-### v2.3.0 - Document Intelligence (Dec 2025)
+### v2.1.0 - Document Intelligence (Dec 2025)
 - ✅ Link verification & broken link detection (`modules/document_intelligence.py`)
 - ✅ Automatic citation suggestions based on content
 - ✅ Plagiarism-style citation compliance checker
@@ -106,7 +106,7 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Recent Updates (Just Completed)
 
-### Dec 17, 2025 - Document Intelligence (v2.3.0)
+### Dec 17, 2025 - Document Intelligence (v2.1.0)
 1. **Link Verification & Broken Link Detection:**
    - Parallel URL checking with configurable workers
    - Detects: OK, broken, redirect, timeout, paywall, archived
@@ -189,18 +189,18 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 - Shared citation libraries
 - Team workspaces
 
-> **v2.3.0 Document Intelligence - COMPLETED!**
+> **v2.1.0 Document Intelligence - COMPLETED!**
 
 ## Pending Tasks
 
-- Push v2.3.0 changes to GitHub
+- Push v2.1.0 changes to GitHub
 - Run full test suite to verify all new features
 - User may need to hard-refresh browser (Cmd+Shift+R) to see updated features
 
 ## Notes
 
 - HTTP server runs on port 3019 (localhost only, secure)
-- All tests pass (254 tests including new document intelligence tests)
+- All tests pass (280 tests including document intelligence core + integration tests)
 - bioRxiv/medRxiv API can be finicky (marked as ⚠️ Partial for Lookup)
 - Obsidian plugin requires HTTP server to be running for best performance
 - LLM metadata extraction requires Ollama running locally with llama3:8b model

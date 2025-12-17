@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 2.3.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.3 Complete!
+**Version:** 2.1.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.1 Complete!
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -16,9 +16,9 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 ---
 
-## ✅ All Phases Complete - v2.3.0 Achieved!
+## ✅ All Phases Complete - v2.1.0 Achieved!
 
-### v2.3.0 - Document Intelligence (Dec 2025) ✅
+### v2.1.0 - Document Intelligence (Dec 2025) ✅
 - **Link Verification**: Parallel URL checking with redirect/broken/archived detection
 - **Citation Suggestions**: Pattern-based detection of uncited statistics, claims, findings
 - **Citation Compliance**: Plagiarism-style checker for missing citations
@@ -108,7 +108,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 - `modules/duplicate_detector.py` - Duplicate finding
 - `modules/bibliography_generator.py` - Auto-bibliography
 
-### v2.3.0 - Document Intelligence
+### v2.1.0 - Document Intelligence
 - `modules/document_intelligence.py` - Link verification, citation suggestions, compliance checker
 - `modules/llm_extractor.py` - LLM-powered metadata extraction (enhanced)
 
@@ -190,5 +190,6 @@ python citation_sculptor.py "document.md" --multi-section
 | test_citation_lookup.py | 20 | ✅ |
 | test_mcp_server.py | 21 | ✅ |
 | test_http_server.py | 11 | ✅ |
-| test_document_intelligence.py | 28 | ✅ |
-| **Total** | **254** | ✅ |
+| test_document_intelligence.py | 30 | ✅ |
+| test_document_intelligence_integration.py | 24 | ✅ |
+| **Total** | **280** | ✅ |
