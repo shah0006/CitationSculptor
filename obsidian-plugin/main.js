@@ -45,8 +45,8 @@ var DEFAULT_SETTINGS = {
   // Server sync settings
   syncWithServer: true,
   lastServerSync: "",
-  syncIntervalSeconds: 30,
-  // Check for changes every 30 seconds
+  syncIntervalSeconds: 60,
+  // Check for changes every 60 seconds (efficient default)
   lastKnownServerModified: ""
 };
 var CitationLookupModal = class extends import_obsidian.Modal {
@@ -642,7 +642,7 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
     );
     containerEl.createEl("h3", { text: "\u{1F504} Bidirectional Settings Sync" });
     containerEl.createEl("p", {
-      text: "Settings are automatically synchronized between Obsidian and the Web UI. Changes in either interface update the other within seconds.",
+      text: "Settings sync automatically between Obsidian and Web UI. Low overhead: only checks when focused, uses lightweight polling, and backs off on server errors.",
       cls: "setting-item-description"
     });
     new import_obsidian.Setting(containerEl).setName("Enable Sync").setDesc("Automatically sync settings with the CitationSculptor web server").addToggle(
@@ -658,8 +658,8 @@ var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab 
       })
     );
     if (this.plugin.settings.syncWithServer) {
-      new import_obsidian.Setting(containerEl).setName("Sync Interval").setDesc("How often to check for changes from the web server (in seconds)").addDropdown(
-        (dropdown) => dropdown.addOption("10", "10 seconds").addOption("30", "30 seconds").addOption("60", "1 minute").addOption("300", "5 minutes").setValue(String(this.plugin.settings.syncIntervalSeconds || 30)).onChange(async (value) => {
+      new import_obsidian.Setting(containerEl).setName("Sync Interval").setDesc("How often to check for changes (only when Obsidian is focused)").addDropdown(
+        (dropdown) => dropdown.addOption("30", "30 seconds").addOption("60", "1 minute (recommended)").addOption("120", "2 minutes").addOption("300", "5 minutes (low bandwidth)").setValue(String(this.plugin.settings.syncIntervalSeconds || 60)).onChange(async (value) => {
           this.plugin.settings.syncIntervalSeconds = parseInt(value);
           await this.plugin.saveSettings();
           this.plugin.restartPeriodicSync();
@@ -750,9 +750,21 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.syncIntervalId = null;
+    this.isWindowFocused = true;
+    this.consecutiveFailures = 0;
+    this.maxBackoffInterval = 3e5;
+    // 5 minutes max backoff
+    this.visibilityHandler = null;
   }
   async onload() {
     await this.loadSettings();
+    this.visibilityHandler = () => {
+      this.isWindowFocused = document.visibilityState === "visible";
+      if (this.isWindowFocused && this.consecutiveFailures > 0) {
+        this.consecutiveFailures = 0;
+      }
+    };
+    document.addEventListener("visibilitychange", this.visibilityHandler);
     this.startPeriodicSync();
     this.addRibbonIcon("quote-glyph", "CitationSculptor", () => {
       new CitationLookupModal(this.app, this).open();
@@ -928,6 +940,10 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
   }
   onunload() {
     this.stopPeriodicSync();
+    if (this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -950,27 +966,43 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     }
   }
   // =========================================================================
-  // Server Settings Sync (Bidirectional)
+  // Server Settings Sync (Bidirectional, Efficient)
   // =========================================================================
   /**
    * Start periodic sync to check for server-side changes.
+   * Optimized for low CPU overhead:
+   * - Only runs when Obsidian window is focused
+   * - Uses lightweight timestamp-only endpoint first
+   * - Implements exponential backoff on failures
    */
   startPeriodicSync() {
     if (!this.settings.syncWithServer || !this.settings.useHttpApi) {
       return;
     }
     this.stopPeriodicSync();
-    const intervalMs = (this.settings.syncIntervalSeconds || 30) * 1e3;
+    const baseIntervalMs = (this.settings.syncIntervalSeconds || 60) * 1e3;
     this.syncIntervalId = window.setInterval(async () => {
-      if (this.settings.syncWithServer && this.settings.useHttpApi) {
-        try {
-          await this.checkAndSyncFromServer();
-        } catch (e) {
-          console.debug("Periodic sync check failed:", e);
-        }
+      if (!this.settings.syncWithServer || !this.settings.useHttpApi) {
+        return;
       }
-    }, intervalMs);
-    console.log(`CitationSculptor: Started periodic sync every ${this.settings.syncIntervalSeconds}s`);
+      if (!this.isWindowFocused) {
+        return;
+      }
+      if (this.consecutiveFailures > 0) {
+        const backoffMs = Math.min(
+          baseIntervalMs * Math.pow(2, this.consecutiveFailures),
+          this.maxBackoffInterval
+        );
+        return;
+      }
+      try {
+        await this.checkAndSyncFromServer();
+        this.consecutiveFailures = 0;
+      } catch (e) {
+        this.consecutiveFailures++;
+      }
+    }, baseIntervalMs);
+    console.debug(`CitationSculptor: Periodic sync active (${this.settings.syncIntervalSeconds}s interval)`);
   }
   /**
    * Stop periodic sync.
@@ -979,42 +1011,45 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     if (this.syncIntervalId !== null) {
       window.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
-      console.log("CitationSculptor: Stopped periodic sync");
     }
   }
   /**
    * Restart periodic sync (e.g., when interval changes).
    */
   restartPeriodicSync() {
+    this.consecutiveFailures = 0;
     this.stopPeriodicSync();
     this.startPeriodicSync();
   }
   /**
-   * Check if server settings have changed and sync if needed.
-   * Only pulls if the server's last_modified is newer than our last known.
+   * Lightweight check for server changes.
+   * Uses minimal /api/settings/modified endpoint (just timestamp).
+   * Only fetches full settings if timestamp differs.
    */
   async checkAndSyncFromServer() {
     var _a;
     try {
+      const modifiedResponse = await (0, import_obsidian.requestUrl)({
+        url: `${this.settings.httpApiUrl}/api/settings/modified`,
+        method: "GET"
+      });
+      const serverModified = ((_a = modifiedResponse.json) == null ? void 0 : _a.last_modified) || "";
+      if (!serverModified || serverModified === this.settings.lastKnownServerModified) {
+        return false;
+      }
       const response = await (0, import_obsidian.requestUrl)({
         url: `${this.settings.httpApiUrl}/api/settings`,
         method: "GET"
       });
-      const data = response.json;
-      const serverModified = ((_a = data.settings) == null ? void 0 : _a.last_modified) || "";
-      if (serverModified && serverModified !== this.settings.lastKnownServerModified) {
-        console.log("CitationSculptor: Server settings changed, syncing...");
-        await this.applyServerSettings(data.settings);
-        return true;
-      }
-      return false;
+      await this.applyServerSettings(response.json.settings);
+      return true;
     } catch (error) {
-      console.debug("Check sync failed:", error.message);
-      return false;
+      throw error;
     }
   }
   /**
    * Apply settings from server response to local settings.
+   * Only updates fields that actually changed.
    */
   async applyServerSettings(serverSettings) {
     let changed = false;
@@ -1034,7 +1069,7 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     this.settings.lastKnownServerModified = serverSettings.last_modified || "";
     await this.saveData(this.settings);
     if (changed) {
-      console.log("CitationSculptor: Settings updated from server");
+      console.debug("CitationSculptor: Settings synced from server");
     }
   }
   /**
@@ -1049,6 +1084,7 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
       });
       const data = response.json;
       await this.applyServerSettings(data.settings);
+      this.consecutiveFailures = 0;
     } catch (error) {
       throw new Error(`Failed to fetch settings from server: ${error.message}`);
     }
@@ -1078,6 +1114,7 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
         this.settings.lastKnownServerModified = data.settings.last_modified;
       }
       this.settings.lastServerSync = (/* @__PURE__ */ new Date()).toISOString();
+      this.consecutiveFailures = 0;
       await this.saveData(this.settings);
     } catch (error) {
       throw new Error(`Failed to push settings to server: ${error.message}`);

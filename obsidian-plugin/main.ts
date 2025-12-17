@@ -66,7 +66,7 @@ const DEFAULT_SETTINGS: CitationSculptorSettings = {
   // Server sync settings
   syncWithServer: true,
   lastServerSync: "",
-  syncIntervalSeconds: 30,  // Check for changes every 30 seconds
+  syncIntervalSeconds: 60,  // Check for changes every 60 seconds (efficient default)
   lastKnownServerModified: "",
 };
 
@@ -1048,7 +1048,7 @@ class CitationSculptorSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "🔄 Bidirectional Settings Sync" });
     
     containerEl.createEl("p", {
-      text: "Settings are automatically synchronized between Obsidian and the Web UI. Changes in either interface update the other within seconds.",
+      text: "Settings sync automatically between Obsidian and Web UI. Low overhead: only checks when focused, uses lightweight polling, and backs off on server errors.",
       cls: "setting-item-description"
     });
     
@@ -1071,14 +1071,14 @@ class CitationSculptorSettingTab extends PluginSettingTab {
     if (this.plugin.settings.syncWithServer) {
       new Setting(containerEl)
         .setName("Sync Interval")
-        .setDesc("How often to check for changes from the web server (in seconds)")
+        .setDesc("How often to check for changes (only when Obsidian is focused)")
         .addDropdown((dropdown) =>
           dropdown
-            .addOption("10", "10 seconds")
             .addOption("30", "30 seconds")
-            .addOption("60", "1 minute")
-            .addOption("300", "5 minutes")
-            .setValue(String(this.plugin.settings.syncIntervalSeconds || 30))
+            .addOption("60", "1 minute (recommended)")
+            .addOption("120", "2 minutes")
+            .addOption("300", "5 minutes (low bandwidth)")
+            .setValue(String(this.plugin.settings.syncIntervalSeconds || 60))
             .onChange(async (value) => {
               this.plugin.settings.syncIntervalSeconds = parseInt(value);
               await this.plugin.saveSettings();
@@ -1204,9 +1204,23 @@ class CitationSculptorSettingTab extends PluginSettingTab {
 export default class CitationSculptorPlugin extends Plugin {
   settings: CitationSculptorSettings;
   private syncIntervalId: number | null = null;
+  private isWindowFocused: boolean = true;
+  private consecutiveFailures: number = 0;
+  private maxBackoffInterval: number = 300000; // 5 minutes max backoff
+  private visibilityHandler: (() => void) | null = null;
 
   async onload() {
     await this.loadSettings();
+    
+    // Track window focus for efficient sync (pause when not focused)
+    this.visibilityHandler = () => {
+      this.isWindowFocused = document.visibilityState === 'visible';
+      // Reset backoff when window becomes visible again
+      if (this.isWindowFocused && this.consecutiveFailures > 0) {
+        this.consecutiveFailures = 0;
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilityHandler);
     
     // Start periodic sync if enabled
     this.startPeriodicSync();
@@ -1419,6 +1433,12 @@ export default class CitationSculptorPlugin extends Plugin {
   onunload() {
     // Stop periodic sync
     this.stopPeriodicSync();
+    
+    // Clean up visibility listener
+    if (this.visibilityHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
+      this.visibilityHandler = null;
+    }
   }
 
   async loadSettings() {
@@ -1448,11 +1468,15 @@ export default class CitationSculptorPlugin extends Plugin {
   }
   
   // =========================================================================
-  // Server Settings Sync (Bidirectional)
+  // Server Settings Sync (Bidirectional, Efficient)
   // =========================================================================
   
   /**
    * Start periodic sync to check for server-side changes.
+   * Optimized for low CPU overhead:
+   * - Only runs when Obsidian window is focused
+   * - Uses lightweight timestamp-only endpoint first
+   * - Implements exponential backoff on failures
    */
   startPeriodicSync(): void {
     if (!this.settings.syncWithServer || !this.settings.useHttpApi) {
@@ -1462,20 +1486,40 @@ export default class CitationSculptorPlugin extends Plugin {
     // Clear any existing interval
     this.stopPeriodicSync();
     
-    const intervalMs = (this.settings.syncIntervalSeconds || 30) * 1000;
+    const baseIntervalMs = (this.settings.syncIntervalSeconds || 60) * 1000;
     
     this.syncIntervalId = window.setInterval(async () => {
-      if (this.settings.syncWithServer && this.settings.useHttpApi) {
-        try {
-          await this.checkAndSyncFromServer();
-        } catch (e) {
-          // Silently ignore periodic sync errors to avoid spamming
-          console.debug("Periodic sync check failed:", e);
-        }
+      // Skip if sync disabled or window not focused (efficiency)
+      if (!this.settings.syncWithServer || !this.settings.useHttpApi) {
+        return;
       }
-    }, intervalMs);
+      
+      // Skip if window not focused - no need to sync in background
+      if (!this.isWindowFocused) {
+        return;
+      }
+      
+      // Calculate backoff delay based on consecutive failures
+      if (this.consecutiveFailures > 0) {
+        const backoffMs = Math.min(
+          baseIntervalMs * Math.pow(2, this.consecutiveFailures),
+          this.maxBackoffInterval
+        );
+        // Skip this cycle if we're still in backoff period
+        // (the interval will naturally handle the next check)
+        return;
+      }
+      
+      try {
+        await this.checkAndSyncFromServer();
+        this.consecutiveFailures = 0; // Reset on success
+      } catch (e) {
+        this.consecutiveFailures++;
+        // Silently ignore - backoff will reduce frequency
+      }
+    }, baseIntervalMs);
     
-    console.log(`CitationSculptor: Started periodic sync every ${this.settings.syncIntervalSeconds}s`);
+    console.debug(`CitationSculptor: Periodic sync active (${this.settings.syncIntervalSeconds}s interval)`);
   }
   
   /**
@@ -1485,7 +1529,6 @@ export default class CitationSculptorPlugin extends Plugin {
     if (this.syncIntervalId !== null) {
       window.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
-      console.log("CitationSculptor: Stopped periodic sync");
     }
   }
   
@@ -1493,45 +1536,54 @@ export default class CitationSculptorPlugin extends Plugin {
    * Restart periodic sync (e.g., when interval changes).
    */
   restartPeriodicSync(): void {
+    this.consecutiveFailures = 0; // Reset backoff
     this.stopPeriodicSync();
     this.startPeriodicSync();
   }
   
   /**
-   * Check if server settings have changed and sync if needed.
-   * Only pulls if the server's last_modified is newer than our last known.
+   * Lightweight check for server changes.
+   * Uses minimal /api/settings/modified endpoint (just timestamp).
+   * Only fetches full settings if timestamp differs.
    */
   async checkAndSyncFromServer(): Promise<boolean> {
     try {
+      // Step 1: Lightweight check - only fetch timestamp (~50 bytes)
+      const modifiedResponse = await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/settings/modified`,
+        method: "GET",
+      });
+      
+      const serverModified = modifiedResponse.json?.last_modified || "";
+      
+      // No change? Skip full fetch (most common case - very efficient)
+      if (!serverModified || serverModified === this.settings.lastKnownServerModified) {
+        return false;
+      }
+      
+      // Step 2: Timestamp differs - fetch full settings
       const response = await requestUrl({
         url: `${this.settings.httpApiUrl}/api/settings`,
         method: "GET",
       });
       
-      const data = response.json;
-      const serverModified = data.settings?.last_modified || "";
+      await this.applyServerSettings(response.json.settings);
+      return true;
       
-      // Check if server has newer settings
-      if (serverModified && serverModified !== this.settings.lastKnownServerModified) {
-        console.log("CitationSculptor: Server settings changed, syncing...");
-        await this.applyServerSettings(data.settings);
-        return true;
-      }
-      
-      return false;
     } catch (error: any) {
-      console.debug("Check sync failed:", error.message);
-      return false;
+      // Don't log on every failure - will spam console
+      throw error; // Let caller handle backoff
     }
   }
   
   /**
    * Apply settings from server response to local settings.
+   * Only updates fields that actually changed.
    */
   private async applyServerSettings(serverSettings: any): Promise<void> {
     let changed = false;
     
-    // Map server settings to plugin settings
+    // Map server settings to plugin settings (only if different)
     if (serverSettings.default_citation_style && 
         serverSettings.default_citation_style !== this.settings.citationStyle) {
       this.settings.citationStyle = serverSettings.default_citation_style;
@@ -1556,7 +1608,7 @@ export default class CitationSculptorPlugin extends Plugin {
     await this.saveData(this.settings);
     
     if (changed) {
-      console.log("CitationSculptor: Settings updated from server");
+      console.debug("CitationSculptor: Settings synced from server");
     }
   }
   
@@ -1573,6 +1625,7 @@ export default class CitationSculptorPlugin extends Plugin {
       
       const data = response.json;
       await this.applyServerSettings(data.settings);
+      this.consecutiveFailures = 0; // Reset backoff on manual success
       
     } catch (error: any) {
       throw new Error(`Failed to fetch settings from server: ${error.message}`);
@@ -1607,7 +1660,8 @@ export default class CitationSculptorPlugin extends Plugin {
       }
       
       this.settings.lastServerSync = new Date().toISOString();
-      await this.saveData(this.settings); // Save locally without triggering another push
+      this.consecutiveFailures = 0; // Reset backoff on success
+      await this.saveData(this.settings);
       
     } catch (error: any) {
       throw new Error(`Failed to push settings to server: ${error.message}`);

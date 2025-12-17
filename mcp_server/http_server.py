@@ -253,6 +253,14 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             })
             return
         
+        # Lightweight endpoint - returns only the timestamp (for efficient polling)
+        if path == '/api/settings/modified':
+            settings = get_settings()
+            self._send_json({
+                'last_modified': settings.last_modified,
+            })
+            return
+        
         # === Document Intelligence - Link Verification ===
         if path == '/api/verify-link':
             url = query.get('url', [None])[0]
