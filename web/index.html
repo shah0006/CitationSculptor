@@ -889,7 +889,11 @@
             </nav>
 
             <nav class="nav-section">
-                <div class="nav-section-title">Help</div>
+                <div class="nav-section-title">System</div>
+                <button type="button" class="nav-item" data-page="settings">
+                    <span class="nav-item-icon">⚙️</span>
+                    Settings
+                </button>
                 <button type="button" class="nav-item" data-page="about">
                     <span class="nav-item-icon">ℹ️</span>
                     About
@@ -1214,6 +1218,104 @@
                         </div>
                     </div>
                     <button class="btn" onclick="doExport()">📤 Export</button>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div class="page" id="settings">
+                <div class="page-header">
+                    <h2 class="page-title">⚙️ Settings</h2>
+                    <p class="page-subtitle">Configure CitationSculptor preferences</p>
+                </div>
+
+                <div class="card" id="settingsContent">
+                    <div class="loading"><div class="spinner"></div>Loading settings...</div>
+                </div>
+                
+                <div class="card" id="settingsForm" style="display: none;">
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">📁 Obsidian Vault</h3>
+                    
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label class="form-label">Obsidian Vault Path</label>
+                        <input type="text" class="form-input" id="settingVaultPath" 
+                               placeholder="/path/to/your/obsidian/vault">
+                        <div class="message info" style="margin-top: 8px;">
+                            <span>💡</span>
+                            <span>Set this to use relative paths when processing documents</span>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">📝 Citation Defaults</h3>
+                    
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label class="form-label">Default Citation Style</label>
+                        <select class="form-select" id="settingDefaultStyle">
+                            <option value="vancouver">Vancouver (Medical)</option>
+                            <option value="apa">APA 7th Edition</option>
+                            <option value="mla">MLA 9th Edition</option>
+                            <option value="chicago">Chicago/Turabian</option>
+                            <option value="harvard">Harvard</option>
+                            <option value="ieee">IEEE</option>
+                        </select>
+                    </div>
+
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">🛡️ Safety Features</h3>
+                    
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="settingCreateBackup" style="width: 18px; height: 18px;">
+                            <span>Create backup before processing documents</span>
+                        </label>
+                    </div>
+
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">🧠 Document Intelligence</h3>
+                    
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="settingVerifyLinks" style="width: 18px; height: 18px;">
+                            <span>Verify links by default when analyzing documents</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="settingSuggestCitations" style="width: 18px; height: 18px;">
+                            <span>Suggest citations by default</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="settingCheckCompliance" style="width: 18px; height: 18px;">
+                            <span>Check citation compliance by default</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="settingEnableLLM" style="width: 18px; height: 18px;">
+                            <span>Enable LLM-powered metadata extraction (requires Ollama)</span>
+                        </label>
+                    </div>
+
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">🔍 Search</h3>
+                    
+                    <div class="form-group" style="margin-bottom: 24px;">
+                        <label class="form-label">Maximum Search Results</label>
+                        <input type="number" class="form-input" id="settingMaxResults" 
+                               min="5" max="50" value="10" style="width: 100px;">
+                    </div>
+
+                    <div style="display: flex; gap: 12px; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border);">
+                        <button type="button" class="btn btn-primary" onclick="saveSettings()">
+                            💾 Save Settings
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="resetSettings()">
+                            🔄 Reset to Defaults
+                        </button>
+                    </div>
+                    
+                    <div id="settingsMessage" style="margin-top: 16px;"></div>
                 </div>
             </div>
 
@@ -1868,6 +1970,105 @@
             return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/`/g, '\\`').replace(/\$/g, '\\$');
         }
 
+        // Settings Page
+        let settingsLoaded = false;
+
+        async function loadSettings() {
+            const loadingEl = document.getElementById('settingsContent');
+            const formEl = document.getElementById('settingsForm');
+            
+            try {
+                const res = await fetch(`${API}/api/settings`);
+                const data = await res.json();
+                
+                if (data.settings) {
+                    // Populate form fields
+                    document.getElementById('settingVaultPath').value = data.settings.obsidian_vault_path || '';
+                    document.getElementById('settingDefaultStyle').value = data.settings.default_citation_style || 'vancouver';
+                    document.getElementById('settingCreateBackup').checked = data.settings.create_backup_on_process !== false;
+                    document.getElementById('settingVerifyLinks').checked = data.settings.verify_links_by_default !== false;
+                    document.getElementById('settingSuggestCitations').checked = data.settings.suggest_citations_by_default !== false;
+                    document.getElementById('settingCheckCompliance').checked = data.settings.check_compliance_by_default !== false;
+                    document.getElementById('settingEnableLLM').checked = data.settings.enable_llm_extraction !== false;
+                    document.getElementById('settingMaxResults').value = data.settings.max_search_results || 10;
+                    
+                    // Show form, hide loading
+                    loadingEl.style.display = 'none';
+                    formEl.style.display = 'block';
+                    settingsLoaded = true;
+                }
+            } catch (e) {
+                loadingEl.innerHTML = `<div class="message error"><span>❌</span><span>Failed to load settings: ${e.message}</span></div>`;
+            }
+        }
+
+        async function saveSettings() {
+            const msgEl = document.getElementById('settingsMessage');
+            msgEl.innerHTML = '<div class="loading"><div class="spinner"></div>Saving...</div>';
+            
+            const settings = {
+                obsidian_vault_path: document.getElementById('settingVaultPath').value.trim(),
+                default_citation_style: document.getElementById('settingDefaultStyle').value,
+                create_backup_on_process: document.getElementById('settingCreateBackup').checked,
+                verify_links_by_default: document.getElementById('settingVerifyLinks').checked,
+                suggest_citations_by_default: document.getElementById('settingSuggestCitations').checked,
+                check_compliance_by_default: document.getElementById('settingCheckCompliance').checked,
+                enable_llm_extraction: document.getElementById('settingEnableLLM').checked,
+                max_search_results: parseInt(document.getElementById('settingMaxResults').value) || 10,
+            };
+            
+            try {
+                const res = await fetch(`${API}/api/settings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings),
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    msgEl.innerHTML = '<div class="message success"><span>✅</span><span>Settings saved successfully!</span></div>';
+                    // Update vault hint on process page
+                    loadVaultConfig();
+                } else {
+                    msgEl.innerHTML = `<div class="message error"><span>❌</span><span>${data.error || 'Failed to save'}</span></div>`;
+                }
+            } catch (e) {
+                msgEl.innerHTML = `<div class="message error"><span>❌</span><span>Error: ${e.message}</span></div>`;
+            }
+            
+            // Clear message after 5 seconds
+            setTimeout(() => { msgEl.innerHTML = ''; }, 5000);
+        }
+
+        async function resetSettings() {
+            if (!confirm('Are you sure you want to reset all settings to defaults?')) return;
+            
+            const msgEl = document.getElementById('settingsMessage');
+            msgEl.innerHTML = '<div class="loading"><div class="spinner"></div>Resetting...</div>';
+            
+            try {
+                const res = await fetch(`${API}/api/settings/reset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    msgEl.innerHTML = '<div class="message success"><span>✅</span><span>Settings reset to defaults!</span></div>';
+                    // Reload the form
+                    settingsLoaded = false;
+                    loadSettings();
+                    loadVaultConfig();
+                } else {
+                    msgEl.innerHTML = `<div class="message error"><span>❌</span><span>${data.error || 'Failed to reset'}</span></div>`;
+                }
+            } catch (e) {
+                msgEl.innerHTML = `<div class="message error"><span>❌</span><span>Error: ${e.message}</span></div>`;
+            }
+            
+            setTimeout(() => { msgEl.innerHTML = ''; }, 5000);
+        }
+
         // About Page
         let aboutLoaded = false;
 
@@ -2068,6 +2269,9 @@
 
         // Load library when that page is opened
         document.querySelector('[data-page="library"]').addEventListener('click', loadLibrary);
+
+        // Load settings when that page is opened
+        document.querySelector('[data-page="settings"]').addEventListener('click', loadSettings);
 
         // Load about when that page is opened
         document.querySelector('[data-page="about"]').addEventListener('click', loadAbout);

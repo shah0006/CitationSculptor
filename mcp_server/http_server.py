@@ -61,6 +61,7 @@ from modules.document_intelligence import (
     check_citation_compliance,
 )
 from modules.config import config, resolve_vault_path
+from modules.settings_manager import settings_manager, get_settings, update_settings
 
 from loguru import logger
 
@@ -233,13 +234,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             })
             return
         
-        # === Vault Configuration ===
+        # === Vault Configuration (legacy - use /api/settings instead) ===
         if path == '/api/config/vault':
-            vault_path = config.OBSIDIAN_VAULT_PATH
+            vault_path = settings_manager.get_obsidian_vault_path()
             self._send_json({
                 'configured': bool(vault_path),
                 'path': vault_path or None,
-                'hint': 'Set OBSIDIAN_VAULT_PATH environment variable or add to .env file',
+                'hint': 'Configure via Settings page or set OBSIDIAN_VAULT_PATH in .env',
+            })
+            return
+        
+        # === Settings API ===
+        if path == '/api/settings':
+            settings = get_settings()
+            self._send_json({
+                'settings': settings.to_dict(),
+                'available_styles': get_available_styles(),
             })
             return
         
@@ -531,6 +541,39 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             data = json.loads(body) if body else {}
         except json.JSONDecodeError:
             self._send_json({'error': 'Invalid JSON'}, 400)
+            return
+        
+        # === Settings API ===
+        if path == '/api/settings':
+            try:
+                success = update_settings(data)
+                if success:
+                    # Reload the settings manager to reflect changes
+                    settings_manager.load()
+                    self._send_json({
+                        'success': True,
+                        'message': 'Settings updated successfully',
+                        'settings': get_settings().to_dict(),
+                    })
+                else:
+                    self._send_json({'error': 'Failed to save settings'}, 500)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/settings/reset':
+            try:
+                success = settings_manager.reset_to_defaults()
+                if success:
+                    self._send_json({
+                        'success': True,
+                        'message': 'Settings reset to defaults',
+                        'settings': get_settings().to_dict(),
+                    })
+                else:
+                    self._send_json({'error': 'Failed to reset settings'}, 500)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
             return
         
         # === Lookup ===

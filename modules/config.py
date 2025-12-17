@@ -306,8 +306,8 @@ def resolve_vault_path(file_path: str) -> str:
     """
     Resolve a file path, supporting both absolute and relative paths.
     
-    If OBSIDIAN_VAULT_PATH is set and the path is relative (doesn't start with / or ~),
-    the vault path is prepended.
+    Checks settings manager first, then falls back to environment variable.
+    If vault path is set and the path is relative, the vault path is prepended.
     
     Args:
         file_path: Path to resolve (can be absolute or relative to vault)
@@ -325,8 +325,18 @@ def resolve_vault_path(file_path: str) -> str:
     if os.path.isabs(file_path):
         return file_path
     
-    # If vault path is configured, prepend it
-    vault_path = config.OBSIDIAN_VAULT_PATH
+    # Try to get vault path from settings manager first, then env var
+    vault_path = ""
+    try:
+        from modules.settings_manager import settings_manager
+        vault_path = settings_manager.get_obsidian_vault_path()
+    except ImportError:
+        pass
+    
+    # Fall back to config if settings manager doesn't have it
+    if not vault_path:
+        vault_path = config.OBSIDIAN_VAULT_PATH
+    
     if vault_path:
         vault_path = os.path.expanduser(vault_path)
         resolved = os.path.join(vault_path, file_path)
