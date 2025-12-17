@@ -1,4 +1,26 @@
-/* CitationSculptor Obsidian Plugin - Comprehensive Styles */
+/* CitationSculptor Obsidian Plugin - Beautiful & Modern Styles */
+
+/* ============================================================================
+   CSS Variables (for theme consistency)
+   ============================================================================ */
+
+.citation-sculptor-modal {
+  --cs-accent: var(--interactive-accent);
+  --cs-accent-hover: var(--interactive-accent-hover);
+  --cs-bg-primary: var(--background-primary);
+  --cs-bg-secondary: var(--background-secondary);
+  --cs-bg-modifier: var(--background-modifier-hover);
+  --cs-border: var(--background-modifier-border);
+  --cs-text: var(--text-normal);
+  --cs-text-muted: var(--text-muted);
+  --cs-text-faint: var(--text-faint);
+  --cs-success: var(--text-success, #10b981);
+  --cs-error: var(--text-error, #ef4444);
+  --cs-radius: 10px;
+  --cs-radius-lg: 14px;
+  --cs-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  --cs-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
 /* ============================================================================
    Modal Base
@@ -10,54 +32,86 @@
 
 .citation-sculptor-modal .modal-content {
   padding: 0;
+  border-radius: var(--cs-radius-lg);
+  overflow: hidden;
 }
 
 /* ============================================================================
-   Header
+   Header - Gradient Accent Bar
    ============================================================================ */
 
 .cs-header {
-  padding: 20px 24px 15px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  position: relative;
+  padding: 24px 28px 20px;
+  background: var(--cs-bg-secondary);
+  border-bottom: 1px solid var(--cs-border);
+}
+
+.cs-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--cs-accent), var(--interactive-accent-hover, #8b5cf6));
 }
 
 .cs-header h2 {
   margin: 0;
-  color: var(--text-accent);
-  font-size: 1.5em;
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--cs-text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cs-header h2::before {
+  content: '📚';
+  font-size: 1.1em;
 }
 
 /* ============================================================================
-   Tabs
+   Tabs - Pill Style
    ============================================================================ */
 
 .cs-tabs {
   display: flex;
-  gap: 0;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
+  gap: 6px;
+  padding: 12px 20px;
+  background: var(--cs-bg-secondary);
+  border-bottom: 1px solid var(--cs-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.cs-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .cs-tab {
-  padding: 12px 16px;
-  background: none;
+  padding: 10px 18px;
+  background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: 8px;
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--cs-text-muted);
   font-size: 13px;
-  transition: all 0.15s ease;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: var(--cs-transition);
 }
 
 .cs-tab:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
+  color: var(--cs-text);
+  background: var(--cs-bg-modifier);
 }
 
 .cs-tab.active {
-  color: var(--text-accent);
-  border-bottom-color: var(--interactive-accent);
+  color: white;
+  background: var(--cs-accent);
+  box-shadow: 0 2px 8px rgba(var(--interactive-accent-rgb, 99, 102, 241), 0.3);
 }
 
 /* ============================================================================
@@ -65,60 +119,85 @@
    ============================================================================ */
 
 .cs-content {
-  padding: 20px 24px;
-  min-height: 400px;
+  padding: 24px 28px;
+  min-height: 420px;
   max-height: 70vh;
   overflow-y: auto;
 }
 
 .cs-subtitle {
-  color: var(--text-muted);
-  margin-bottom: 15px;
+  color: var(--cs-text-muted);
+  margin-bottom: 18px;
   font-size: 0.9em;
+  line-height: 1.5;
 }
 
 /* ============================================================================
-   Input Styles
+   Input Styles - Refined
    ============================================================================ */
 
 .cs-input-row {
-  margin-bottom: 15px;
+  margin-bottom: 18px;
 }
 
 .cs-main-input {
   width: 100%;
-  padding: 12px 14px;
+  padding: 14px 18px;
   font-size: 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  border: 2px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background: var(--cs-bg-primary);
+  color: var(--cs-text);
+  transition: var(--cs-transition);
+}
+
+.cs-main-input::placeholder {
+  color: var(--cs-text-faint);
 }
 
 .cs-main-input:focus {
-  border-color: var(--interactive-accent);
+  border-color: var(--cs-accent);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.15);
+  box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb, 99, 102, 241), 0.12);
 }
 
 .cs-format-row,
 .cs-options-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 15px;
-  color: var(--text-muted);
+  gap: 12px;
+  margin-bottom: 18px;
+  color: var(--cs-text-muted);
+  font-size: 13px;
+}
+
+.cs-format-row select,
+.cs-options-row select {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--cs-border);
+  background: var(--cs-bg-secondary);
+  color: var(--cs-text);
   font-size: 13px;
 }
 
 .cs-button-row {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
 }
 
 .cs-button-row button {
-  padding: 8px 16px;
+  padding: 10px 20px;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: var(--cs-transition);
+}
+
+.cs-button-row button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 /* ============================================================================
@@ -126,84 +205,131 @@
    ============================================================================ */
 
 .cs-results {
-  border-top: 1px solid var(--background-modifier-border);
-  padding-top: 15px;
-  min-height: 150px;
+  border-top: 1px solid var(--cs-border);
+  padding-top: 20px;
+  min-height: 120px;
 }
 
 .cs-loading {
-  color: var(--text-muted);
+  color: var(--cs-text-muted);
   font-style: italic;
   text-align: center;
-  padding: 30px;
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.cs-loading::before {
+  content: '';
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--cs-border);
+  border-top-color: var(--cs-accent);
+  border-radius: 50%;
+  animation: cs-spin 0.8s linear infinite;
+}
+
+@keyframes cs-spin {
+  to { transform: rotate(360deg); }
 }
 
 .cs-error {
-  color: var(--text-error);
-  padding: 15px;
-  background: rgba(var(--color-red-rgb), 0.1);
-  border-radius: 8px;
+  color: var(--cs-error);
+  padding: 16px 20px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--cs-radius);
+  font-size: 14px;
 }
 
 .cs-no-results {
-  color: var(--text-muted);
+  color: var(--cs-text-muted);
   text-align: center;
-  padding: 40px 20px;
+  padding: 50px 20px;
+}
+
+.cs-no-results::before {
+  content: '🔍';
+  display: block;
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: 0.5;
 }
 
 /* ============================================================================
-   Search Results
+   Search Results - Card Style
    ============================================================================ */
 
 .cs-search-list {
-  max-height: 350px;
+  max-height: 380px;
   overflow-y: auto;
+  padding-right: 8px;
+}
+
+.cs-search-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cs-search-list::-webkit-scrollbar-thumb {
+  background: var(--cs-border);
+  border-radius: 3px;
 }
 
 .cs-search-item {
-  padding: 15px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  margin-bottom: 10px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  padding: 18px;
+  background: var(--cs-bg-secondary);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  margin-bottom: 12px;
+  transition: var(--cs-transition);
 }
 
 .cs-search-item:hover {
-  background: var(--background-secondary);
-  border-color: var(--background-modifier-border-hover);
+  background: var(--cs-bg-modifier);
+  border-color: var(--cs-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--cs-shadow);
 }
 
 .cs-search-title-row {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .cs-search-num {
-  color: var(--text-accent);
-  font-weight: 600;
+  color: var(--cs-accent);
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .cs-search-title {
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.45;
+  color: var(--cs-text);
 }
 
 .cs-search-meta {
   font-size: 0.85em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
+  color: var(--cs-text-muted);
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
 
 .cs-search-ids {
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .cs-search-ids code {
   font-size: 11px;
-  padding: 2px 6px;
-  background: var(--background-secondary);
-  border-radius: 4px;
+  padding: 4px 10px;
+  background: var(--cs-bg-primary);
+  border-radius: 6px;
+  color: var(--cs-text-muted);
+  font-family: var(--font-monospace);
 }
 
 .cs-search-actions {
@@ -212,83 +338,103 @@
 }
 
 .cs-search-actions button {
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 12px;
+  border-radius: 6px;
 }
 
 .cs-search-abstract {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cs-border);
   font-size: 0.85em;
-  color: var(--text-muted);
-  line-height: 1.5;
+  color: var(--cs-text-muted);
+  line-height: 1.6;
 }
 
 /* ============================================================================
-   Citation Result Display
+   Citation Result Display - Elegant Cards
    ============================================================================ */
 
 .cs-result-section {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .cs-result-section h4 {
   margin-bottom: 10px;
-  color: var(--text-muted);
-  font-size: 0.85em;
+  color: var(--cs-text-muted);
+  font-size: 0.75em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
+  font-weight: 600;
 }
 
 .cs-inline-mark {
   display: block;
-  padding: 12px 14px;
-  background: var(--background-secondary);
-  border-radius: 8px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, var(--cs-bg-secondary), var(--cs-bg-primary));
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
   font-family: var(--font-monospace);
   font-size: 14px;
-  margin-bottom: 10px;
+  color: var(--cs-accent);
+  margin-bottom: 12px;
   user-select: all;
+  cursor: text;
 }
 
 .cs-full-citation {
-  padding: 14px;
-  background: var(--background-secondary);
-  border-radius: 8px;
+  padding: 18px;
+  background: var(--cs-bg-secondary);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
   font-size: 13px;
-  line-height: 1.6;
-  margin-bottom: 10px;
+  line-height: 1.7;
+  margin-bottom: 12px;
   user-select: all;
+  cursor: text;
 }
 
 /* ============================================================================
-   Metadata Section
+   Metadata Section - Collapsible
    ============================================================================ */
 
 .cs-metadata-section {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
   overflow: hidden;
 }
 
 .cs-metadata-header {
-  padding: 12px 14px;
-  background: var(--background-secondary);
+  padding: 14px 18px;
+  background: var(--cs-bg-secondary);
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: var(--cs-transition);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cs-metadata-header::after {
+  content: '▼';
+  font-size: 10px;
+  color: var(--cs-text-muted);
+  transition: transform 0.2s ease;
 }
 
 .cs-metadata-header:hover {
-  background: var(--background-modifier-hover);
+  background: var(--cs-bg-modifier);
 }
 
 .cs-metadata-header h4 {
   margin: 0;
+  font-size: 13px;
 }
 
 .cs-metadata-content {
-  padding: 14px;
+  padding: 18px;
+  background: var(--cs-bg-primary);
+  border-top: 1px solid var(--cs-border);
 }
 
 .cs-metadata-table {
@@ -299,48 +445,63 @@
 
 .cs-metadata-table th {
   text-align: left;
-  padding: 6px 10px 6px 0;
-  color: var(--text-muted);
+  padding: 8px 12px 8px 0;
+  color: var(--cs-text-muted);
   font-weight: 500;
-  width: 100px;
+  width: 90px;
   vertical-align: top;
 }
 
 .cs-metadata-table td {
-  padding: 6px 0;
+  padding: 8px 0;
+  color: var(--cs-text);
 }
 
 .cs-abstract {
   font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-muted);
-  margin-top: 10px;
-  padding: 12px;
-  background: var(--background-secondary);
-  border-radius: 6px;
+  line-height: 1.65;
+  color: var(--cs-text-muted);
+  margin-top: 14px;
+  padding: 14px;
+  background: var(--cs-bg-secondary);
+  border-radius: 8px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .cs-abstract-full {
   font-size: 14px;
-  line-height: 1.7;
-  max-height: 400px;
+  line-height: 1.75;
+  max-height: 350px;
   overflow-y: auto;
 }
 
 /* ============================================================================
-   Action Buttons
+   Action Buttons - Prominent
    ============================================================================ */
 
 .cs-actions {
   display: flex;
   gap: 10px;
-  padding-top: 15px;
-  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 18px;
+  border-top: 1px solid var(--cs-border);
+  flex-wrap: wrap;
 }
 
 .cs-actions button {
-  padding: 10px 16px;
+  padding: 12px 20px;
   font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: var(--cs-transition);
+}
+
+.cs-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.cs-actions button.mod-cta {
+  box-shadow: 0 4px 12px rgba(var(--interactive-accent-rgb, 99, 102, 241), 0.25);
 }
 
 /* ============================================================================
@@ -349,48 +510,60 @@
 
 .cs-batch-input {
   width: 100%;
-  padding: 12px;
+  padding: 16px;
   font-family: var(--font-monospace);
   font-size: 13px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-primary);
+  border: 2px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background: var(--cs-bg-primary);
+  color: var(--cs-text);
   resize: vertical;
-  margin-bottom: 15px;
+  margin-bottom: 18px;
+  min-height: 140px;
+  transition: var(--cs-transition);
 }
 
 .cs-batch-input:focus {
-  border-color: var(--interactive-accent);
+  border-color: var(--cs-accent);
   outline: none;
+}
+
+.cs-batch-input::placeholder {
+  color: var(--cs-text-faint);
 }
 
 .cs-batch-output {
   width: 100%;
-  padding: 12px;
+  padding: 16px;
   font-family: var(--font-monospace);
   font-size: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  background: var(--cs-bg-secondary);
+  color: var(--cs-text);
   resize: vertical;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  min-height: 160px;
 }
 
 .cs-batch-section {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .cs-batch-section h5 {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .cs-batch-failed {
-  color: var(--text-error);
+  color: var(--cs-error);
 }
 
 .cs-batch-failed ul {
   font-size: 13px;
   padding-left: 20px;
+  line-height: 1.6;
 }
 
 /* ============================================================================
@@ -398,7 +571,7 @@
    ============================================================================ */
 
 .cs-recent-list {
-  max-height: 400px;
+  max-height: 420px;
   overflow-y: auto;
 }
 
@@ -406,39 +579,55 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  margin-bottom: 8px;
+  padding: 14px 18px;
+  background: var(--cs-bg-secondary);
+  border: 1px solid var(--cs-border);
+  border-radius: var(--cs-radius);
+  margin-bottom: 10px;
+  transition: var(--cs-transition);
+}
+
+.cs-recent-item:hover {
+  border-color: var(--cs-accent);
+  background: var(--cs-bg-modifier);
 }
 
 .cs-recent-info {
   flex: 1;
+  min-width: 0;
 }
 
 .cs-recent-info code {
   font-size: 13px;
+  color: var(--cs-accent);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cs-recent-date {
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--cs-text-faint);
+  font-size: 11px;
+  margin-top: 4px;
 }
 
 .cs-recent-actions {
   display: flex;
   gap: 6px;
+  margin-left: 12px;
 }
 
 .cs-recent-actions button {
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 11px;
+  border-radius: 6px;
 }
 
 .cs-clear-row {
-  margin-top: 15px;
-  padding-top: 15px;
-  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--cs-border);
 }
 
 /* ============================================================================
@@ -446,16 +635,64 @@
    ============================================================================ */
 
 @media (max-width: 600px) {
+  .cs-content {
+    padding: 20px;
+  }
+
   .cs-tabs {
-    flex-wrap: wrap;
+    gap: 4px;
+    padding: 10px 16px;
   }
-  
+
   .cs-tab {
-    flex: 1 1 auto;
-    text-align: center;
+    padding: 8px 14px;
+    font-size: 12px;
   }
-  
+
   .cs-actions {
-    flex-wrap: wrap;
+    flex-direction: column;
   }
+
+  .cs-actions button {
+    width: 100%;
+  }
+
+  .cs-recent-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cs-recent-actions {
+    margin-left: 0;
+    margin-top: 12px;
+    width: 100%;
+  }
+
+  .cs-recent-actions button {
+    flex: 1;
+  }
+}
+
+/* ============================================================================
+   Settings Tab Enhancements
+   ============================================================================ */
+
+.citation-sculptor-settings h3 {
+  font-size: 1em;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--cs-border);
+  color: var(--cs-text);
+}
+
+.citation-sculptor-settings h3:first-child {
+  margin-top: 0;
+}
+
+.citation-sculptor-settings .setting-item-description {
+  font-size: 12px;
+  color: var(--cs-text-muted);
+  margin-bottom: 16px;
 }

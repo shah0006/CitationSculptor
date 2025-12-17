@@ -859,7 +859,7 @@ class CitationSculptorSettingTab extends PluginSettingTab {
       .setDesc("URL of the CitationSculptor HTTP server")
       .addText((text) =>
         text
-          .setPlaceholder("http://127.0.0.1:3018")
+          .setPlaceholder("http://127.0.0.1:3019")
           .setValue(this.plugin.settings.httpApiUrl)
           .onChange(async (value) => {
             this.plugin.settings.httpApiUrl = value;

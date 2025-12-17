@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.2] - 2025-06-17
+
+### Added
+- **Beautiful Web UI**: Modern, dark-themed browser interface (`web/index.html`)
+  - 🔍 Quick Lookup - Enter any identifier (PMID, DOI, PMC ID, title)
+  - 📚 PubMed Search - Search and select from results
+  - 📋 Batch Lookup - Process multiple identifiers at once
+  - 🕐 Recent History - Access past lookups (persisted in localStorage)
+  - Live server status indicator
+  - One-click copy to clipboard
+  - Responsive design with beautiful gradient accents
+- **HTTP Server Web UI Serving**: Server now serves web UI at root (`/`)
+- **Enhanced Obsidian Plugin Styles**:
+  - Refined CSS with improved visual hierarchy
+  - Pill-style tabs with accent colors
+  - Better dark/light mode support
+  - Collapsible metadata sections
+  - Gradient accent bar in header
+
+### Changed
+- Default HTTP server port changed to 3019 (was 3018)
+
+---
+
 ## [1.5.1] - 2025-06-17
 
 ### Added

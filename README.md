@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-1.5.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.2-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -27,9 +27,10 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 |-----------|----------|
 | **CLI** | Quick lookups, scripting, batch processing |
 | **Interactive Mode** | Continuous lookups with REPL |
+| **Web UI** | Beautiful browser-based lookup interface |
 | **Obsidian Plugin** | Native integration with full UI |
 | **MCP Server** | AI assistant integration (Cursor, etc.) |
-| **Web GUI** | Browser-based batch processing |
+| **Streamlit GUI** | Document batch processing |
 
 ### 📚 Document Processing
 - Batch process entire markdown documents
@@ -181,7 +182,7 @@ The plugin works best with the HTTP server running:
 
 ```bash
 # Start the server
-.venv/bin/python -m mcp_server.http_server --port 3018
+.venv/bin/python -m mcp_server.http_server --port 3019
 
 # Or install as a macOS service (auto-start on login)
 cp scripts/com.citationsculptor.httpserver.plist ~/Library/LaunchAgents/
@@ -232,16 +233,29 @@ Add to your MCP settings (`.cursor/mcp.json`):
 }
 ```
 
-### HTTP Server (for Obsidian plugin & direct API access)
+### HTTP Server with Web UI
+
+Start the HTTP server to access the beautiful web UI and API:
 
 ```bash
 # Start the HTTP server
-.venv/bin/python -m mcp_server.http_server --port 3018
+.venv/bin/python -m mcp_server.http_server --port 3019
 
-# Test it
-curl http://127.0.0.1:3018/health
-curl "http://127.0.0.1:3018/api/lookup?id=37622666"
-curl "http://127.0.0.1:3018/api/search?q=heart+failure"
+# Open in browser
+open http://127.0.0.1:3019
+```
+
+**Web UI Features:**
+- 🔍 Quick Lookup - Enter any identifier
+- 📚 PubMed Search - Search and select from results
+- 📋 Batch Lookup - Process multiple identifiers
+- 🕐 Recent History - Access past lookups
+
+```bash
+# API access
+curl http://127.0.0.1:3019/health
+curl "http://127.0.0.1:3019/api/lookup?id=37622666"
+curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 ```
 
 ### HTTP API Endpoints

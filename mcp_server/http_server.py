@@ -3,18 +3,21 @@
 CitationSculptor HTTP API Server
 
 A lightweight HTTP server that exposes CitationSculptor functionality
-for Obsidian plugin integration. This avoids the overhead of spawning
-new Python processes for each lookup.
+for Obsidian plugin integration and provides a beautiful web UI.
 
 Usage:
-    python -m mcp_server.http_server [--port 3018]
+    python -m mcp_server.http_server [--port 3019]
     
 Or configure in systemd/launchd for automatic startup.
+
+Web UI:
+    Open http://127.0.0.1:3019 in your browser
 """
 
 import sys
 import json
 import argparse
+import mimetypes
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -25,9 +28,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from citation_lookup import CitationLookup, LookupResult
 
+# Static files directory
+WEB_DIR = Path(__file__).parent.parent / 'web'
+
 
 class CitationHTTPHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for citation lookups."""
+    """HTTP request handler for citation lookups and web UI."""
     
     lookup: CitationLookup = None  # Class-level singleton
     
@@ -44,6 +50,30 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode('utf-8'))
+    
+    def _send_file(self, filepath: Path):
+        """Send a static file."""
+        if not filepath.exists():
+            self.send_error(404, 'File not found')
+            return
+        
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(str(filepath))
+        if content_type is None:
+            content_type = 'application/octet-stream'
+        
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            
+            self.send_response(200)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', len(content))
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(content)
+        except Exception as e:
+            self.send_error(500, str(e))
     
     def _format_result(self, result: LookupResult) -> Dict[str, Any]:
         """Convert LookupResult to JSON-serializable dict."""
@@ -72,8 +102,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = parse_qs(parsed.query)
         
+        # Serve Web UI (root or /index.html)
+        if path == '/' or path == '/index.html':
+            self._send_file(WEB_DIR / 'index.html')
+            return
+        
+        # Serve static files from /web/
+        if path.startswith('/static/') or path.endswith(('.css', '.js', '.ico', '.png', '.svg')):
+            # Remove leading slash and serve from web directory
+            file_path = WEB_DIR / path.lstrip('/')
+            if file_path.exists() and file_path.is_file():
+                self._send_file(file_path)
+                return
+        
+        # API Endpoints
         if path == '/health':
-            self._send_json({'status': 'ok', 'version': '1.5.0'})
+            self._send_json({'status': 'ok', 'version': '1.5.1'})
             return
         
         if path == '/api/lookup':
@@ -231,41 +275,41 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         self._send_json({'error': f'Unknown endpoint: {path}'}, 404)
 
 
-def run_server(port: int = 3018, host: str = '127.0.0.1'):
+def run_server(port: int = 3019, host: str = '127.0.0.1'):
     """Start the HTTP server."""
     # Initialize singleton lookup instance
     CitationHTTPHandler.lookup = CitationLookup()
     
     server = HTTPServer((host, port), CitationHTTPHandler)
-    print(f"CitationSculptor HTTP Server running at http://{host}:{port}")
-    print(f"API endpoints:")
-    print(f"  GET  /health              - Health check")
-    print(f"  GET  /api/lookup?id=X     - Auto-detect and lookup identifier")
-    print(f"  GET  /api/lookup/pmid?pmid=X")
-    print(f"  GET  /api/lookup/doi?doi=X")
-    print(f"  GET  /api/lookup/pmcid?pmcid=X")
-    print(f"  GET  /api/lookup/title?title=X")
-    print(f"  GET  /api/search?q=X&max=10")
-    print(f"  POST /api/lookup          - JSON body: {{\"identifier\": \"X\"}}")
-    print(f"  POST /api/batch           - JSON body: {{\"identifiers\": [\"X\", \"Y\"]}}")
-    print(f"  POST /api/search          - JSON body: {{\"query\": \"X\", \"max_results\": 10}}")
-    print(f"  GET  /api/cache/stats     - Cache statistics")
-    print(f"  GET  /api/cache/clear     - Clear all caches")
-    print()
-    print("Press Ctrl+C to stop")
+    print(f"")
+    print(f"  ╔═══════════════════════════════════════════════════════════╗")
+    print(f"  ║          📚 CitationSculptor HTTP Server v1.5.1           ║")
+    print(f"  ╚═══════════════════════════════════════════════════════════╝")
+    print(f"")
+    print(f"  🌐 Web UI:    http://{host}:{port}")
+    print(f"  📡 API Base:  http://{host}:{port}/api")
+    print(f"")
+    print(f"  API Endpoints:")
+    print(f"    GET  /health              Health check")
+    print(f"    GET  /api/lookup?id=X     Auto-detect and lookup identifier")
+    print(f"    GET  /api/search?q=X      Search PubMed")
+    print(f"    POST /api/batch           Batch lookup (JSON body)")
+    print(f"    GET  /api/cache/stats     Cache statistics")
+    print(f"")
+    print(f"  Press Ctrl+C to stop")
+    print(f"")
     
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\n  Shutting down...")
         server.shutdown()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='CitationSculptor HTTP Server')
-    parser.add_argument('--port', '-p', type=int, default=3018, help='Port to listen on (default: 3018)')
+    parser.add_argument('--port', '-p', type=int, default=3019, help='Port to listen on (default: 3019)')
     parser.add_argument('--host', '-H', type=str, default='127.0.0.1', help='Host to bind to (default: 127.0.0.1)')
     args = parser.parse_args()
     
     run_server(port=args.port, host=args.host)
-

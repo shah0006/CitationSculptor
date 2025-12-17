@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CitationSculptor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a24;
+            --bg-card: #16161f;
+            --text-primary: #f0f0f5;
+            --text-secondary: #a0a0b0;
+            --text-muted: #6b6b7b;
+            --accent: #6366f1;
+            --accent-hover: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.25);
+            --success: #10b981;
+            --error: #ef4444;
+            --warning: #f59e0b;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.15);
+            --gradient-1: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --gradient-2: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            --radius: 12px;
+            --radius-lg: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        /* Background pattern */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 100% 0%, rgba(139, 92, 246, 0.1), transparent);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-1);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            box-shadow: 0 8px 32px rgba(99, 102, 241, 0.3);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        /* Status indicator */
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border-radius: 100px;
+            margin-top: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--error);
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg-secondary);
+            padding: 6px;
+            border-radius: var(--radius-lg);
+            margin-bottom: 32px;
+            justify-content: center;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            border-radius: var(--radius);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .tab.active {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        /* Tab content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+
+        .card-header {
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        /* Form elements */
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 14px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 15px;
+            transition: all 0.2s ease;
+        }
+
+        input[type="text"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+        }
+
+        input[type="text"]::placeholder,
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        textarea {
+            min-height: 150px;
+            resize: vertical;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-row .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        select {
+            padding: 14px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 28px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-hover);
+            box-shadow: none;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        /* Results */
+        .result-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            margin-top: 24px;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .result-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .result-body {
+            padding: 20px;
+        }
+
+        .inline-mark {
+            display: block;
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            color: var(--accent);
+            margin-bottom: 16px;
+            user-select: all;
+        }
+
+        .full-citation {
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius);
+            font-size: 14px;
+            line-height: 1.7;
+            color: var(--text-primary);
+            user-select: all;
+        }
+
+        /* Search results list */
+        .search-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .search-item {
+            padding: 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            transition: all 0.2s ease;
+        }
+
+        .search-item:hover {
+            border-color: var(--border-hover);
+            background: var(--bg-tertiary);
+        }
+
+        .search-item-title {
+            font-weight: 500;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+
+        .search-item-meta {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .search-item-ids {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .search-item-ids code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            padding: 4px 8px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            color: var(--text-secondary);
+        }
+
+        .search-item-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Loading state */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Messages */
+        .message {
+            padding: 16px 20px;
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .message.success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        /* Recent lookups */
+        .recent-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .recent-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+
+        .recent-item code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: var(--accent);
+        }
+
+        .recent-item-date {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-left: 12px;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 40px 24px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .container {
+                padding: 24px 16px;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .tabs {
+                flex-wrap: wrap;
+            }
+
+            .tab {
+                flex: 1 1 45%;
+                text-align: center;
+            }
+
+            .input-row {
+                flex-direction: column;
+            }
+
+            .btn-group {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">📚</div>
+                <h1>CitationSculptor</h1>
+            </div>
+            <p class="tagline">Generate Vancouver-style citations from any identifier</p>
+            <div class="status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Checking server...</span>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" data-tab="lookup">🔍 Quick Lookup</button>
+            <button class="tab" data-tab="search">📚 PubMed Search</button>
+            <button class="tab" data-tab="batch">📋 Batch Lookup</button>
+            <button class="tab" data-tab="recent">🕐 Recent</button>
+        </div>
+
+        <!-- Quick Lookup Tab -->
+        <div class="tab-content active" id="lookup">
+            <div class="card">
+                <div class="input-group">
+                    <label>Enter PMID, DOI, PMC ID, or article title</label>
+                    <div class="input-row">
+                        <input type="text" id="lookupInput" placeholder="e.g., 37622666, 10.1093/eurheartj/ehad195, or ESC heart failure guidelines">
+                        <select id="formatSelect">
+                            <option value="full">Full</option>
+                            <option value="inline">Inline Only</option>
+                            <option value="endnote">Endnote Only</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="btn-group">
+                    <button class="btn" onclick="doLookup()">
+                        <span>🔍</span> Look Up
+                    </button>
+                    <button class="btn btn-secondary" onclick="copyResult()">
+                        <span>📋</span> Copy
+                    </button>
+                </div>
+                <div id="lookupResult"></div>
+            </div>
+        </div>
+
+        <!-- PubMed Search Tab -->
+        <div class="tab-content" id="search">
+            <div class="card">
+                <div class="input-group">
+                    <label>Search PubMed for articles</label>
+                    <div class="input-row">
+                        <input type="text" id="searchInput" placeholder="e.g., ESC heart failure guidelines 2023">
+                        <select id="maxResults">
+                            <option value="5">5 results</option>
+                            <option value="10" selected>10 results</option>
+                            <option value="20">20 results</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="btn" onclick="doSearch()">
+                    <span>🔎</span> Search PubMed
+                </button>
+                <div id="searchResults"></div>
+            </div>
+        </div>
+
+        <!-- Batch Lookup Tab -->
+        <div class="tab-content" id="batch">
+            <div class="card">
+                <div class="input-group">
+                    <label>Enter multiple identifiers (one per line)</label>
+                    <textarea id="batchInput" placeholder="37622666&#10;10.1093/eurheartj/ehad195&#10;PMC7039045&#10;..."></textarea>
+                </div>
+                <div class="btn-group">
+                    <button class="btn" onclick="doBatch()">
+                        <span>📋</span> Process Batch
+                    </button>
+                    <button class="btn btn-secondary" onclick="copyBatchResult()">
+                        <span>📋</span> Copy All
+                    </button>
+                </div>
+                <div id="batchResults"></div>
+            </div>
+        </div>
+
+        <!-- Recent Tab -->
+        <div class="tab-content" id="recent">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Recent Lookups</div>
+                </div>
+                <div id="recentList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No recent lookups yet</p>
+                    </div>
+                </div>
+                <button class="btn btn-secondary btn-small" onclick="clearRecent()" style="margin-top: 16px;">
+                    Clear History
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>CitationSculptor v1.5.1 · <a href="https://github.com/shah0006/CitationSculptor">GitHub</a></p>
+        <p>Server: <code id="serverUrl">http://127.0.0.1:3019</code></p>
+    </footer>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:3019';
+        let recentLookups = JSON.parse(localStorage.getItem('recentLookups') || '[]');
+        let lastResult = null;
+        let lastBatchResults = null;
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Enter key handlers
+        document.getElementById('lookupInput').addEventListener('keypress', e => {
+            if (e.key === 'Enter') doLookup();
+        });
+        document.getElementById('searchInput').addEventListener('keypress', e => {
+            if (e.key === 'Enter') doSearch();
+        });
+
+        // Check server status
+        async function checkServer() {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            try {
+                const res = await fetch(`${API_URL}/health`);
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    dot.classList.add('connected');
+                    text.textContent = `Connected (v${data.version})`;
+                }
+            } catch (e) {
+                dot.classList.remove('connected');
+                text.textContent = 'Server offline - start with: python -m mcp_server.http_server';
+            }
+        }
+
+        // Lookup
+        async function doLookup() {
+            const input = document.getElementById('lookupInput').value.trim();
+            if (!input) return;
+
+            const container = document.getElementById('lookupResult');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Looking up...</div>';
+
+            try {
+                const res = await fetch(`${API_URL}/api/lookup?id=${encodeURIComponent(input)}`);
+                const data = await res.json();
+                lastResult = data;
+
+                if (data.success) {
+                    addToRecent(input, data.inline_mark);
+                    container.innerHTML = `
+                        <div class="result-card">
+                            <div class="result-header">
+                                <span class="result-title">Inline Reference</span>
+                                <button class="btn btn-small btn-secondary" onclick="copyText('${data.inline_mark.replace(/'/g, "\\'")}')">Copy</button>
+                            </div>
+                            <div class="result-body">
+                                <div class="inline-mark">${escapeHtml(data.inline_mark)}</div>
+                            </div>
+                        </div>
+                        <div class="result-card">
+                            <div class="result-header">
+                                <span class="result-title">Full Citation</span>
+                                <button class="btn btn-small btn-secondary" onclick="copyText(\`${data.full_citation.replace(/`/g, "\\`")}\`)">Copy</button>
+                            </div>
+                            <div class="result-body">
+                                <div class="full-citation">${escapeHtml(data.full_citation)}</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escapeHtml(data.error || 'Not found')}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ Server error: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        // Search
+        async function doSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+
+            const max = document.getElementById('maxResults').value;
+            const container = document.getElementById('searchResults');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Searching PubMed...</div>';
+
+            try {
+                const res = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}&max=${max}`);
+                const data = await res.json();
+
+                if (data.results && data.results.length > 0) {
+                    container.innerHTML = `
+                        <div style="margin-top: 20px; margin-bottom: 12px; color: var(--text-secondary);">
+                            Found ${data.count} result(s)
+                        </div>
+                        <div class="search-list">
+                            ${data.results.map((r, i) => `
+                                <div class="search-item">
+                                    <div class="search-item-title">${i + 1}. ${escapeHtml(r.title)}</div>
+                                    <div class="search-item-meta">
+                                        ${escapeHtml((r.authors || []).slice(0, 2).join(', '))}${r.authors?.length > 2 ? ' et al.' : ''} · ${escapeHtml(r.journal)} (${r.year})
+                                    </div>
+                                    <div class="search-item-ids">
+                                        <code>PMID: ${r.pmid}</code>
+                                        ${r.doi ? `<code>DOI: ${escapeHtml(r.doi)}</code>` : ''}
+                                    </div>
+                                    <div class="search-item-actions">
+                                        <button class="btn btn-small" onclick="getCitation('${r.pmid}')">Get Citation</button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>No results found</p></div>';
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ Search error: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        // Get citation from search result
+        async function getCitation(pmid) {
+            document.getElementById('lookupInput').value = pmid;
+            document.querySelector('[data-tab="lookup"]').click();
+            await doLookup();
+        }
+
+        // Batch
+        async function doBatch() {
+            const input = document.getElementById('batchInput').value.trim();
+            if (!input) return;
+
+            const identifiers = input.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+            const container = document.getElementById('batchResults');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Processing batch...</div>';
+
+            try {
+                const res = await fetch(`${API_URL}/api/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identifiers })
+                });
+                const data = await res.json();
+                lastBatchResults = data.results;
+
+                const successful = data.results.filter(r => r.success);
+                const failed = data.results.filter(r => !r.success);
+
+                let html = `
+                    <div style="margin-top: 20px; margin-bottom: 16px;">
+                        <span style="color: var(--success);">✓ ${successful.length} successful</span>
+                        ${failed.length > 0 ? `<span style="color: var(--error); margin-left: 16px;">✗ ${failed.length} failed</span>` : ''}
+                    </div>
+                `;
+
+                if (successful.length > 0) {
+                    html += `
+                        <div class="result-card">
+                            <div class="result-header">
+                                <span class="result-title">Citations</span>
+                            </div>
+                            <div class="result-body">
+                                <textarea readonly style="width: 100%; min-height: 200px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 16px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;">${successful.map(r => r.full_citation).join('\n\n')}</textarea>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                if (failed.length > 0) {
+                    html += `
+                        <div class="result-card" style="border-color: rgba(239, 68, 68, 0.2);">
+                            <div class="result-header" style="background: rgba(239, 68, 68, 0.1);">
+                                <span class="result-title" style="color: var(--error);">Failed</span>
+                            </div>
+                            <div class="result-body">
+                                <ul style="color: var(--error); font-size: 13px; padding-left: 20px;">
+                                    ${failed.map(r => `<li>${escapeHtml(r.identifier)}: ${escapeHtml(r.error)}</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ Batch error: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        // Copy functions
+        function copyText(text) {
+            navigator.clipboard.writeText(text);
+            showToast('Copied to clipboard!');
+        }
+
+        function copyResult() {
+            if (!lastResult || !lastResult.success) return;
+            const format = document.getElementById('formatSelect').value;
+            let text = '';
+            if (format === 'inline') text = lastResult.inline_mark;
+            else if (format === 'endnote') text = lastResult.full_citation;
+            else text = lastResult.inline_mark + '\n\n' + lastResult.full_citation;
+            copyText(text);
+        }
+
+        function copyBatchResult() {
+            if (!lastBatchResults) return;
+            const text = lastBatchResults.filter(r => r.success).map(r => r.full_citation).join('\n\n');
+            copyText(text);
+        }
+
+        // Recent lookups
+        function addToRecent(identifier, inlineMark) {
+            recentLookups = recentLookups.filter(r => r.identifier !== identifier);
+            recentLookups.unshift({ identifier, inline_mark: inlineMark, timestamp: Date.now() });
+            recentLookups = recentLookups.slice(0, 20);
+            localStorage.setItem('recentLookups', JSON.stringify(recentLookups));
+            renderRecent();
+        }
+
+        function renderRecent() {
+            const container = document.getElementById('recentList');
+            if (recentLookups.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><p>No recent lookups yet</p></div>';
+                return;
+            }
+            container.innerHTML = `
+                <div class="recent-list">
+                    ${recentLookups.map(r => `
+                        <div class="recent-item">
+                            <div>
+                                <code>${escapeHtml(r.inline_mark)}</code>
+                                <span class="recent-item-date">${new Date(r.timestamp).toLocaleDateString()}</span>
+                            </div>
+                            <div>
+                                <button class="btn btn-small btn-secondary" onclick="copyText('${r.inline_mark.replace(/'/g, "\\'")}')">Copy</button>
+                                <button class="btn btn-small" onclick="lookupAgain('${r.identifier.replace(/'/g, "\\'")}')">Look Up</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function lookupAgain(identifier) {
+            document.getElementById('lookupInput').value = identifier;
+            document.querySelector('[data-tab="lookup"]').click();
+            doLookup();
+        }
+
+        function clearRecent() {
+            recentLookups = [];
+            localStorage.removeItem('recentLookups');
+            renderRecent();
+        }
+
+        // Toast notification
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                padding: 14px 24px;
+                background: var(--success);
+                color: white;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+                z-index: 1000;
+                animation: slideIn 0.3s ease;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // Init
+        checkServer();
+        renderRecent();
+        setInterval(checkServer, 30000);
+    </script>
+</body>
+</html>
+
