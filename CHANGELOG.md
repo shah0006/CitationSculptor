@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2025-12-17
+
+### Added - Complete Feature Parity Across All Interfaces
+
+This release achieves **full feature parity** across Web UI, Obsidian Plugin, and CLI. All major features are now available in all three interfaces.
+
+#### Web UI Enhancements
+- **Recent Lookups Tab**: View and reuse previous citation lookups (localStorage-backed)
+- **Dry Run Preview**: New checkbox to preview document processing without saving changes
+- **Multi-Section Mode**: Option to process documents with multiple reference sections independently
+- **Corrections Workflow**: New dedicated page to find and fix citations with Null placeholders
+  - Detects `Null_Date`, `Null_Author`, `Null_Organization` placeholders
+  - Interactive editor for filling in missing information
+  - Download corrections template as Markdown
+- **Comprehensive Statistics**: Results now show 7 stat cards (Processed, Needs Review, Failed, Orphaned, Duplicates Merged, Replacements)
+
+#### Obsidian Plugin Enhancements
+- **Save to Library** command: Save last lookup to server citation library
+- **Search Library** modal: Search and insert citations from library with one click
+- **Export BibTeX** command: Export selected identifiers as BibTeX (copies to clipboard)
+- **Verify Links** command: Check all links in current note for accessibility
+- **Link Verification Modal**: Shows broken/valid link status with details
+
+#### CLI Enhancements
+- **Interactive Mode** (`--interactive` / `-i`): REPL for lookups and PubMed searches
+  - Commands: `lookup`, `search`, `batch`, `help`, `quit`
+  - Direct identifier input auto-detects and looks up
+- **Quick Lookup** (`--lookup <ID>`): Single lookup without entering interactive mode
+- **Restore from Backup** (`--restore-backup <FILE>`): Restore original file from backup
+
+#### API Enhancements
+- `/api/corrections/generate`: Generate corrections template for incomplete citations
+- `/api/corrections/apply`: Apply corrections to document content
+- `dry_run` and `multi_section` parameters in `/api/process-document`
+
+### Fixed
+- Abbreviation now only used in citation tags (e.g., `[^ACC-Impact-2023]`), full organization names in citation body
+
+---
+
+## [2.1.1] - 2025-12-17
+
+### Fixed - Web Scraping and DOI Extraction
+- **Playwright Browser Fallback**: Added Playwright-based scraping for sites that block HTTP requests (Cloudflare, 403 errors, JavaScript requirements)
+- **DOI Extraction**: Fixed regex patterns to exclude query parameters (`?utm_source=...`) from DOIs
+- **URL Cleaning**: Query parameters are now stripped from citation URLs
+- **BeautifulSoup Integration**: Meta tag extraction now uses BeautifulSoup for more robust HTML parsing
+- **DOI URL Patterns**: Added support for `/doi/abs/` and `/doi/full/` URL formats (AHA Journals, etc.)
+
+### Added
+- `playwright>=1.40.0` as optional dependency for browser-based scraping
+- Fallback chain: HTTP request → Playwright browser → URL-based extraction
+
+### Technical Details
+- New `_scrape_with_playwright()` method in `WebpageScraper` class
+- Updated `_extract_meta_tags()` to use BeautifulSoup with regex fallback
+- Fixed DOI patterns in `type_detector.py` and `reference_parser.py`
+
+---
+
 ## [2.0.1] - 2025-12-17
 
 ### Added - Document Processing Across All Interfaces

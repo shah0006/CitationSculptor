@@ -10,6 +10,14 @@ from collections import deque
 import requests
 from loguru import logger
 
+# Try to import Playwright for browser-based scraping fallback
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    logger.debug("Playwright not available - browser-based scraping disabled")
+
 
 class SimpleCache:
     """Simple in-memory cache for API responses."""
@@ -570,6 +578,40 @@ class PubMedClient:
             
         return self._fetch_from_eutils(pmids)
 
+    def search_by_query(self, query: str, max_results: int = 5) -> List[ArticleMetadata]:
+        """
+        Search PubMed using a *raw* ESearch query string.
+        
+        IMPORTANT:
+        - Unlike `search_by_title()`, this does not strip field qualifiers like `[Journal]`
+          or other bracketed tokens, and does not truncate.
+        - Use this when you intentionally construct a PubMed query (e.g., AI-enhanced lookup).
+        """
+        term = (query or "").strip()
+        if not term:
+            return []
+
+        logger.info(f"Searching (raw query): {term[:60]}...")
+        params = {
+            'db': 'pubmed',
+            'term': term,
+            'retmax': max_results,
+            'retmode': 'xml'
+        }
+        root = self._eutils_request(self.ESEARCH_URL, params)
+        if root is None:
+            return []
+
+        id_list = root.find('IdList')
+        if id_list is None:
+            return []
+
+        pmids = [id_elem.text for id_elem in id_list.findall('Id')]
+        if not pmids:
+            return []
+
+        return self._fetch_from_eutils(pmids)
+
     def verify_article_exists(self, title: str) -> Optional[ArticleMetadata]:
         """Verify article exists in PubMed and return full metadata."""
         results = self.search_by_title(title, max_results=5)
@@ -615,6 +657,25 @@ class PubMedClient:
     def search_pubmed(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """Search PubMed and return multiple results as dictionaries for selection."""
         results = self.search_by_title(query, max_results=max_results)
+        return [
+            {
+                'pmid': r.pmid,
+                'title': r.title,
+                'authors': r.authors,
+                'journal': r.journal,
+                'year': r.year,
+            }
+            for r in results
+        ]
+
+    def search_pubmed_raw(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """
+        Search PubMed using a raw query string (preserves qualifiers like `[Journal]`).
+        
+        This is intentionally separate from `search_pubmed()` to avoid changing the
+        longstanding behavior of `search_by_title()` and its tests.
+        """
+        results = self.search_by_query(query, max_results=max_results)
         return [
             {
                 'pmid': r.pmid,
@@ -1278,13 +1339,21 @@ class WebpageScraper:
             # Check for Cloudflare or JavaScript challenge pages
             if 'Just a moment' in response.text or 'challenge-platform' in response.text:
                 logger.warning(f"Site uses bot protection (Cloudflare): {url}")
-                # Try URL-based extraction as fallback
+                # Try Playwright browser-based scraping as fallback
+                playwright_metadata = self._scrape_with_playwright(url)
+                if playwright_metadata:
+                    return playwright_metadata, None
+                # Fall back to URL-based extraction
                 url_metadata = self._extract_metadata_from_url(url)
                 return url_metadata, "blocked_cloudflare"
             
             if 'Enable JavaScript' in response.text and len(response.text) < 10000:
                 logger.warning(f"Site requires JavaScript: {url}")
-                # Try URL-based extraction as fallback
+                # Try Playwright browser-based scraping as fallback
+                playwright_metadata = self._scrape_with_playwright(url)
+                if playwright_metadata:
+                    return playwright_metadata, None
+                # Fall back to URL-based extraction
                 url_metadata = self._extract_metadata_from_url(url)
                 return url_metadata, "blocked_javascript"
             
@@ -1294,7 +1363,11 @@ class WebpageScraper:
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
                 logger.warning(f"Access forbidden (403): {url}")
-                # Try URL-based extraction as fallback
+                # Try Playwright browser-based scraping as fallback
+                playwright_metadata = self._scrape_with_playwright(url)
+                if playwright_metadata:
+                    return playwright_metadata, None
+                # Fall back to URL-based extraction
                 url_metadata = self._extract_metadata_from_url(url)
                 return url_metadata, "blocked_403"
             elif e.response.status_code == 401:
@@ -1311,6 +1384,57 @@ class WebpageScraper:
         except Exception as e:
             logger.warning(f"Failed to scrape {url}: {e}")
             return None, "error"
+    
+    def _scrape_with_playwright(self, url: str) -> Optional[WebpageMetadata]:
+        """
+        Use Playwright browser to scrape metadata from pages that block HTTP requests.
+        
+        This is a fallback for sites with Cloudflare, bot protection, or JavaScript requirements.
+        """
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.debug("Playwright not available for browser-based scraping")
+            return None
+        
+        try:
+            logger.info(f"Trying browser-based scraping for: {url[:60]}...")
+            
+            with sync_playwright() as p:
+                # Use headless Chromium
+                browser = p.chromium.launch(headless=True)
+                context = browser.new_context(
+                    user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                )
+                page = context.new_page()
+                
+                # Navigate with timeout
+                page.goto(url, timeout=30000, wait_until='domcontentloaded')
+                
+                # Wait a bit for JavaScript to execute
+                page.wait_for_timeout(2000)
+                
+                # Get the page content
+                html = page.content()
+                
+                # Also try to get title directly from page
+                title = page.title()
+                
+                browser.close()
+            
+            # Parse the HTML with our existing parser
+            metadata = self._parse_html(html, url)
+            
+            # If we got a better title from the page, use it
+            if metadata and title and (not metadata.title or len(title) > len(metadata.title)):
+                metadata.title = title
+            
+            if metadata:
+                logger.info(f"Successfully scraped with browser: {metadata.title[:50] if metadata.title else 'No title'}...")
+            
+            return metadata
+            
+        except Exception as e:
+            logger.warning(f"Playwright scraping failed for {url}: {e}")
+            return None
     
     def _extract_metadata_from_url(self, url: str) -> Optional[WebpageMetadata]:
         """
@@ -2102,29 +2226,50 @@ Organization name:"""
         return ""
     
     def _extract_meta_tags(self, html: str) -> Dict[str, List[str]]:
+        """Extract meta tags using BeautifulSoup for robust HTML parsing."""
         tags: Dict[str, List[str]] = {}
-        # Match both name="..." content="..." and property="..." content="..."
-        # Also handle reversed order: content="..." name="..."
-        patterns = [
-            r'<meta\s+(?:name|property)=["\']([^"\']+)["\']\s+content=["\']([^"\']*)["\']',
-            r'<meta\s+content=["\']([^"\']*)["\'](?:\s+(?:name|property)=["\']([^"\']+)["\'])',
-        ]
-        for pattern in patterns:
-            for m in re.finditer(pattern, html, re.IGNORECASE):
-                if pattern.startswith(r'<meta\s+content'):
-                    # Reversed order
-                    content = m.group(1)
-                    name = m.group(2).lower() if m.group(2) else ""
-                else:
-                    name = m.group(1).lower()
-                    content = m.group(2)
+        
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Extract all meta tags
+            for meta in soup.find_all('meta'):
+                # Get name or property attribute
+                name = meta.get('name') or meta.get('property') or ''
+                content = meta.get('content') or ''
                 
                 if name:
+                    name = name.lower()
                     if name not in tags:
                         tags[name] = []
                     if content and content not in tags[name]:
                         tags[name].append(content)
-        return tags
+            
+            return tags
+            
+        except ImportError:
+            # Fall back to regex if BeautifulSoup not available
+            logger.debug("BeautifulSoup not available, using regex fallback")
+            patterns = [
+                r'<meta\s+(?:name|property)=["\']([^"\']+)["\']\s+content=["\']([^"\']*)["\']',
+                r'<meta\s+content=["\']([^"\']*)["\'](?:\s+(?:name|property)=["\']([^"\']+)["\'])',
+            ]
+            for pattern in patterns:
+                for m in re.finditer(pattern, html, re.IGNORECASE):
+                    if pattern.startswith(r'<meta\s+content'):
+                        content = m.group(1)
+                        name = m.group(2).lower() if m.group(2) else ""
+                    else:
+                        name = m.group(1).lower()
+                        content = m.group(2)
+                    
+                    if name:
+                        if name not in tags:
+                            tags[name] = []
+                        if content and content not in tags[name]:
+                            tags[name].append(content)
+            return tags
     
     def _get_first_value(self, tags: Dict[str, List[str]], keys: List[str]) -> Optional[str]:
         for key in keys:

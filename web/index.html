@@ -836,7 +836,7 @@
                 <div class="logo-icon">📚</div>
                 <div>
                     <h1>CitationSculptor</h1>
-                    <div class="logo-version">v2.1.0</div>
+                    <div class="logo-version">v2.2.0</div>
                 </div>
             </div>
 
@@ -861,6 +861,14 @@
                 <button type="button" class="nav-item" data-page="pdf">
                     <span class="nav-item-icon">📄</span>
                     PDF Extract
+                </button>
+                <button type="button" class="nav-item" data-page="recent">
+                    <span class="nav-item-icon">🕐</span>
+                    Recent Lookups
+                </button>
+                <button type="button" class="nav-item" data-page="corrections">
+                    <span class="nav-item-icon">🔧</span>
+                    Corrections
                 </button>
             </nav>
 
@@ -1065,6 +1073,21 @@
                         </div>
                     </div>
                     
+                    <!-- Processing Options -->
+                    <div style="margin: 16px 0; padding: 16px; background: var(--bg-secondary); border-radius: 8px;">
+                        <div style="font-weight: 600; margin-bottom: 12px; color: var(--text-primary);">Processing Options</div>
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                                <input type="checkbox" id="dryRun" style="width: 18px; height: 18px;">
+                                <span><strong>👁️ Dry Run (Preview)</strong> — Show what would change without saving</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                                <input type="checkbox" id="multiSection" style="width: 18px; height: 18px;">
+                                <span><strong>📑 Multi-Section Mode</strong> — Process documents with multiple reference sections independently</span>
+                            </label>
+                        </div>
+                    </div>
+                    
                     <div id="saveOptionsRow" style="margin: 16px 0; padding: 12px; background: var(--bg-secondary); border-radius: 8px; display: none;">
                         <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
                             <input type="checkbox" id="saveToFile" style="width: 18px; height: 18px;">
@@ -1101,6 +1124,66 @@
                 <div class="message info">
                     <span>💡</span>
                     PDF extraction requires PyMuPDF. Install with: <code>pip install PyMuPDF</code>
+                </div>
+            </div>
+
+            <!-- Recent Lookups Page -->
+            <div class="page" id="recent">
+                <div class="page-header">
+                    <h2 class="page-title">Recent Lookups</h2>
+                    <p class="page-subtitle">Your recent citation lookups (stored locally)</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-row" style="justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <span id="recentCount" style="color: var(--text-muted);">0 recent lookups</span>
+                        <button class="btn btn-secondary" onclick="clearRecentLookups()">🗑️ Clear History</button>
+                    </div>
+                    <div id="recentList" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="message info">
+                            <span>💡</span>
+                            <span>No recent lookups yet. Use Quick Lookup or Search to find citations.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Corrections Page -->
+            <div class="page" id="corrections">
+                <div class="page-header">
+                    <h2 class="page-title">Citation Corrections</h2>
+                    <p class="page-subtitle">Fix citations with missing information (Null_Date, Null_Author, etc.)</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">1. Paste processed document content</label>
+                        <textarea id="correctionsInput" placeholder="Paste your processed document here to find citations needing corrections..." style="min-height: 200px;"></textarea>
+                    </div>
+                    <button class="btn" onclick="generateCorrections()">🔍 Find Citations Needing Corrections</button>
+                    <div id="correctionsResult" style="margin-top: 16px;"></div>
+                </div>
+
+                <div class="card" id="correctionsEditCard" style="display: none;">
+                    <h3 style="margin-bottom: 16px; color: var(--accent);">📝 Edit Corrections</h3>
+                    <div id="correctionsEditList"></div>
+                    <div class="btn-group" style="margin-top: 16px;">
+                        <button class="btn" onclick="applyCorrections()">✅ Apply Corrections</button>
+                        <button class="btn btn-secondary" onclick="downloadCorrections()">📥 Download Template</button>
+                    </div>
+                </div>
+
+                <div class="message info" style="margin-top: 16px;">
+                    <span>💡</span>
+                    <div>
+                        <strong>Workflow:</strong>
+                        <ol style="margin: 8px 0 0 20px; padding: 0;">
+                            <li>Process a document to identify citations</li>
+                            <li>Paste the result here to find citations with missing data</li>
+                            <li>Fill in the missing information for each citation</li>
+                            <li>Apply corrections to get the fixed document</li>
+                        </ol>
+                    </div>
                 </div>
             </div>
 
@@ -1509,6 +1592,282 @@
             }
         }
 
+        // === Recent Lookups (localStorage) ===
+        const RECENT_KEY = 'citationSculptor_recentLookups';
+        const MAX_RECENT = 50;
+
+        function getRecentLookups() {
+            try {
+                return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+            } catch {
+                return [];
+            }
+        }
+
+        function addRecentLookup(identifier, data) {
+            const recent = getRecentLookups();
+            // Remove if already exists (will re-add at top)
+            const filtered = recent.filter(r => r.identifier !== identifier);
+            // Add to front
+            filtered.unshift({
+                identifier,
+                inline_mark: data.inline_mark,
+                full_citation: data.full_citation,
+                title: data.metadata?.title || data.full_citation?.substring(0, 80) || identifier,
+                identifier_type: data.identifier_type || 'unknown',
+                timestamp: Date.now()
+            });
+            // Keep only MAX_RECENT
+            const trimmed = filtered.slice(0, MAX_RECENT);
+            localStorage.setItem(RECENT_KEY, JSON.stringify(trimmed));
+            renderRecentLookups();
+        }
+
+        function clearRecentLookups() {
+            if (confirm('Clear all recent lookups?')) {
+                localStorage.removeItem(RECENT_KEY);
+                renderRecentLookups();
+                showToast('Recent lookups cleared');
+            }
+        }
+
+        function renderRecentLookups() {
+            const recent = getRecentLookups();
+            const container = document.getElementById('recentList');
+            const countEl = document.getElementById('recentCount');
+            
+            if (!container) return;
+            
+            countEl.textContent = `${recent.length} recent lookup${recent.length !== 1 ? 's' : ''}`;
+            
+            if (recent.length === 0) {
+                container.innerHTML = `
+                    <div class="message info">
+                        <span>💡</span>
+                        <span>No recent lookups yet. Use Quick Lookup or Search to find citations.</span>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = recent.map((r, i) => `
+                <div class="card" style="padding: 12px; background: var(--bg-secondary);">
+                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-primary);">
+                                ${escHtml(r.title?.substring(0, 80) || r.identifier)}${(r.title?.length || 0) > 80 ? '...' : ''}
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                <code style="background: var(--bg-base); padding: 2px 6px; border-radius: 4px;">${escHtml(r.identifier_type)}</code>
+                                <span style="margin-left: 8px;">${new Date(r.timestamp).toLocaleDateString()}</span>
+                            </div>
+                            <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--accent);">
+                                ${escHtml(r.inline_mark)}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                            <button class="btn btn-sm btn-secondary" onclick="copyText('${esc(r.inline_mark)}')">Copy</button>
+                            <button class="btn btn-sm btn-primary" onclick="lookupAgain('${esc(r.identifier)}')">Look Up</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function lookupAgain(identifier) {
+            document.getElementById('lookupInput').value = identifier;
+            document.querySelector('[data-page="lookup"]').click();
+            setTimeout(() => doLookup(), 100);
+        }
+
+        // Initialize recent lookups on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            renderRecentLookups();
+        });
+
+        // === Corrections Workflow ===
+        let currentCorrections = [];
+        let originalContent = '';
+
+        async function generateCorrections() {
+            const content = document.getElementById('correctionsInput').value.trim();
+            if (!content) {
+                showToast('Please paste document content', 'error');
+                return;
+            }
+            
+            originalContent = content;
+            const container = document.getElementById('correctionsResult');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Finding citations needing corrections...</div>';
+            
+            try {
+                const res = await fetch(`${API}/api/corrections/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    if (!data.has_corrections) {
+                        container.innerHTML = `
+                            <div class="message success">
+                                <span>✅</span>
+                                <span>All citations are complete! No corrections needed.</span>
+                            </div>
+                        `;
+                        document.getElementById('correctionsEditCard').style.display = 'none';
+                    } else {
+                        currentCorrections = data.citations;
+                        container.innerHTML = `
+                            <div class="message warning">
+                                <span>⚠️</span>
+                                <span><strong>${data.count}</strong> citation(s) need corrections. Edit them below.</span>
+                            </div>
+                        `;
+                        renderCorrectionsEditor();
+                    }
+                } else {
+                    container.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="message error">❌ ${escHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderCorrectionsEditor() {
+            const card = document.getElementById('correctionsEditCard');
+            const list = document.getElementById('correctionsEditList');
+            card.style.display = 'block';
+            
+            list.innerHTML = currentCorrections.map((cit, i) => `
+                <div class="card" style="padding: 16px; background: var(--bg-secondary); margin-bottom: 12px;">
+                    <div style="font-weight: 600; color: var(--accent); margin-bottom: 8px;">
+                        ${i + 1}. ${escHtml(cit.tag)}
+                    </div>
+                    ${cit.url ? `<div style="font-size: 12px; margin-bottom: 8px;"><a href="${escHtml(cit.url)}" target="_blank" style="color: var(--text-muted);">${escHtml(cit.url.substring(0, 60))}${cit.url.length > 60 ? '...' : ''}</a></div>` : ''}
+                    <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; padding: 8px; background: var(--bg-base); border-radius: 4px;">
+                        ${escHtml(cit.citation.substring(0, 150))}${cit.citation.length > 150 ? '...' : ''}
+                    </div>
+                    <div style="font-size: 12px; margin-bottom: 12px;">
+                        <strong>Missing:</strong> <span style="color: var(--warning);">${cit.missing.join(', ')}</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                        ${cit.missing.includes('Date') ? `
+                            <div class="form-group" style="margin: 0;">
+                                <label class="form-label" style="font-size: 12px;">Date</label>
+                                <input type="text" id="corr_${i}_date" placeholder="YYYY or YYYY-MM-DD" style="font-size: 13px;">
+                            </div>
+                        ` : ''}
+                        ${cit.missing.includes('Authors') ? `
+                            <div class="form-group" style="margin: 0;">
+                                <label class="form-label" style="font-size: 12px;">Authors</label>
+                                <input type="text" id="corr_${i}_authors" placeholder="Smith J, Jones A" style="font-size: 13px;">
+                            </div>
+                        ` : ''}
+                        ${cit.missing.includes('Organization') ? `
+                            <div class="form-group" style="margin: 0;">
+                                <label class="form-label" style="font-size: 12px;">Organization</label>
+                                <input type="text" id="corr_${i}_organization" placeholder="Organization name" style="font-size: 13px;">
+                            </div>
+                        ` : ''}
+                        <div class="form-group" style="margin: 0;">
+                            <label class="form-label" style="font-size: 12px;">New Tag (optional)</label>
+                            <input type="text" id="corr_${i}_newtag" placeholder="[^AuthorAB-2024]" style="font-size: 13px;">
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function applyCorrections() {
+            if (!currentCorrections.length || !originalContent) {
+                showToast('No corrections to apply', 'error');
+                return;
+            }
+            
+            // Gather corrections from the form
+            const corrections = currentCorrections.map((cit, i) => {
+                const corr = { tag: cit.tag };
+                const dateEl = document.getElementById(`corr_${i}_date`);
+                const authorsEl = document.getElementById(`corr_${i}_authors`);
+                const orgEl = document.getElementById(`corr_${i}_organization`);
+                const newtagEl = document.getElementById(`corr_${i}_newtag`);
+                
+                if (dateEl?.value) corr.date = dateEl.value.trim();
+                if (authorsEl?.value) corr.authors = authorsEl.value.trim();
+                if (orgEl?.value) corr.organization = orgEl.value.trim();
+                if (newtagEl?.value) corr.new_tag = newtagEl.value.trim();
+                
+                return corr;
+            });
+            
+            try {
+                const res = await fetch(`${API}/api/corrections/apply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: originalContent, corrections })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    // Update the input with corrected content
+                    document.getElementById('correctionsInput').value = data.corrected_content;
+                    originalContent = data.corrected_content;
+                    
+                    showToast(`Applied ${data.applied_count} correction(s)!`);
+                    
+                    // Re-check for remaining corrections
+                    await generateCorrections();
+                } else {
+                    showToast(data.error || 'Failed to apply corrections', 'error');
+                }
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        }
+
+        function downloadCorrections() {
+            if (!currentCorrections.length) {
+                showToast('No corrections to download', 'error');
+                return;
+            }
+            
+            // Build template
+            const lines = [
+                '# Citation Corrections Template',
+                '',
+                `## ${currentCorrections.length} Citation(s) Need Corrections`,
+                '',
+            ];
+            
+            currentCorrections.forEach((cit, i) => {
+                lines.push(`### ${i + 1}. ${cit.tag}`);
+                lines.push('');
+                if (cit.url) lines.push(`**URL**: ${cit.url}`);
+                lines.push('');
+                lines.push(`**Current**: ${cit.citation.substring(0, 150)}...`);
+                lines.push('');
+                lines.push(`**Missing**: ${cit.missing.join(', ')}`);
+                lines.push('');
+                cit.missing.forEach(m => lines.push(`- ${m}: `));
+                lines.push('- New Tag: ');
+                lines.push('');
+                lines.push('---');
+                lines.push('');
+            });
+            
+            const blob = new Blob([lines.join('\\n')], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'corrections_template.md';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showToast('Template downloaded!');
+        }
+
         // Lookup
         async function doLookup() {
             const input = document.getElementById('lookupInput').value.trim();
@@ -1524,6 +1883,9 @@
                 lastResult = data;
 
                 if (data.success) {
+                    // Save to recent lookups
+                    addRecentLookup(input, data);
+                    
                     container.innerHTML = `
                         <div class="result-box">
                             <div class="result-header">
@@ -2174,21 +2536,63 @@
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div class="stat-value">${stats.total_references ?? 0}</div>
-                        <div class="stat-label">Refs to Process</div>
+                        <div class="stat-label">Total References</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value" style="color: var(--success);">${stats.processed ?? 0}</div>
-                        <div class="stat-label">Processed</div>
+                        <div class="stat-label">✅ Processed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: ${(stats.needs_review || 0) > 0 ? 'var(--warning)' : 'var(--text-muted)'};">${stats.needs_review ?? 0}</div>
+                        <div class="stat-label">⚠️ Needs Review</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value" style="color: ${(stats.failed || 0) > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed ?? 0}</div>
-                        <div class="stat-label">Failed</div>
+                        <div class="stat-label">❌ Failed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: ${(stats.orphaned || 0) > 0 ? 'var(--text-muted)' : 'var(--text-muted)'};">${stats.orphaned ?? 0}</div>
+                        <div class="stat-label">🗑️ Orphaned</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: ${(stats.duplicates_merged || 0) > 0 ? 'var(--accent)' : 'var(--text-muted)'};">${stats.duplicates_merged ?? 0}</div>
+                        <div class="stat-label">🔗 Duplicates Merged</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value">${stats.inline_replacements ?? 0}</div>
-                        <div class="stat-label">Replacements</div>
+                        <div class="stat-label">🔄 Replacements</div>
                     </div>
                 </div>
+                ${data.dry_run ? `
+                    <div class="message info" style="margin: 12px 0; padding: 16px; background: rgba(99, 102, 241, 0.1); border-left: 4px solid var(--accent);">
+                        <span>👁️</span>
+                        <span><strong>DRY RUN MODE</strong> — This is a preview only. No changes have been saved. Uncheck "Dry Run" to process and save.</span>
+                    </div>
+                ` : ''}
+                ${data.multi_section ? `
+                    <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                        <span>📑</span>
+                        <span>Multi-section mode: Reference sections were processed independently.</span>
+                    </div>
+                ` : ''}
+                ${(stats.orphaned || 0) > 0 ? `
+                    <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                        <span>🗑️</span>
+                        <span><strong>${stats.orphaned}</strong> orphaned reference(s) were found in the reference section but not cited in the document body. They have been moved to the "Unused References" section.</span>
+                    </div>
+                ` : ''}
+                ${(stats.duplicates_merged || 0) > 0 ? `
+                    <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                        <span>🔗</span>
+                        <span><strong>${stats.duplicates_merged}</strong> duplicate reference(s) were detected and merged into single citations.</span>
+                    </div>
+                ` : ''}
+                ${(stats.needs_review || 0) > 0 ? `
+                    <div class="message warning" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                        <span>⚠️</span>
+                        <span><strong>${stats.needs_review}</strong> citation(s) may need manual review. Check the "Citations Requiring Review" section in the processed document.</span>
+                    </div>
+                ` : ''}
                 ${data.saved_to_file ? `
                     <div class="message success" style="margin: 16px 0; padding: 16px;">
                         <span>💾</span>
@@ -2323,8 +2727,10 @@
             const style = document.getElementById('docStyle').value;
             const container = document.getElementById('docResult');
             const saveToFile = document.getElementById('saveToFile')?.checked || false;
+            const dryRun = document.getElementById('dryRun')?.checked || false;
+            const multiSection = document.getElementById('multiSection')?.checked || false;
             
-            let requestBody = { style };
+            let requestBody = { style, dry_run: dryRun, multi_section: multiSection };
             
             if (currentDocTab === 'content') {
                 const content = document.getElementById('docContent').value.trim();
@@ -2340,8 +2746,9 @@
                     return;
                 }
                 requestBody.file_path = filePath;
-                requestBody.save_to_file = saveToFile;
-                requestBody.create_backup = true; // Always create backup
+                // Don't save if dry run
+                requestBody.save_to_file = dryRun ? false : saveToFile;
+                requestBody.create_backup = !dryRun; // No backup needed for dry run
             }
 
             // Show progress UI
@@ -2452,21 +2859,63 @@
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <div class="stat-value">${stats.total_references ?? 0}</div>
-                                <div class="stat-label">Refs to Process</div>
+                                <div class="stat-label">Total References</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" style="color: var(--success);">${stats.processed ?? 0}</div>
-                                <div class="stat-label">Processed</div>
+                                <div class="stat-label">✅ Processed</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" style="color: ${(stats.needs_review || 0) > 0 ? 'var(--warning)' : 'var(--text-muted)'};">${stats.needs_review ?? 0}</div>
+                                <div class="stat-label">⚠️ Needs Review</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value" style="color: ${(stats.failed || 0) > 0 ? 'var(--error)' : 'var(--text-muted)'};">${stats.failed ?? 0}</div>
-                                <div class="stat-label">Failed</div>
+                                <div class="stat-label">❌ Failed</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" style="color: ${(stats.orphaned || 0) > 0 ? 'var(--text-muted)' : 'var(--text-muted)'};">${stats.orphaned ?? 0}</div>
+                                <div class="stat-label">🗑️ Orphaned</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" style="color: ${(stats.duplicates_merged || 0) > 0 ? 'var(--accent)' : 'var(--text-muted)'};">${stats.duplicates_merged ?? 0}</div>
+                                <div class="stat-label">🔗 Duplicates Merged</div>
                             </div>
                             <div class="stat-card">
                                 <div class="stat-value">${stats.inline_replacements ?? 0}</div>
-                                <div class="stat-label">Replacements</div>
+                                <div class="stat-label">🔄 Replacements</div>
                             </div>
                         </div>
+                        ${data.dry_run ? `
+                            <div class="message info" style="margin: 12px 0; padding: 16px; background: rgba(99, 102, 241, 0.1); border-left: 4px solid var(--accent);">
+                                <span>👁️</span>
+                                <span><strong>DRY RUN MODE</strong> — This is a preview only. No changes have been saved. Uncheck "Dry Run" to process and save.</span>
+                            </div>
+                        ` : ''}
+                        ${data.multi_section ? `
+                            <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                                <span>📑</span>
+                                <span>Multi-section mode: Reference sections were processed independently.</span>
+                            </div>
+                        ` : ''}
+                        ${(stats.orphaned || 0) > 0 ? `
+                            <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                                <span>🗑️</span>
+                                <span><strong>${stats.orphaned}</strong> orphaned reference(s) were found in the reference section but not cited in the document body. They have been moved to the "Unused References" section.</span>
+                            </div>
+                        ` : ''}
+                        ${(stats.duplicates_merged || 0) > 0 ? `
+                            <div class="message info" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                                <span>🔗</span>
+                                <span><strong>${stats.duplicates_merged}</strong> duplicate reference(s) were detected and merged into single citations.</span>
+                            </div>
+                        ` : ''}
+                        ${(stats.needs_review || 0) > 0 ? `
+                            <div class="message warning" style="margin: 12px 0; padding: 12px; font-size: 0.9rem;">
+                                <span>⚠️</span>
+                                <span><strong>${stats.needs_review}</strong> citation(s) may need manual review. Check the "Citations Requiring Review" section in the processed document.</span>
+                            </div>
+                        ` : ''}
                         ${data.saved_to_file ? `
                             <div class="message success" style="margin: 16px 0; padding: 16px;">
                                 <span>💾</span>
@@ -3146,3 +3595,5 @@
     </script>
 </body>
 </html>
+
+

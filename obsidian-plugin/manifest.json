@@ -1,9 +1,9 @@
 {
   "id": "citation-sculptor",
   "name": "CitationSculptor",
-  "version": "1.0.0",
+  "version": "2.2.0",
   "minAppVersion": "1.0.0",
-  "description": "Look up and insert Vancouver-style citations from PubMed, DOI, or article titles",
+  "description": "Comprehensive citation management: look up and insert citations (PMID, DOI, ISBN, arXiv), process documents, manage library, verify links",
   "author": "CitationSculptor",
   "authorUrl": "https://github.com/shah0006/CitationSculptor",
   "isDesktopOnly": true

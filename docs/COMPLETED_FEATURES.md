@@ -4,6 +4,55 @@ This document archives all completed features and implementation details. For ve
 
 ---
 
+## v2.2.0 (Dec 2025) - Complete Feature Parity
+
+### Full Feature Parity Across All Interfaces
+
+| Feature | Web UI | Obsidian | CLI |
+|---------|:------:|:--------:|:---:|
+| Single lookup | ✅ | ✅ | ✅ |
+| Batch lookup | ✅ | ✅ | ✅ |
+| PubMed search | ✅ | ✅ | ✅ |
+| Recent lookups | ✅ | ✅ | ✅ |
+| Process document | ✅ | ✅ | ✅ |
+| Dry run preview | ✅ | - | ✅ |
+| Multi-section | ✅ | - | ✅ |
+| Create backup | ✅ | ✅ | ✅ |
+| Restore backup | ✅ | ✅ | ✅ |
+| Library save/search | ✅ | ✅ | - |
+| BibTeX export | ✅ | ✅ | - |
+| Link verification | ✅ | ✅ | - |
+| Corrections workflow | ✅ | - | ✅ |
+
+### Web UI Enhancements
+- Recent Lookups tab (localStorage)
+- Dry Run preview checkbox
+- Multi-Section mode option
+- Corrections workflow page
+- 7-stat comprehensive results
+
+### Obsidian Plugin Enhancements
+- `save-to-library` command
+- `search-library` command with modal
+- `export-bibtex` command
+- `verify-links` command with modal
+- `LibrarySearchModal` class
+- `LinkVerificationModal` class
+
+### CLI Enhancements
+- `--interactive` / `-i` flag for REPL mode
+- `--lookup <ID>` for quick single lookup
+- `--restore-backup <FILE>` for file restoration
+- `run_interactive_mode()` function with commands
+
+### API Enhancements
+- `/api/corrections/generate` endpoint
+- `/api/corrections/apply` endpoint
+- `dry_run` parameter in process-document
+- `multi_section` parameter in process-document
+
+---
+
 ## v0.5.1 (Dec 2025) - Code Quality
 
 ### Test Coverage Expansion

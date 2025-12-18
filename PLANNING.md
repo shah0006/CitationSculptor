@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 2.1.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.1 Complete!
+**Version:** 2.2.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.2 Complete!
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -16,7 +16,15 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 ---
 
-## ✅ All Phases Complete - v2.1.0 Achieved!
+## ✅ All Phases Complete - v2.2.0 Achieved!
+
+### v2.2.0 - Complete Feature Parity (Dec 2025) ✅
+- **Web UI**: Recent Lookups tab, Dry Run preview, Multi-Section mode, Corrections workflow
+- **Obsidian Plugin**: Library save/search, BibTeX export, Link verification command
+- **CLI**: Interactive mode (`--interactive`), Quick lookup (`--lookup`), Restore backup (`--restore-backup`)
+- **API**: `/api/corrections/generate`, `/api/corrections/apply`, `dry_run` & `multi_section` params
+- **Statistics**: 7 stat cards in Web UI (Processed, Review, Failed, Orphaned, Duplicates, Replacements)
+- **Abbreviations**: Organization abbreviations (ACC, AHA, NIH) only in citation tags, full names in body
 
 ### v2.1.0 - Document Intelligence & Safety (Dec 2025) ✅
 - **Link Verification**: Parallel URL checking with redirect/broken/archived detection

@@ -309,7 +309,7 @@ config = Config()
 # Version Information
 # ==========================================================================
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 VERSION_DATE = "2025-12"
 
 

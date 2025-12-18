@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mcp_server.http_server import CitationHTTPHandler, run_server
 from citation_lookup import LookupResult
+from modules.reference_parser import ParsedReference
 
 
 class MockLookup:
@@ -150,6 +151,64 @@ class TestCitationHTTPHandler:
         assert formatted['success'] is False
         assert formatted['error'] == "Not found"
         assert formatted['inline_mark'] == ""
+
+    def test_ai_enhanced_lookup_uses_raw_pubmed_query(self):
+        """
+        Regression test:
+        AI-enhanced lookup must use PubMedClient.search_by_query() (raw query)
+        so qualifiers like [Journal] are preserved and long queries aren't truncated.
+        """
+        handler = CitationHTTPHandler.__new__(CitationHTTPHandler)
+
+        # Mock PubMed client returns a single hit with the target PMID
+        mock_pubmed_client = Mock()
+        mock_article = MagicMock()
+        mock_article.pmid = "23086037"
+        mock_pubmed_client.search_by_query.return_value = [mock_article]
+
+        # Mock lookup_pmid returns a successful lookup with a matching title
+        def _mock_lookup_pmid(pmid: str) -> LookupResult:
+            return LookupResult(
+                success=True,
+                identifier=str(pmid),
+                identifier_type="pmid",
+                inline_mark="[^LeeJ-2013-23086037]",
+                endnote_citation="[^LeeJ-2013-23086037]: Lee J...",
+                full_citation="[^LeeJ-2013-23086037]: Lee J... [PMID: 23086037](https://pubmed.ncbi.nlm.nih.gov/23086037/)",
+                metadata={"title": "Upregulated NLRP3 inflammasome activation in patients with type 2 diabetes"},
+                error=None,
+            )
+
+        # Attach minimal lookup object
+        handler.lookup = MagicMock()
+        handler.lookup.pubmed_client = mock_pubmed_client
+        handler.lookup.lookup_pmid.side_effect = _mock_lookup_pmid
+
+        ref = ParsedReference(
+            original_number=48,
+            original_text=(
+                "48. (Author(s) not specified). Up-regulated NLRP3 inflammasome activation in patients with type 2 diabetes. "
+                "_Diabetes_. 2013;62(1):194-206. doi:10.2337/db12-1102."
+            ),
+            title="(Author(s) not specified)",
+            url="https://diabetesjournals.org/diabetes/article/62/1/194/15121/Upregulated-NLRP3-Inflammasome-Activation-in",
+            source_name=None,
+            line_number=0,
+            metadata={"doi": "10.2337/db12-1102"},
+        )
+
+        result = handler._ai_enhanced_lookup(ref)
+        assert result is not None
+        assert result.get("success") is True
+        assert "23086037" in (result.get("identifier") or "")
+
+        # Ensure we used raw query search and did not use [pdat] or explicit AND operators.
+        assert mock_pubmed_client.search_by_query.call_count == 1
+        called_query = mock_pubmed_client.search_by_query.call_args[0][0]
+        assert "[Journal]" in called_query
+        assert "2013" in called_query
+        assert "[pdat]" not in called_query
+        assert " AND " not in called_query
 
 
 class TestHTTPEndpointsIntegration:

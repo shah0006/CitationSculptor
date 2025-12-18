@@ -426,6 +426,21 @@ class TestPubMedClient:
         mock_eutils.assert_called_once()
         # The query should be truncated to ~100 chars at word boundary
 
+    @patch.object(PubMedClient, '_eutils_request')
+    def test_search_by_query_preserves_pubmed_qualifiers(self, mock_eutils):
+        """Raw query search should not strip bracketed PubMed field qualifiers."""
+        search_xml = '<eSearchResult><IdList></IdList></eSearchResult>'
+        mock_eutils.return_value = ET.fromstring(search_xml)
+
+        q = "NLRP3 inflammasome activation Diabetes[Journal] 2013"
+        self.client.search_by_query(q, max_results=5)
+
+        assert mock_eutils.call_count == 1
+        called_url, called_params = mock_eutils.call_args[0]
+        assert called_url == self.client.ESEARCH_URL
+        assert called_params["term"] == q
+        assert called_params["retmax"] == 5
+
     def test_article_to_metadata_parsing(self):
         """Test parsing various article JSON structures."""
         article_dict = {
@@ -636,9 +651,10 @@ class TestWebpageScraper:
         # Year extracted from citation_publication_date
         assert result.year == "2024"
 
+    @patch.object(WebpageScraper, '_scrape_with_playwright', return_value=None)
     @patch('requests.get')
-    def test_extract_metadata_cloudflare_blocked(self, mock_get):
-        """Test handling of Cloudflare-blocked pages."""
+    def test_extract_metadata_cloudflare_blocked(self, mock_get, mock_playwright):
+        """Test handling of Cloudflare-blocked pages (when Playwright also fails)."""
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = 'Just a moment... challenge-platform'
@@ -648,9 +664,10 @@ class TestWebpageScraper:
 
         assert failure == "blocked_cloudflare"
 
+    @patch.object(WebpageScraper, '_scrape_with_playwright', return_value=None)
     @patch('requests.get')
-    def test_extract_metadata_403_error(self, mock_get):
-        """Test handling of 403 errors."""
+    def test_extract_metadata_403_error(self, mock_get, mock_playwright):
+        """Test handling of 403 errors (when Playwright also fails)."""
         from requests.exceptions import HTTPError
         mock_response = Mock()
         mock_response.status_code = 403

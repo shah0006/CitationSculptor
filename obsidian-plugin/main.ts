@@ -856,6 +856,185 @@ class AbstractModal extends Modal {
 }
 
 // ============================================================================
+// Library Search Modal
+// ============================================================================
+
+class LibrarySearchModal extends Modal {
+  plugin: CitationSculptorPlugin;
+  resultsEl: HTMLElement;
+
+  constructor(app: App, plugin: CitationSculptorPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("citation-sculptor-modal");
+    contentEl.createEl("h2", { text: "🗃️ Search Citation Library" });
+
+    // Search input
+    const searchContainer = contentEl.createDiv({ cls: "search-container" });
+    const searchInput = new TextComponent(searchContainer);
+    searchInput.setPlaceholder("Search by title, author, or identifier...");
+    searchInput.inputEl.style.width = "100%";
+    searchInput.inputEl.style.marginBottom = "16px";
+
+    // Results container
+    this.resultsEl = contentEl.createDiv({ cls: "library-results" });
+    this.resultsEl.style.maxHeight = "400px";
+    this.resultsEl.style.overflow = "auto";
+
+    // Load all library items initially
+    this.searchLibrary("");
+
+    // Search on input
+    searchInput.inputEl.addEventListener("input", () => {
+      this.searchLibrary(searchInput.getValue());
+    });
+  }
+
+  async searchLibrary(query: string) {
+    this.resultsEl.empty();
+    this.resultsEl.createEl("p", { text: "Loading...", cls: "loading" });
+
+    try {
+      const response = await requestUrl({
+        url: `${this.plugin.settings.httpApiUrl}/api/library/list?q=${encodeURIComponent(query)}`,
+        method: "GET",
+      });
+
+      const data = response.json;
+      this.resultsEl.empty();
+
+      if (!data.citations || data.citations.length === 0) {
+        this.resultsEl.createEl("p", {
+          text: query ? "No matching citations found" : "Library is empty",
+          cls: "no-results",
+        });
+        return;
+      }
+
+      data.citations.forEach((cit: any) => {
+        const itemEl = this.resultsEl.createDiv({ cls: "library-item" });
+        itemEl.style.padding = "12px";
+        itemEl.style.marginBottom = "8px";
+        itemEl.style.borderRadius = "6px";
+        itemEl.style.background = "var(--background-secondary)";
+        itemEl.style.cursor = "pointer";
+
+        const titleEl = itemEl.createEl("div", {
+          text: cit.title || "Untitled",
+          cls: "library-item-title",
+        });
+        titleEl.style.fontWeight = "600";
+        titleEl.style.marginBottom = "4px";
+
+        const metaEl = itemEl.createEl("div", {
+          text: `${cit.authors?.[0] || "Unknown"} • ${cit.year || "N/A"} • ${cit.identifier_type}: ${cit.identifier}`,
+          cls: "library-item-meta",
+        });
+        metaEl.style.fontSize = "12px";
+        metaEl.style.color = "var(--text-muted)";
+
+        // Click to insert
+        itemEl.addEventListener("click", () => {
+          if (cit.inline_mark) {
+            const editor = this.app.workspace.activeEditor?.editor;
+            if (editor) {
+              editor.replaceSelection(cit.inline_mark);
+              new Notice(`Inserted: ${cit.inline_mark}`);
+              this.close();
+            }
+          }
+        });
+      });
+    } catch (e: any) {
+      this.resultsEl.empty();
+      this.resultsEl.createEl("p", {
+        text: `Error: ${e.message}`,
+        cls: "error",
+      });
+    }
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+// ============================================================================
+// Link Verification Modal
+// ============================================================================
+
+class LinkVerificationModal extends Modal {
+  results: any[];
+
+  constructor(app: App, results: any[]) {
+    super(app);
+    this.results = results;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("citation-sculptor-modal");
+    contentEl.createEl("h2", { text: "🔗 Link Verification Results" });
+
+    const broken = this.results.filter((r) => !r.accessible);
+    const valid = this.results.filter((r) => r.accessible);
+
+    // Summary
+    const summaryEl = contentEl.createDiv({ cls: "verification-summary" });
+    summaryEl.style.marginBottom = "16px";
+    summaryEl.innerHTML = `
+      <div style="display: flex; gap: 16px;">
+        <span style="color: var(--text-success);">✅ ${valid.length} valid</span>
+        <span style="color: var(--text-error);">❌ ${broken.length} broken</span>
+      </div>
+    `;
+
+    // Results list
+    const listEl = contentEl.createDiv({ cls: "verification-list" });
+    listEl.style.maxHeight = "400px";
+    listEl.style.overflow = "auto";
+
+    // Show broken first
+    [...broken, ...valid].forEach((r) => {
+      const itemEl = listEl.createDiv({ cls: "verification-item" });
+      itemEl.style.padding = "8px";
+      itemEl.style.marginBottom = "4px";
+      itemEl.style.borderRadius = "4px";
+      itemEl.style.background = r.accessible
+        ? "var(--background-secondary)"
+        : "rgba(255,0,0,0.1)";
+
+      const statusIcon = r.accessible ? "✅" : "❌";
+      const statusText = r.status_code
+        ? `(${r.status_code})`
+        : r.error || "Unknown error";
+
+      itemEl.createEl("div", {
+        text: `${statusIcon} ${r.url}`,
+        cls: "verification-url",
+      }).style.fontFamily = "monospace";
+
+      if (!r.accessible) {
+        const errorEl = itemEl.createEl("div", {
+          text: statusText,
+          cls: "verification-error",
+        });
+        errorEl.style.fontSize = "12px";
+        errorEl.style.color = "var(--text-muted)";
+      }
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+// ============================================================================
 // Settings Tab
 // ============================================================================
 
@@ -1426,6 +1605,133 @@ export default class CitationSculptorPlugin extends Plugin {
       },
     });
 
+    // === Library Commands ===
+    
+    // Save current citation to library
+    this.addCommand({
+      id: "save-to-library",
+      name: "Save Last Citation to Library",
+      callback: async () => {
+        if (!this.settings.useHttpApi) {
+          new Notice("Library requires HTTP API. Enable it in settings.");
+          return;
+        }
+        
+        const recent = this.settings.recentLookups;
+        if (recent.length === 0) {
+          new Notice("No recent citation to save. Look up a citation first.");
+          return;
+        }
+        
+        const lastLookup = recent[recent.length - 1];
+        new Notice(`Saving citation to library...`);
+        
+        try {
+          const result = await this.lookupCitation(lastLookup.identifier);
+          if (result.success) {
+            const saved = await this.saveToLibrary(result);
+            if (saved) {
+              new Notice("✅ Citation saved to library!");
+            }
+          } else {
+            new Notice(`Error: ${result.error}`);
+          }
+        } catch (e: any) {
+          new Notice(`Error: ${e.message}`);
+        }
+      },
+    });
+
+    // Search library command
+    this.addCommand({
+      id: "search-library",
+      name: "Search Citation Library",
+      callback: async () => {
+        if (!this.settings.useHttpApi) {
+          new Notice("Library requires HTTP API. Enable it in settings.");
+          return;
+        }
+        new LibrarySearchModal(this.app, this).open();
+      },
+    });
+
+    // === Import/Export Commands ===
+    
+    // Export selection as BibTeX
+    this.addCommand({
+      id: "export-bibtex",
+      name: "Export Selection as BibTeX",
+      editorCallback: async (editor: Editor) => {
+        const selection = editor.getSelection().trim();
+        if (!selection) {
+          new Notice("Please select citation identifiers (PMIDs, DOIs)");
+          return;
+        }
+        
+        const ids = selection.split(/[\n,;]+/).map(s => s.trim()).filter(s => s);
+        if (ids.length === 0) {
+          new Notice("No valid identifiers found in selection");
+          return;
+        }
+        
+        new Notice(`Exporting ${ids.length} citation(s) as BibTeX...`);
+        
+        try {
+          const response = await requestUrl({
+            url: `${this.settings.httpApiUrl}/api/export/bibtex?ids=${encodeURIComponent(ids.join(','))}`,
+            method: "GET",
+          });
+          
+          if (response.text) {
+            await navigator.clipboard.writeText(response.text);
+            new Notice(`✅ BibTeX copied to clipboard (${ids.length} entries)`);
+          }
+        } catch (e: any) {
+          new Notice(`Export failed: ${e.message}`);
+        }
+      },
+    });
+
+    // === Document Intelligence Commands ===
+    
+    // Verify links command
+    this.addCommand({
+      id: "verify-links",
+      name: "Verify Links in Current Note",
+      editorCallback: async (editor: Editor) => {
+        const content = editor.getValue();
+        if (!content) {
+          new Notice("Current note is empty");
+          return;
+        }
+        
+        new Notice("Verifying links...");
+        
+        try {
+          const response = await requestUrl({
+            url: `${this.settings.httpApiUrl}/api/verify-links`,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content }),
+          });
+          
+          const data = response.json;
+          if (data.results) {
+            const broken = data.results.filter((r: any) => !r.accessible);
+            if (broken.length === 0) {
+              new Notice(`✅ All ${data.results.length} links are valid!`);
+            } else {
+              new Notice(`⚠️ ${broken.length}/${data.results.length} links have issues`);
+              // Show details in a modal
+              new LinkVerificationModal(this.app, data.results).open();
+            }
+          }
+        } catch (e: any) {
+          new Notice(`Verification failed: ${e.message}`);
+        }
+      },
+    });
+
     // Add settings tab
     this.addSettingTab(new CitationSculptorSettingTab(this.app, this));
   }
@@ -1960,6 +2266,39 @@ export default class CitationSculptorPlugin extends Plugin {
     await this.saveSettings();
     
     return backupPath;
+  }
+
+  /**
+   * Save a citation to the server library.
+   */
+  async saveToLibrary(result: any): Promise<boolean> {
+    try {
+      const response = await requestUrl({
+        url: `${this.settings.httpApiUrl}/api/library/save`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          citation: {
+            identifier_type: result.identifier_type,
+            identifier: result.identifier,
+            title: result.metadata?.title || "",
+            authors: result.metadata?.authors || [],
+            year: result.metadata?.year || "",
+            style: this.settings.citationStyle,
+            inline_mark: result.inline_mark,
+            full_citation: result.full_citation,
+            metadata: result.metadata,
+            tags: [],
+          },
+        }),
+      });
+      
+      const data = response.json;
+      return data.success === true;
+    } catch (e: any) {
+      console.error("Failed to save to library:", e);
+      return false;
+    }
   }
 
   async processDocumentContent(content: string): Promise<{

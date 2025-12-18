@@ -539,7 +539,8 @@ class ReferenceParser:
             
             if extra_info:
                 # Extract DOI if present - DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
-                doi_match = re.search(r'doi[:\s]*(10\.\d{4,}/[^\s\)\]<>]+)', extra_info, re.IGNORECASE)
+                # Exclude ? from DOI capture to avoid query parameters
+                doi_match = re.search(r'doi[:\s]*(10\.\d{4,}/[^\s\)\]<>\?]+)', extra_info, re.IGNORECASE)
                 if doi_match:
                     doi = doi_match.group(1).rstrip('.,;')
                     metadata['doi'] = doi
@@ -605,7 +606,8 @@ class ReferenceParser:
             
             # ALWAYS try to extract DOI from text and store in metadata
             # DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
-            doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>]+)', content, re.IGNORECASE)
+            # Exclude ? from DOI capture to avoid query parameters
+            doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>\?]+)', content, re.IGNORECASE)
             if doi_match:
                 doi = doi_match.group(1).rstrip('.,;')
                 metadata['doi'] = doi
@@ -670,8 +672,9 @@ class ReferenceParser:
                 # ALWAYS try to extract DOI from text and store in metadata
                 # This helps even when URL is present but doesn't contain the DOI
                 # DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
+                # Exclude ? from DOI capture to avoid query parameters
                 metadata = {}
-                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>]+)', content, re.IGNORECASE)
+                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>\?]+)', content, re.IGNORECASE)
                 if doi_match:
                     doi = doi_match.group(1).rstrip('.,;')
                     metadata['doi'] = doi

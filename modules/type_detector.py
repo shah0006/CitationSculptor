@@ -33,10 +33,11 @@ class CitationTypeDetector:
     # Note: DOIs contain registrant/suffix separated by /. We need to stop before
     # trailing URL paths like /full, /abstract, /pdf, etc.
     DOI_PATTERNS = [
-        r'doi\.org/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',  # doi.org/10.xxxx/yyy or 10.xxxx/yyy/zzz
-        r'/doi/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',      # /doi/10.xxxx/... (Wiley, OUP)
-        r'/articles?/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)', # /article/10.xxxx/... (BMC, Springer, Frontiers)
-        r'/chapter/(10\.\d{4,}/[^\s\)\]/]+(?:/[^\s\)\]/]+)?)',  # /chapter/10.xxxx/... (Springer book chapters)
+        r'doi\.org/(10\.\d{4,}/[^\s\)\]/\?]+(?:/[^\s\)\]/\?]+)?)',  # doi.org/10.xxxx/yyy or 10.xxxx/yyy/zzz
+        r'/doi/(?:abs(?:tract)?/|full/)?(10\.\d{4,}/[^\s\)\]/\?]+(?:/[^\s\)\]/\?]+)?)',  # /doi/10.xxxx or /doi/abs/10.xxxx (AHA, OUP)
+        r'/articles?/(10\.\d{4,}/[^\s\)\]/\?]+(?:/[^\s\)\]/\?]+)?)', # /article/10.xxxx/... (BMC, Springer, Frontiers)
+        r'/chapter/(10\.\d{4,}/[^\s\)\]/\?]+(?:/[^\s\)\]/\?]+)?)',  # /chapter/10.xxxx/... (Springer book chapters)
+        r'/(10\.\d{4,9}/[A-Za-z0-9\.\-_]+)(?:/(?:pdf|full|abstract|html))?(?:\?|$)',  # Generic DOI in path (IMR Press, etc.)
     ]
     
     # URL path suffixes that are NOT part of DOIs - used to strip trailing paths
@@ -120,6 +121,28 @@ class CitationTypeDetector:
         - Trailing punctuation
         - OUP-style article IDs (e.g., /7236864 after DOI in academic.oup.com URLs)
         """
+        # Special handling for MDPI URLs
+        # Format: mdpi.com/1422-0067/26/2/535 → DOI: 10.3390/ijms26020535
+        # MDPI uses ISSN in URL, maps to journal abbreviation in DOI
+        mdpi_match = re.search(r'mdpi\.com/(\d{4}-\d{4})/(\d+)/(\d+)/(\d+)', url, re.IGNORECASE)
+        if mdpi_match:
+            issn, volume, issue, article = mdpi_match.groups()
+            # Map ISSN to journal abbreviation
+            mdpi_journals = {
+                '1422-0067': 'ijms',  # Int J Mol Sci
+                '2073-4409': 'cells',
+                '1999-4923': 'pharmaceutics',
+                '2072-6643': 'nu',  # Nutrients
+                '2077-0383': 'jcm',  # J Clin Med
+                '1424-8220': 'sensors',
+                '2076-3417': 'app',  # Applied Sciences
+                '1420-3049': 'molecules',
+            }
+            journal_abbrev = mdpi_journals.get(issn, issn.replace('-', ''))
+            # Format: 10.3390/ijms26020535 (volume + padded issue + article)
+            doi = f"10.3390/{journal_abbrev}{volume}{issue.zfill(2)}{article.zfill(4)}"
+            return doi
+        
         # Special handling for Nature.com URLs
         # Format: nature.com/articles/s41591-019-0675-0 → DOI: 10.1038/s41591-019-0675-0
         nature_match = re.search(r'nature\.com/articles/([a-z]\d+[-\w]+)', url, re.IGNORECASE)

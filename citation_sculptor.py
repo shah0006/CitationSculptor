@@ -1177,6 +1177,115 @@ class CitationSculptor:
         console.print(table)
 
 
+def run_interactive_mode():
+    """Interactive mode for citation lookups and PubMed searches."""
+    from citation_lookup import CitationLookup
+    
+    lookup = CitationLookup()
+    console.print(Panel.fit(
+        "[bold blue]CitationSculptor Interactive Mode[/bold blue]\n"
+        "Commands: [green]lookup[/green], [green]search[/green], [green]batch[/green], [green]help[/green], [green]quit[/green]",
+        border_style="blue"
+    ))
+    
+    while True:
+        try:
+            command = console.input("\n[bold cyan]>>> [/bold cyan]").strip()
+            
+            if not command:
+                continue
+            
+            parts = command.split(maxsplit=1)
+            cmd = parts[0].lower()
+            arg = parts[1] if len(parts) > 1 else ""
+            
+            if cmd in ("quit", "exit", "q"):
+                console.print("[dim]Goodbye![/dim]")
+                break
+            
+            elif cmd == "help":
+                console.print("""
+[bold]Available Commands:[/bold]
+  [green]lookup <id>[/green]    - Look up PMID, DOI, PMC ID, or title
+  [green]search <query>[/green] - Search PubMed
+  [green]batch[/green]          - Batch lookup (paste identifiers, end with blank line)
+  [green]quit[/green]           - Exit interactive mode
+                """)
+            
+            elif cmd == "lookup":
+                if not arg:
+                    arg = console.input("[dim]Enter identifier: [/dim]").strip()
+                if arg:
+                    with console.status("[cyan]Looking up...[/cyan]"):
+                        result = lookup.lookup_auto(arg)
+                    if result.success:
+                        console.print(f"\n[bold green]Inline:[/bold green] {result.inline_mark}")
+                        console.print(f"\n[bold green]Citation:[/bold green]\n{result.full_citation}")
+                    else:
+                        console.print(f"[red]Error: {result.error}[/red]")
+            
+            elif cmd == "search":
+                if not arg:
+                    arg = console.input("[dim]Enter search query: [/dim]").strip()
+                if arg:
+                    with console.status("[cyan]Searching PubMed...[/cyan]"):
+                        results = lookup.search_pubmed(arg, max_results=10)
+                    if results:
+                        console.print(f"\n[bold]Found {len(results)} result(s):[/bold]\n")
+                        for i, r in enumerate(results, 1):
+                            console.print(f"[cyan]{i}.[/cyan] {r.get('title', 'No title')}")
+                            console.print(f"   [dim]PMID: {r.get('pmid')} | {r.get('source', 'Unknown')} ({r.get('pubdate', 'N/A')})[/dim]\n")
+                        
+                        # Offer to look up
+                        sel = console.input("[dim]Enter number to lookup (or press Enter to skip): [/dim]").strip()
+                        if sel.isdigit():
+                            idx = int(sel) - 1
+                            if 0 <= idx < len(results):
+                                pmid = results[idx].get('pmid')
+                                if pmid:
+                                    with console.status("[cyan]Looking up...[/cyan]"):
+                                        result = lookup.lookup_auto(pmid)
+                                    if result.success:
+                                        console.print(f"\n[bold green]Inline:[/bold green] {result.inline_mark}")
+                                        console.print(f"\n[bold green]Citation:[/bold green]\n{result.full_citation}")
+                    else:
+                        console.print("[yellow]No results found[/yellow]")
+            
+            elif cmd == "batch":
+                console.print("[dim]Paste identifiers (one per line). Enter blank line to process:[/dim]")
+                lines = []
+                while True:
+                    line = console.input().strip()
+                    if not line:
+                        break
+                    lines.append(line)
+                
+                if lines:
+                    console.print(f"\n[cyan]Processing {len(lines)} identifier(s)...[/cyan]\n")
+                    for identifier in lines:
+                        with console.status(f"[cyan]Looking up {identifier}...[/cyan]"):
+                            result = lookup.lookup_auto(identifier)
+                        if result.success:
+                            console.print(f"[green]✓[/green] {result.inline_mark}")
+                        else:
+                            console.print(f"[red]✗[/red] {identifier}: {result.error}")
+            
+            else:
+                # Try as direct lookup
+                with console.status("[cyan]Looking up...[/cyan]"):
+                    result = lookup.lookup_auto(command)
+                if result.success:
+                    console.print(f"\n[bold green]Inline:[/bold green] {result.inline_mark}")
+                    console.print(f"\n[bold green]Citation:[/bold green]\n{result.full_citation}")
+                else:
+                    console.print(f"[yellow]Unknown command. Type 'help' for available commands.[/yellow]")
+        
+        except KeyboardInterrupt:
+            console.print("\n[dim]Use 'quit' to exit[/dim]")
+        except EOFError:
+            break
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1197,6 +1306,14 @@ def main():
                        help="Generate a corrections template for incomplete citations")
     parser.add_argument("--apply-corrections", metavar="FILE",
                        help="Apply corrections from a filled template file")
+    
+    # Interactive and restore modes
+    parser.add_argument("--interactive", "-i", action="store_true",
+                       help="Interactive mode: lookup citations and search PubMed")
+    parser.add_argument("--restore-backup", metavar="BACKUP_FILE",
+                       help="Restore from a backup file")
+    parser.add_argument("--lookup", metavar="ID",
+                       help="Quick lookup: provide PMID, DOI, or title")
 
     args = parser.parse_args()
 
@@ -1227,6 +1344,54 @@ def main():
         except Exception as e:
             console.print(f"[red]Error applying corrections: {e}[/red]")
             sys.exit(1)
+
+    # Handle restore-backup mode
+    if args.restore_backup:
+        if not args.input_file:
+            console.print("[red]Error: Must provide target file path with --restore-backup[/red]")
+            sys.exit(1)
+        
+        backup_path = Path(args.restore_backup)
+        target_path = Path(args.input_file)
+        
+        if not backup_path.exists():
+            console.print(f"[red]Error: Backup file not found: {backup_path}[/red]")
+            sys.exit(1)
+        
+        try:
+            import shutil
+            # Create backup of current file before restoring
+            if target_path.exists():
+                current_backup = target_path.with_suffix('.pre_restore.md')
+                shutil.copy2(target_path, current_backup)
+                console.print(f"[dim]Current file backed up to: {current_backup}[/dim]")
+            
+            # Restore from backup
+            shutil.copy2(backup_path, target_path)
+            console.print(f"[green]✓ Restored {target_path} from {backup_path}[/green]")
+            sys.exit(0)
+        except Exception as e:
+            console.print(f"[red]Error restoring backup: {e}[/red]")
+            sys.exit(1)
+
+    # Handle quick lookup mode
+    if args.lookup:
+        from citation_lookup import CitationLookup
+        lookup = CitationLookup()
+        console.print(f"[cyan]Looking up: {args.lookup}[/cyan]")
+        
+        result = lookup.lookup_auto(args.lookup)
+        if result.success:
+            console.print(f"\n[bold green]Inline:[/bold green] {result.inline_mark}")
+            console.print(f"\n[bold green]Citation:[/bold green]\n{result.full_citation}")
+        else:
+            console.print(f"[red]Error: {result.error}[/red]")
+        sys.exit(0 if result.success else 1)
+
+    # Handle interactive mode
+    if args.interactive:
+        run_interactive_mode()
+        sys.exit(0)
 
     # Require input file for normal processing
     if not args.input_file:

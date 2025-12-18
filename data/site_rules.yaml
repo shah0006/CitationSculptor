@@ -46,3 +46,91 @@ uclahealth.org:
   learned: true
   date_added: '2025-12-14T23:29:16.044325'
   publication_type: organization
+ir.ventyxbio.com:
+  organization: Ventyx Biosciences, Inc.
+  publication_name: ''
+  instructions: 'Organization: Ventyx Biosciences, Inc.
+
+    Authors: Found 2 author(s)
+
+    Date format: January 14, 2025'
+  learned: true
+  date_added: '2025-12-17T17:09:36.565407'
+  publication_type: webpage
+novonordisk.com:
+  organization: Novo Nordisk
+  publication_name: ''
+  instructions: 'Organization: Novo Nordisk
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T17:09:45.097875'
+  publication_type: webpage
+acc.org:
+  organization: American College of Cardiology
+  publication_name: ''
+  instructions: 'Organization: American College of Cardiology
+
+    Authors: Found 3 author(s)
+
+    Date format: Oct 31, 2023'
+  learned: true
+  date_added: '2025-12-17T17:11:04.492133'
+  publication_type: organization
+olatec.com:
+  organization: Olatec
+  publication_name: ''
+  instructions: 'Organization: Olatec
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T17:11:20.362038'
+  publication_type: webpage
+clinicaltrials.gov:
+  organization: ClinicalTrials.gov
+  publication_name: ''
+  instructions: 'Organization: ClinicalTrials.gov
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T17:11:23.804367'
+  publication_type: government
+researchgate.net:
+  organization: ResearchGate GmbH
+  publication_name: ''
+  instructions: 'Organization: ResearchGate GmbH
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T18:19:54.022436'
+  publication_type: webpage
+blocked.com:
+  organization: Blocked.com
+  publication_name: ''
+  instructions: 'Organization: Blocked.com
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T19:47:24.860441'
+  publication_type: webpage
+forbidden.com:
+  organization: forbidden.com
+  publication_name: ''
+  instructions: 'Organization: forbidden.com
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2025-12-17T19:47:30.247552'
+  publication_type: webpage

@@ -53,6 +53,7 @@ from modules.openalex_client import OpenAlexClient
 from modules.semantic_scholar_client import SemanticScholarClient
 from modules.pubmed_client import WebpageScraper
 from modules.learning_engine import get_learning_engine, LearningEngine
+from modules.output_generator import CorrectionsHandler
 from modules.document_intelligence import (
     DocumentIntelligence,
     LinkVerifier,
@@ -221,7 +222,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     content = f.read()
                 self._send_json({
                     'content': content,
-                    'version': '2.1.0',
+                    'version': '2.2.0',
                 })
             else:
                 self._send_json({'error': 'README not found'}, 404)
@@ -230,7 +231,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if path == '/health':
             self._send_json({
                 'status': 'ok',
-                'version': '2.1.0',
+                'version': '2.2.0',
                 'features': {
                     'pdf_support': PYMUPDF_AVAILABLE,
                     'citation_styles': get_available_styles(),
@@ -1218,9 +1219,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             style = data.get('style', 'vancouver')
             create_backup = data.get('create_backup', True)  # Default: create backup when file_path provided
             save_to_file = data.get('save_to_file', False)  # Option to save processed content back to file
+            dry_run = data.get('dry_run', False)  # Preview mode - don't save anything
+            multi_section = data.get('multi_section', False)  # Process multiple reference sections
             
             backup_path = None
             resolved_file_path = None
+            
+            # In dry run mode, don't save or create backups
+            if dry_run:
+                save_to_file = False
+                create_backup = False
             
             # Get content from file or direct input
             if file_path:
@@ -1251,6 +1259,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 # Include backup path in response
                 if backup_path:
                     result['backup_path'] = backup_path
+                
+                # Mark as dry run if applicable
+                if dry_run:
+                    result['dry_run'] = True
+                    result['message'] = '👁️ DRY RUN - Preview only, no changes saved'
+                
+                # Mark multi-section mode if used
+                if multi_section:
+                    result['multi_section'] = True
                 
                 # Save processed content back to original file if requested
                 if save_to_file and resolved_file_path and result.get('success'):
@@ -1440,6 +1457,112 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
             return
         
+        # === Corrections Workflow ===
+        if path == '/api/corrections/generate':
+            content = data.get('content')
+            if not content:
+                self._send_json({'error': 'Missing content'}, 400)
+                return
+            
+            try:
+                handler = CorrectionsHandler()
+                # Find Null citations in the content
+                null_citations = handler._find_null_citations(content)
+                
+                if not null_citations:
+                    self._send_json({
+                        'success': True,
+                        'has_corrections': False,
+                        'message': 'No citations need corrections',
+                        'template': '',
+                        'count': 0
+                    })
+                    return
+                
+                # Generate the template
+                template = handler._build_template(null_citations)
+                
+                self._send_json({
+                    'success': True,
+                    'has_corrections': True,
+                    'count': len(null_citations),
+                    'template': template,
+                    'citations': null_citations
+                })
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/corrections/apply':
+            content = data.get('content')  # Original document content
+            corrections = data.get('corrections', [])  # List of corrections
+            
+            if not content:
+                self._send_json({'error': 'Missing content'}, 400)
+                return
+            
+            if not corrections:
+                self._send_json({'error': 'Missing corrections'}, 400)
+                return
+            
+            try:
+                # Apply each correction
+                corrected_content = content
+                applied_count = 0
+                
+                for corr in corrections:
+                    tag = corr.get('tag', '')
+                    if not tag:
+                        continue
+                    
+                    # Find the line with this tag
+                    import re
+                    tag_escaped = re.escape(tag)
+                    pattern = rf'^(\{tag_escaped}:\s*)(.+)$'
+                    
+                    def replace_citation(match):
+                        nonlocal applied_count
+                        prefix = match.group(1)
+                        old_text = match.group(2)
+                        
+                        new_text = old_text
+                        
+                        # Replace Null_Date
+                        if corr.get('date') and 'Null_Date' in new_text:
+                            new_text = new_text.replace('Null_Date', corr['date'])
+                            applied_count += 1
+                        
+                        # Replace Null_Author
+                        if corr.get('authors') and 'Null_Author' in new_text:
+                            new_text = new_text.replace('Null_Author', corr['authors'])
+                            applied_count += 1
+                        
+                        # Replace Null_Organization
+                        if corr.get('organization') and 'Null_Organization' in new_text:
+                            new_text = new_text.replace('Null_Organization', corr['organization'])
+                            applied_count += 1
+                        
+                        # Replace title if provided
+                        if corr.get('title') and 'Untitled' in new_text:
+                            new_text = new_text.replace('Untitled', corr['title'])
+                        
+                        return prefix + new_text
+                    
+                    corrected_content = re.sub(pattern, replace_citation, corrected_content, flags=re.MULTILINE)
+                    
+                    # Replace tag if new_tag provided
+                    if corr.get('new_tag') and corr['new_tag'] != tag:
+                        corrected_content = corrected_content.replace(tag, corr['new_tag'])
+                
+                self._send_json({
+                    'success': True,
+                    'corrected_content': corrected_content,
+                    'applied_count': applied_count
+                })
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
         # Default: 404
         self._send_json({'error': f'Unknown endpoint: {path}'}, 404)
     
@@ -1580,13 +1703,40 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         body = parser.get_body_content()
         inline_style = parser._detect_inline_style(body)
         
+        # Detect which reference numbers are actually used in the body
+        import re
+        used_ref_numbers = set()
+        for match in re.finditer(r'\[\^?(\d+)\]', body):
+            used_ref_numbers.add(int(match.group(1)))
+        
+        logger.info(f"Found {len(used_ref_numbers)} unique inline references in body")
+        
         # Track results
         processed_citations = []
+        low_confidence_citations = []  # Citations that need manual review
+        orphaned_refs = []  # References not used in document body
         number_to_label_map = {}
         failed_refs = []
+        duplicates_merged = 0  # Count duplicates (streaming mode doesn't dedupe in real-time)
+        
+        # Deduplication tracking for streaming
+        seen_identifiers = {}  # identifier -> inline_mark
+        seen_full_citations = {}  # full_citation hash -> inline_mark
         
         # Process each reference with progress updates
         for idx, ref in enumerate(parser.references):
+            # Check if this reference is used in the document body
+            ref_num = getattr(ref, 'original_number', None)
+            if ref_num and ref_num not in used_ref_numbers:
+                # This is an orphaned reference - not used in the body
+                orphaned_refs.append({
+                    'original_number': ref_num,
+                    'title': ref.title[:80] if ref.title else 'Unknown',
+                    'url': ref.url if hasattr(ref, 'url') else None,
+                })
+                logger.info(f"Skipping orphaned reference #{ref_num} (not used in body)")
+                continue  # Skip processing orphaned references
+            
             # Send progress update
             self._send_sse_event('progress', {
                 'current': idx + 1,
@@ -1595,6 +1745,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'processing': ref.title[:60] + '...' if ref.title and len(ref.title) > 60 else (ref.title or f'Reference #{ref.original_number}'),
                 'stats': {
                     'processed': len(processed_citations),
+                    'needs_review': len(low_confidence_citations),
+                    'orphaned': len(orphaned_refs),
                     'failed': len(failed_refs),
                 },
             })
@@ -1606,20 +1758,35 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 # Keep the full inline mark format for proper replacement
                 inline_mark = result.get('inline_mark', '')
                 number_to_label_map[ref.original_number] = inline_mark
-                processed_citations.append({
+                
+                # Check confidence level
+                confidence = result.get('confidence', 'high')
+                requires_review = result.get('requires_review', False)
+                
+                citation_entry = {
                     'original_number': ref.original_number,
                     'title': ref.title,
                     'inline_mark': inline_mark,
                     'full_citation': result.get('full_citation', ''),
                     'identifier': result.get('identifier', ''),
                     'identifier_type': result.get('identifier_type', ''),
-                })
+                    'confidence': confidence,
+                    'review_reason': result.get('review_reason', ''),
+                    'url': ref.url if hasattr(ref, 'url') else None,
+                }
+                
+                # Route to appropriate list based on confidence
+                if requires_review or confidence == 'low':
+                    low_confidence_citations.append(citation_entry)
+                else:
+                    processed_citations.append(citation_entry)
                 
                 # Send success event for this reference
                 self._send_sse_event('ref_processed', {
                     'number': ref.original_number,
                     'success': True,
                     'title': ref.title[:50] if ref.title else 'Unknown',
+                    'needs_review': requires_review or confidence == 'low',
                 })
             else:
                 # Provide detailed error information
@@ -1666,6 +1833,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         for citation in sorted_citations:
             reference_section += f"{citation['full_citation']}\n\n"
         
+        # Add low-confidence citations that need manual review
+        if low_confidence_citations:
+            reference_section += "\n---\n\n### 📋 Citations Requiring Review\n\n"
+            reference_section += "_The following citations were resolved but may need verification. Please check the original sources._\n\n"
+            
+            sorted_review = sorted(low_confidence_citations, key=lambda c: c.get('original_number', 0))
+            for citation in sorted_review:
+                reference_section += f"{citation['full_citation']}\n"
+                review_reason = citation.get('review_reason', '')
+                url = citation.get('url', '')
+                if review_reason:
+                    reference_section += f"  - ⚠️ _Review reason: {review_reason}_\n"
+                if url:
+                    reference_section += f"  - Original URL: {url}\n"
+                reference_section += "\n"
+        
         # Add failed references section if any failed
         # This keeps the original numbers so users can track them down
         if failed_refs:
@@ -1691,6 +1874,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     reference_section += f"- Suggestion: {suggestion}\n"
                 reference_section += "\n"
         
+        # Add orphaned references section if any
+        if orphaned_refs:
+            reference_section += "\n---\n\n### 🗑️ Unused References\n\n"
+            reference_section += "_The following references were in the reference section but not cited in the document body. They have been removed._\n\n"
+            
+            sorted_orphans = sorted(orphaned_refs, key=lambda r: r.get('original_number', 0))
+            for ref in sorted_orphans:
+                num = ref.get('original_number', '?')
+                title = ref.get('title', 'Unknown')
+                url = ref.get('url', '')
+                
+                reference_section += f"**[{num}]** {title}\n"
+                if url:
+                    reference_section += f"- URL: {url}\n"
+                reference_section += "\n"
+        
         # Combine updated body with new references
         processed_content = updated_body + "\n\n" + reference_section.strip()
         
@@ -1699,11 +1898,16 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'success': True,
             'processed_content': processed_content,
             'citations': processed_citations,
+            'low_confidence_citations': low_confidence_citations,
             'failed_references': failed_refs,
+            'orphaned_references': orphaned_refs,
             'statistics': {
                 'total_references': len(parser.references),
                 'processed': len(processed_citations),
+                'needs_review': len(low_confidence_citations),
                 'failed': len(failed_refs),
+                'orphaned': len(orphaned_refs),
+                'duplicates_merged': duplicates_merged,
                 'inline_replacements': replacements_made,
                 'document_analysis': doc_stats,
             },
@@ -1928,17 +2132,41 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         body = parser.get_body_content()
         inline_style = parser._detect_inline_style(body)
         
+        # Detect which reference numbers are actually used in the body
+        import re
+        used_ref_numbers = set()
+        # Match [^N] or [N] patterns in body
+        for match in re.finditer(r'\[\^?(\d+)\]', body):
+            used_ref_numbers.add(int(match.group(1)))
+        
+        logger.info(f"Found {len(used_ref_numbers)} unique inline references in body")
+        
         # Track results
         processed_citations = []
+        low_confidence_citations = []  # Citations that need manual review
+        orphaned_refs = []  # References not used in document body
         number_to_label_map = {}
         failed_refs = []
         
         # Deduplication tracking - prevent same citation from appearing multiple times
         seen_identifiers = {}  # identifier -> inline_mark
         seen_full_citations = {}  # full_citation hash -> inline_mark
+        duplicates_merged = 0  # Count of duplicate references merged
         
         # Process each reference
         for ref in parser.references:
+            # Check if this reference is used in the document body
+            ref_num = getattr(ref, 'original_number', None)
+            if ref_num and ref_num not in used_ref_numbers:
+                # This is an orphaned reference - not used in the body
+                orphaned_refs.append({
+                    'original_number': ref_num,
+                    'title': ref.title[:80] if ref.title else 'Unknown',
+                    'url': ref.url if hasattr(ref, 'url') else None,
+                })
+                logger.info(f"Skipping orphaned reference #{ref_num} (not used in body)")
+                continue  # Skip processing orphaned references
+            
             result = self._process_single_reference(ref)
             
             if result and result.get('success'):
@@ -1952,12 +2180,14 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 if identifier and identifier in seen_identifiers:
                     # Reuse existing citation's inline mark
                     inline_mark = seen_identifiers[identifier]
+                    duplicates_merged += 1
                     logger.debug(f"Dedup: Reusing {inline_mark} for duplicate identifier {identifier}")
                 else:
                     # Check for duplicates by full citation text (for fallback citations)
                     citation_key = full_citation[:100].lower().strip()
                     if citation_key in seen_full_citations:
                         inline_mark = seen_full_citations[citation_key]
+                        duplicates_merged += 1
                         logger.debug(f"Dedup: Reusing {inline_mark} for duplicate citation")
                     else:
                         # New unique citation - track it
@@ -1965,15 +2195,28 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                             seen_identifiers[identifier] = inline_mark
                         seen_full_citations[citation_key] = inline_mark
                         
-                        # Only add to processed_citations if it's new
-                        processed_citations.append({
+                        # Check if this is a low-confidence citation that needs review
+                        confidence = result.get('confidence', 'high')
+                        requires_review = result.get('requires_review', False)
+                        review_reason = result.get('review_reason', '')
+                        
+                        citation_entry = {
                             'original_number': ref.original_number,
                             'title': ref.title,
                             'inline_mark': inline_mark,
                             'full_citation': full_citation,
                             'identifier': identifier,
                             'identifier_type': result.get('identifier_type', ''),
-                        })
+                            'confidence': confidence,
+                            'review_reason': review_reason,
+                            'url': ref.url if hasattr(ref, 'url') else None,
+                        }
+                        
+                        # Route to appropriate list based on confidence
+                        if requires_review or confidence == 'low':
+                            low_confidence_citations.append(citation_entry)
+                        else:
+                            processed_citations.append(citation_entry)
                 
                 # Always map the original number to the (possibly reused) inline mark
                 number_to_label_map[ref.original_number] = inline_mark
@@ -2007,6 +2250,23 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         for citation in sorted_citations:
             reference_section += f"{citation['full_citation']}\n\n"
         
+        # Add low-confidence citations that need manual review
+        if low_confidence_citations:
+            reference_section += "\n---\n\n### 📋 Citations Requiring Review\n\n"
+            reference_section += "_The following citations were resolved but may need verification. Please check the original sources._\n\n"
+            
+            # Sort by original number for easy lookup
+            sorted_review = sorted(low_confidence_citations, key=lambda c: c.get('original_number', 0))
+            for citation in sorted_review:
+                reference_section += f"{citation['full_citation']}\n"
+                review_reason = citation.get('review_reason', '')
+                url = citation.get('url', '')
+                if review_reason:
+                    reference_section += f"  - ⚠️ _Review reason: {review_reason}_\n"
+                if url:
+                    reference_section += f"  - Original URL: {url}\n"
+                reference_section += "\n"
+        
         # Add failed references section if any failed
         # This keeps the original numbers so users can track them down
         if failed_refs:
@@ -2032,6 +2292,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     reference_section += f"- Suggestion: {suggestion}\n"
                 reference_section += "\n"
         
+        # Add orphaned references section if any
+        if orphaned_refs:
+            reference_section += "\n---\n\n### 🗑️ Unused References\n\n"
+            reference_section += "_The following references were in the reference section but not cited in the document body. They have been removed._\n\n"
+            
+            sorted_orphans = sorted(orphaned_refs, key=lambda r: r.get('original_number', 0))
+            for ref in sorted_orphans:
+                num = ref.get('original_number', '?')
+                title = ref.get('title', 'Unknown')
+                url = ref.get('url', '')
+                
+                reference_section += f"**[{num}]** {title}\n"
+                if url:
+                    reference_section += f"- URL: {url}\n"
+                reference_section += "\n"
+        
         # Combine updated body with new references
         processed_content = updated_body + "\n\n" + reference_section.strip()
         
@@ -2039,16 +2315,247 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'success': True,
             'processed_content': processed_content,
             'citations': processed_citations,
+            'low_confidence_citations': low_confidence_citations,
             'failed_references': failed_refs,
+            'orphaned_references': orphaned_refs,
             'statistics': {
                 'total_references': len(parser.references),
                 'processed': len(processed_citations),
+                'needs_review': len(low_confidence_citations),
                 'failed': len(failed_refs),
+                'orphaned': len(orphaned_refs),
+                'duplicates_merged': duplicates_merged,
                 'inline_replacements': replacements_made,
                 # Include comprehensive document analysis stats
                 'document_analysis': doc_stats,
             },
         }
+    
+    def _ai_enhanced_lookup(self, ref: ParsedReference) -> Optional[Dict[str, Any]]:
+        """
+        Use AI/LLM to extract metadata from reference text and search databases.
+        
+        This catches cases where:
+        - DOI doesn't resolve but article exists in PubMed
+        - Webpage scraping failed but reference text has enough info
+        - Title search didn't find a match but more specific search terms might
+        
+        Strategy:
+        1. Extract clean title, authors, journal, year from reference text
+        2. Construct optimized PubMed search query
+        3. Try multiple search variations
+        4. Validate results match the reference
+        """
+        try:
+            import re
+            
+            original_text = getattr(ref, 'original_text', '') or ''
+            if not original_text or len(original_text) < 20:
+                return None
+            
+            # Extract metadata from reference text using pattern matching
+            # Extract title - usually between author and journal
+            title_match = None
+            journal_match_text = None
+            
+            # First, extract journal name (in italics like _Diabetes_ or _J Clin Med_)
+            # This helps us NOT confuse journal with title
+            # NOTE: Exclude non-journal names that might appear in italics (websites, repositories)
+            NON_JOURNAL_NAMES = {
+                'researchgate', 'wikipedia', 'pubmed', 'pmc', 'clinicaltrials', 'clinicaltrialsarena',
+                'firstwordpharma', 'firstword pharma', 'barchart', 'prnewswire', 'businesswire',
+                'globenewswire', 'ahajournals', 'frontiers', 'mdpi', 'springer', 'elsevier',
+                'wiley', 'nature', 'science', 'abstract only',
+            }
+            italic_match = re.search(r'[_*]([A-Z][a-zA-Z\s&]+(?:Res|Med|J|Rev|Biol|Sci|Int|Nat|Cell|Dis|Pharmacol)?)[_*]', original_text)
+            if italic_match:
+                candidate_journal = italic_match.group(1).strip()
+                # Only use if it's a real journal name, not a website/repository
+                if candidate_journal.lower() not in NON_JOURNAL_NAMES:
+                    journal_match_text = candidate_journal
+            
+            # Pattern 1: Title after author but before journal
+            # Format: "N. (Author). Title. _Journal_. Year..."
+            # Look for the longest meaningful segment before the journal
+            parts = original_text.split('.')
+            if len(parts) >= 2:
+                candidates = []
+                for i, part in enumerate(parts):
+                    clean = part.strip()
+                    # Skip if it's EXACTLY the journal name (in italics)
+                    # Don't skip just because the title contains the journal word
+                    if journal_match_text and clean.strip('_* ').lower() == journal_match_text.lower():
+                        continue
+                    # Skip if it starts with number (reference number)
+                    if re.match(r'^\d+', clean):
+                        clean = re.sub(r'^\d+\s*', '', clean)
+                    # Skip author patterns like "(Author not specified)"
+                    if clean.startswith('(') or 'not specified' in clean.lower():
+                        continue
+                    # Skip doi, link, year, URL patterns
+                    if clean.lower().startswith(('doi:', 'link', 'http', '[link')) or re.match(r'^(19|20)\d{2}', clean):
+                        continue
+                    # Skip if it looks like a URL or contains URL markers
+                    # Check for common TLD patterns that indicate URL fragments
+                    url_indicators = [
+                        'http', '://', 'www.', '.org/', '.com/', '.net/', '.gov/', '.edu/',
+                        'org/', 'net/', 'com/', '/publication/', '/article/', '/doi/',
+                    ]
+                    if any(ind in clean.lower() for ind in url_indicators) or re.search(r'/\d+/', clean):
+                        continue
+                    # Also skip if it looks like a markdown link remnant
+                    if clean.startswith('[') or clean.endswith(')') or '](http' in clean:
+                        continue
+                    # Good title candidates are 25+ chars
+                    # Allow more commas for longer titles (author lists in titles are common in academic papers)
+                    # Heuristic: allow ~1 comma per 50 chars
+                    max_commas = max(3, len(clean) // 50 + 2)
+                    if len(clean) > 25 and clean.count(',') < max_commas:
+                        candidates.append((len(clean), clean, i))
+                
+                if candidates:
+                    candidates.sort(reverse=True)
+                    title_match = candidates[0][1]
+            
+            # Extract year
+            year_match = re.search(r'\b(19|20)\d{2}\b', original_text)
+            year = year_match.group(0) if year_match else None
+            
+            # Use the journal we already extracted
+            journal = journal_match_text
+            
+            def _dedupe_preserve_order(items: List[str]) -> List[str]:
+                seen = set()
+                out: List[str] = []
+                for it in items:
+                    key = (it or '').strip().lower()
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(it)
+                return out
+
+            def _extract_keywords_from_title(title: str, max_terms: int = 8) -> List[str]:
+                """
+                Extract PubMed-friendly search terms from a title.
+                - PubMed uses implicit AND for space-separated terms (avoid explicit 'AND')
+                - Keep disease / mechanism terms (e.g., diabetes, inflammasome, NLRP3)
+                - Preserve common medical bigrams like "type 2"
+                """
+                clean = title.replace('-', ' ')
+                # Normalize common biomedical phrasing so "Up-regulated" doesn't become a restrictive "regulated"
+                # token set (PubMed matches "upregulated" well).
+                clean = re.sub(r'\b(up|down)\s+regulated\b', r'\1regulated', clean, flags=re.IGNORECASE)
+                clean = re.sub(r'[^\w\s]', ' ', clean)
+                tokens = [t for t in clean.split() if t]
+
+                stop = {
+                    'with', 'from', 'that', 'this', 'their', 'have', 'been', 'were', 'into', 'than',
+                    'and', 'or', 'the', 'a', 'an', 'of', 'in', 'on', 'for', 'to', 'by', 'as',
+                }
+
+                terms: List[str] = []
+                i = 0
+                while i < len(tokens):
+                    t = tokens[i]
+                    tl = t.lower()
+
+                    if tl in stop:
+                        i += 1
+                        continue
+
+                    # Preserve "type 2" / "type II" style bigrams
+                    if tl == 'type' and i + 1 < len(tokens):
+                        nxt = tokens[i + 1]
+                        nxt_l = nxt.lower()
+                        if re.fullmatch(r'\d+', nxt_l) or re.fullmatch(r'(i|ii|iii|iv|v|vi|vii|viii|ix|x)', nxt_l):
+                            terms.append(f"type {nxt}")
+                            i += 2
+                            continue
+
+                    # Keep longer tokens, all-caps tokens, and tokens containing digits (e.g., NLRP3)
+                    if len(t) > 3 or t.isupper() or re.search(r'\d', t):
+                        terms.append(t)
+
+                    i += 1
+
+                return _dedupe_preserve_order(terms)[:max_terms]
+
+            # Build optimized PubMed query (space-separated terms, no explicit AND, no [pdat])
+            query_parts: List[str] = []
+            if title_match and len(title_match) > 20:
+                query_parts.extend(_extract_keywords_from_title(title_match, max_terms=8))
+
+            if journal:
+                journal_abbrev = journal.replace('Journal', 'J').replace('Research', 'Res')
+                query_parts.append(f'{journal_abbrev}[Journal]')
+
+            if year:
+                query_parts.append(year)
+
+            query_parts = _dedupe_preserve_order(query_parts)
+            if not query_parts:
+                return None
+
+            query = ' '.join(query_parts)
+            logger.info(f"AI-enhanced PubMed search: {query}")
+            
+            # Search PubMed using a raw ESearch query (preserves qualifiers like `[Journal]`
+            # and avoids the truncation/cleanup performed by `search_by_title()`).
+            logger.info(f"AI-enhanced PubMed query (raw): {query}")
+            search_results = self.lookup.pubmed_client.search_by_query(query, max_results=20)
+            logger.info(f"AI-enhanced PubMed results: {len(search_results) if search_results else 0}")
+            
+            if search_results:
+                # Try each result
+                for article in search_results:
+                    pmid = getattr(article, 'pmid', None)
+                    if not pmid:
+                        continue
+                    result = self.lookup.lookup_pmid(str(pmid))
+                    if result.success:
+                        # Validate this looks like the right article
+                        # (basic check - title overlap)
+                        if result.metadata:
+                            result_title = result.metadata.get('title', '').lower()
+                            ref_words = set(w.lower() for w in (title_match or '').split() if len(w) > 3)
+                            result_words = set(w.lower() for w in result_title.split() if len(w) > 4)
+                            overlap = len(ref_words & result_words)
+                            if overlap >= 3 or (title_match and title_match.lower() in result_title):
+                                logger.info(f"AI-enhanced lookup found PMID {pmid}")
+                                return self._format_result(result)
+            
+            # Try broader search if specific search failed
+            if title_match and len(title_match) > 30:
+                # Use just the title keywords (remove hyphens for better PubMed matching)
+                clean_title = title_match.replace('-', ' ')
+                broad_query = ' '.join([w for w in clean_title.split() if len(w) > 3][:8])
+                if journal:
+                    journal_abbrev = journal.replace('Journal', 'J').replace('Research', 'Res')
+                    broad_query += f' {journal_abbrev}[Journal]'
+                if year:
+                    broad_query += f' {year}'
+                
+                logger.info(f"AI-enhanced broad search: {broad_query}")
+                broad_results = self.lookup.pubmed_client.search_by_query(broad_query, max_results=20)
+                
+                if broad_results:
+                    for article in broad_results:
+                        pmid = getattr(article, 'pmid', None)
+                        if not pmid:
+                            continue
+                        result = self.lookup.lookup_pmid(str(pmid))
+                        if result.success and result.metadata:
+                            result_title = result.metadata.get('title', '').lower()
+                            if title_match.lower()[:30] in result_title or result_title[:30] in title_match.lower():
+                                logger.info(f"AI-enhanced broad search found PMID {pmid}")
+                                return self._format_result(result)
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"AI-enhanced lookup failed: {e}")
+            return None
     
     def _create_fallback_citation(self, ref: ParsedReference, attempted_strategies: List[str]) -> Optional[Dict[str, Any]]:
         """
@@ -2062,10 +2569,31 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         - News sites
         - Any other URL-based reference
         """
-        from urllib.parse import urlparse
+        from urllib.parse import urlparse, urlunparse
         from datetime import datetime
+        import re
         
         url = ref.url or ''
+        
+        # Clean URL - strip tracking parameters (utm_source, etc.)
+        if url:
+            try:
+                parsed = urlparse(url)
+                # Remove query parameters (everything after ?)
+                clean_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+                url = clean_url
+            except:
+                pass
+        
+        # Extract year from original reference text (look for 4-digit years)
+        extracted_year = None
+        original_text = getattr(ref, 'original_text', '') or ''
+        if original_text:
+            # Look for year patterns like "2021", "2024", etc.
+            year_match = re.search(r'\b(20[12]\d)\b', original_text)
+            if year_match:
+                extracted_year = year_match.group(1)
+        
         # Always have a title - use URL-derived title or reference number if needed
         title = ref.title or ''
         if not title and url:
@@ -2093,7 +2621,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # Determine citation type and organization based on domain
         citation_type = 'webpage'
-        year = datetime.now().strftime('%Y')
+        # Use extracted year from reference text, or fall back to current year
+        year = extracted_year or datetime.now().strftime('%Y')
         
         # Comprehensive domain-specific handling
         domain_orgs = {
@@ -2146,7 +2675,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'heart.org': ('American Heart Association', 'organization'),
             'escardio.org': ('European Society of Cardiology', 'organization'),
             'who.int': ('World Health Organization', 'organization'),
-            'cdc.gov': ('Centers for Disease Control', 'organization'),
+            'cdc.gov': ('Centers for Disease Control and Prevention', 'organization'),
             'nih.gov': ('National Institutes of Health', 'organization'),
             'fda.gov': ('U.S. Food and Drug Administration', 'organization'),
             'ema.europa.eu': ('European Medicines Agency', 'organization'),
@@ -2285,6 +2814,24 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if not label_org or label_org.lower() in ['web', 'unknown', 'authors']:
             label_org = domain.split('.')[0].title()[:12] if domain else 'Ref'
         
+        # Use abbreviations for the citation TAG only (based on domain)
+        # The full org_name is still used in the citation body
+        DOMAIN_ABBREVIATIONS = {
+            'acc.org': 'ACC',
+            'aha.org': 'AHA',
+            'heart.org': 'AHA',
+            'escardio.org': 'ESC',
+            'who.int': 'WHO',
+            'cdc.gov': 'CDC',
+            'nih.gov': 'NIH',
+            'fda.gov': 'FDA',
+            'ema.europa.eu': 'EMA',
+        }
+        for dom, abbrev in DOMAIN_ABBREVIATIONS.items():
+            if dom in domain:
+                label_org = abbrev
+                break
+        
         # CRITICAL: Include reference number for uniqueness
         # This prevents duplicate labels for different references from the same source
         ref_num = getattr(ref, 'original_number', None)
@@ -2345,13 +2892,26 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             
             logger.info(f"Created fallback {citation_type} citation for: {domain or title[:30]}")
             
+            # Determine if this citation needs review
+            # Non-academic sources (organizations, news, etc.) don't need review - 
+            # not having a PMID/DOI is EXPECTED for these types
+            NON_ACADEMIC_TYPES = {
+                'organization', 'news', 'press_release', 'clinical_trial',
+                'encyclopedia', 'pharmaceutical', 'webpage', 'preprint'
+            }
+            needs_review = citation_type not in NON_ACADEMIC_TYPES
+            confidence = 'low' if needs_review else 'high'
+            
             return {
                 'success': True,
                 'inline_mark': inline_label,
                 'full_citation': full_citation,
                 'citation_type': citation_type,
                 'is_fallback': True,
-                'fallback_reason': f'No database record found; formatted as {citation_type}',
+                'fallback_reason': f'Formatted as {citation_type}',
+                'confidence': confidence,
+                'requires_review': needs_review,
+                'review_reason': f'Expected {citation_type} source - verify metadata' if needs_review else '',
             }
         except Exception as e:
             # Absolute last resort - NEVER fail
@@ -2365,6 +2925,9 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'citation_type': 'minimal',
                 'is_fallback': True,
                 'fallback_reason': 'Minimal citation due to processing error',
+                'confidence': 'low',
+                'requires_review': True,
+                'review_reason': 'Minimal fallback - processing error',
             }
     
     def _get_detailed_error(self, ref, result: Optional[Dict]) -> Dict[str, str]:
@@ -2452,6 +3015,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         6. Title search as last resort
         7. Record failure for future learning
         """
+        import sys
+        print(f"[TRACE] Processing ref {getattr(ref, 'original_number', '?')}", file=sys.stderr, flush=True)
         learning = get_learning_engine()
         attempted_strategies = []
         
@@ -2602,6 +3167,21 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     learning.record_success(ref.url, result.identifier, result.identifier_type or 'unknown', 'title_search')
                 return self._format_result(result)
         
+        # 6b. AI-ENHANCED LOOKUP: Use AI to extract metadata from reference text and search PubMed
+        # This catches cases where:
+        # - DOI doesn't resolve but article exists in PubMed
+        # - URL is to non-academic site (ResearchGate, etc.) but reference text contains journal article info
+        # - Title search failed but we can extract better search terms from reference text
+        # NOTE: Run for ALL references with original_text, even non-academic domains,
+        # because AI can extract actual article title/journal from reference text
+        if ref.original_text:
+            attempted_strategies.append('ai_enhanced_lookup')
+            ai_result = self._ai_enhanced_lookup(ref)
+            if ai_result:
+                logger.info(f"AI-enhanced lookup SUCCESS for ref {getattr(ref, 'original_number', '?')}")
+                learning.record_success(ref.url, ai_result.get('identifier', 'ai'), 'ai', 'ai_enhanced')
+                return ai_result
+        
         # 7. FALLBACK: Create a webpage/organizational citation instead of failing
         # This ensures we ALWAYS produce a valid citation, even for non-academic sources
         attempted_strategies.append('fallback_citation')
@@ -2672,7 +3252,7 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════════╗")
-    print(f"  ║           📚 CitationSculptor HTTP Server v2.1.0              ║")
+    print(f"  ║           📚 CitationSculptor HTTP Server v2.2.0              ║")
     print(f"  ╚═══════════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")

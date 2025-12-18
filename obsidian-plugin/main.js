@@ -539,6 +539,137 @@ var QuickLookupModal = class extends import_obsidian.Modal {
     contentEl.empty();
   }
 };
+var LibrarySearchModal = class extends import_obsidian.Modal {
+  constructor(app, plugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("citation-sculptor-modal");
+    contentEl.createEl("h2", { text: "\u{1F5C3}\uFE0F Search Citation Library" });
+    const searchContainer = contentEl.createDiv({ cls: "search-container" });
+    const searchInput = new import_obsidian.TextComponent(searchContainer);
+    searchInput.setPlaceholder("Search by title, author, or identifier...");
+    searchInput.inputEl.style.width = "100%";
+    searchInput.inputEl.style.marginBottom = "16px";
+    this.resultsEl = contentEl.createDiv({ cls: "library-results" });
+    this.resultsEl.style.maxHeight = "400px";
+    this.resultsEl.style.overflow = "auto";
+    this.searchLibrary("");
+    searchInput.inputEl.addEventListener("input", () => {
+      this.searchLibrary(searchInput.getValue());
+    });
+  }
+  async searchLibrary(query) {
+    this.resultsEl.empty();
+    this.resultsEl.createEl("p", { text: "Loading...", cls: "loading" });
+    try {
+      const response = await (0, import_obsidian.requestUrl)({
+        url: `${this.plugin.settings.httpApiUrl}/api/library/list?q=${encodeURIComponent(query)}`,
+        method: "GET"
+      });
+      const data = response.json;
+      this.resultsEl.empty();
+      if (!data.citations || data.citations.length === 0) {
+        this.resultsEl.createEl("p", {
+          text: query ? "No matching citations found" : "Library is empty",
+          cls: "no-results"
+        });
+        return;
+      }
+      data.citations.forEach((cit) => {
+        var _a;
+        const itemEl = this.resultsEl.createDiv({ cls: "library-item" });
+        itemEl.style.padding = "12px";
+        itemEl.style.marginBottom = "8px";
+        itemEl.style.borderRadius = "6px";
+        itemEl.style.background = "var(--background-secondary)";
+        itemEl.style.cursor = "pointer";
+        const titleEl = itemEl.createEl("div", {
+          text: cit.title || "Untitled",
+          cls: "library-item-title"
+        });
+        titleEl.style.fontWeight = "600";
+        titleEl.style.marginBottom = "4px";
+        const metaEl = itemEl.createEl("div", {
+          text: `${((_a = cit.authors) == null ? void 0 : _a[0]) || "Unknown"} \u2022 ${cit.year || "N/A"} \u2022 ${cit.identifier_type}: ${cit.identifier}`,
+          cls: "library-item-meta"
+        });
+        metaEl.style.fontSize = "12px";
+        metaEl.style.color = "var(--text-muted)";
+        itemEl.addEventListener("click", () => {
+          var _a2;
+          if (cit.inline_mark) {
+            const editor = (_a2 = this.app.workspace.activeEditor) == null ? void 0 : _a2.editor;
+            if (editor) {
+              editor.replaceSelection(cit.inline_mark);
+              new import_obsidian.Notice(`Inserted: ${cit.inline_mark}`);
+              this.close();
+            }
+          }
+        });
+      });
+    } catch (e) {
+      this.resultsEl.empty();
+      this.resultsEl.createEl("p", {
+        text: `Error: ${e.message}`,
+        cls: "error"
+      });
+    }
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var LinkVerificationModal = class extends import_obsidian.Modal {
+  constructor(app, results) {
+    super(app);
+    this.results = results;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("citation-sculptor-modal");
+    contentEl.createEl("h2", { text: "\u{1F517} Link Verification Results" });
+    const broken = this.results.filter((r) => !r.accessible);
+    const valid = this.results.filter((r) => r.accessible);
+    const summaryEl = contentEl.createDiv({ cls: "verification-summary" });
+    summaryEl.style.marginBottom = "16px";
+    summaryEl.innerHTML = `
+      <div style="display: flex; gap: 16px;">
+        <span style="color: var(--text-success);">\u2705 ${valid.length} valid</span>
+        <span style="color: var(--text-error);">\u274C ${broken.length} broken</span>
+      </div>
+    `;
+    const listEl = contentEl.createDiv({ cls: "verification-list" });
+    listEl.style.maxHeight = "400px";
+    listEl.style.overflow = "auto";
+    [...broken, ...valid].forEach((r) => {
+      const itemEl = listEl.createDiv({ cls: "verification-item" });
+      itemEl.style.padding = "8px";
+      itemEl.style.marginBottom = "4px";
+      itemEl.style.borderRadius = "4px";
+      itemEl.style.background = r.accessible ? "var(--background-secondary)" : "rgba(255,0,0,0.1)";
+      const statusIcon = r.accessible ? "\u2705" : "\u274C";
+      const statusText = r.status_code ? `(${r.status_code})` : r.error || "Unknown error";
+      itemEl.createEl("div", {
+        text: `${statusIcon} ${r.url}`,
+        cls: "verification-url"
+      }).style.fontFamily = "monospace";
+      if (!r.accessible) {
+        const errorEl = itemEl.createEl("div", {
+          text: statusText,
+          cls: "verification-error"
+        });
+        errorEl.style.fontSize = "12px";
+        errorEl.style.color = "var(--text-muted)";
+      }
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var CitationSculptorSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -933,6 +1064,108 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
           }
         } catch (e) {
           new import_obsidian.Notice(`Error restoring backup: ${e.message}`);
+        }
+      }
+    });
+    this.addCommand({
+      id: "save-to-library",
+      name: "Save Last Citation to Library",
+      callback: async () => {
+        if (!this.settings.useHttpApi) {
+          new import_obsidian.Notice("Library requires HTTP API. Enable it in settings.");
+          return;
+        }
+        const recent = this.settings.recentLookups;
+        if (recent.length === 0) {
+          new import_obsidian.Notice("No recent citation to save. Look up a citation first.");
+          return;
+        }
+        const lastLookup = recent[recent.length - 1];
+        new import_obsidian.Notice(`Saving citation to library...`);
+        try {
+          const result = await this.lookupCitation(lastLookup.identifier);
+          if (result.success) {
+            const saved = await this.saveToLibrary(result);
+            if (saved) {
+              new import_obsidian.Notice("\u2705 Citation saved to library!");
+            }
+          } else {
+            new import_obsidian.Notice(`Error: ${result.error}`);
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Error: ${e.message}`);
+        }
+      }
+    });
+    this.addCommand({
+      id: "search-library",
+      name: "Search Citation Library",
+      callback: async () => {
+        if (!this.settings.useHttpApi) {
+          new import_obsidian.Notice("Library requires HTTP API. Enable it in settings.");
+          return;
+        }
+        new LibrarySearchModal(this.app, this).open();
+      }
+    });
+    this.addCommand({
+      id: "export-bibtex",
+      name: "Export Selection as BibTeX",
+      editorCallback: async (editor) => {
+        const selection = editor.getSelection().trim();
+        if (!selection) {
+          new import_obsidian.Notice("Please select citation identifiers (PMIDs, DOIs)");
+          return;
+        }
+        const ids = selection.split(/[\n,;]+/).map((s) => s.trim()).filter((s) => s);
+        if (ids.length === 0) {
+          new import_obsidian.Notice("No valid identifiers found in selection");
+          return;
+        }
+        new import_obsidian.Notice(`Exporting ${ids.length} citation(s) as BibTeX...`);
+        try {
+          const response = await (0, import_obsidian.requestUrl)({
+            url: `${this.settings.httpApiUrl}/api/export/bibtex?ids=${encodeURIComponent(ids.join(","))}`,
+            method: "GET"
+          });
+          if (response.text) {
+            await navigator.clipboard.writeText(response.text);
+            new import_obsidian.Notice(`\u2705 BibTeX copied to clipboard (${ids.length} entries)`);
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Export failed: ${e.message}`);
+        }
+      }
+    });
+    this.addCommand({
+      id: "verify-links",
+      name: "Verify Links in Current Note",
+      editorCallback: async (editor) => {
+        const content = editor.getValue();
+        if (!content) {
+          new import_obsidian.Notice("Current note is empty");
+          return;
+        }
+        new import_obsidian.Notice("Verifying links...");
+        try {
+          const response = await (0, import_obsidian.requestUrl)({
+            url: `${this.settings.httpApiUrl}/api/verify-links`,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content })
+          });
+          const data = response.json;
+          if (data.results) {
+            const broken = data.results.filter((r) => !r.accessible);
+            if (broken.length === 0) {
+              new import_obsidian.Notice(`\u2705 All ${data.results.length} links are valid!`);
+            } else {
+              new import_obsidian.Notice(`\u26A0\uFE0F ${broken.length}/${data.results.length} links have issues`);
+              new LinkVerificationModal(this.app, data.results).open();
+            }
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Verification failed: ${e.message}`);
         }
       }
     });
@@ -1365,6 +1598,38 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
     this.settings.lastBackupPath = backupPath;
     await this.saveSettings();
     return backupPath;
+  }
+  /**
+   * Save a citation to the server library.
+   */
+  async saveToLibrary(result) {
+    var _a, _b, _c;
+    try {
+      const response = await (0, import_obsidian.requestUrl)({
+        url: `${this.settings.httpApiUrl}/api/library/save`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          citation: {
+            identifier_type: result.identifier_type,
+            identifier: result.identifier,
+            title: ((_a = result.metadata) == null ? void 0 : _a.title) || "",
+            authors: ((_b = result.metadata) == null ? void 0 : _b.authors) || [],
+            year: ((_c = result.metadata) == null ? void 0 : _c.year) || "",
+            style: this.settings.citationStyle,
+            inline_mark: result.inline_mark,
+            full_citation: result.full_citation,
+            metadata: result.metadata,
+            tags: []
+          }
+        })
+      });
+      const data = response.json;
+      return data.success === true;
+    } catch (e) {
+      console.error("Failed to save to library:", e);
+      return false;
+    }
   }
   async processDocumentContent(content) {
     if (!this.settings.useHttpApi) {

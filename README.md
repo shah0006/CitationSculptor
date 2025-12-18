@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -339,6 +339,14 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 ---
 
 ## 🗺️ Version History
+
+### ✅ v2.2.0 - Feature Parity (Complete)
+- [x] **Complete feature parity** across Web UI, Obsidian Plugin, and CLI
+- [x] Web UI: Recent Lookups, Dry Run preview, Multi-Section mode, Corrections workflow
+- [x] Obsidian: Library save/search, BibTeX export, Link verification commands
+- [x] CLI: Interactive mode (`--interactive`), Quick lookup (`--lookup`), Restore backup
+- [x] API: `/api/corrections/generate`, `/api/corrections/apply`, dry_run & multi_section params
+- [x] 7-stat comprehensive results display
 
 ### ✅ v2.1.0 - Document Intelligence (Complete)
 - [x] Link verification & broken link detection
