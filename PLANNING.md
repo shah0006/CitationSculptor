@@ -90,6 +90,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
+| **PDF/Document Link Handling** | **High** | Better handling of URLs pointing to PDFs, presentations, spreadsheets. Extract title from URL path, identify document type, format with `[^Org-DocType-Year]` labels |
 | Zotero sync integration | Medium | Bi-directional sync |
 | CSL-JSON export | Medium | For Pandoc/Citation.js |
 | Citation graph visualization | Low | D3.js or Obsidian Graph |

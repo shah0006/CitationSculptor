@@ -261,7 +261,25 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Future Roadmap (Planned)
 
-### v2.3.0 - Reference Manager Integration
+### v2.3.0 - PDF/Document Link Handling (Priority)
+**Problem**: URLs pointing to PDFs, presentations, or downloadable documents are not handled well. Example:
+- Input: `https://www.novonordisk.com/content/dam/nncorp/global/en/investors/pdfs/financial-results/2025/Q3-investor-presentation-2025.pdf`
+- Current output: `[^Ref-Novo-2025-ref67]: Novo Nordisk. 2025.`
+- Desired output: `[^NovoNordisk-InvPresPDF-2025]: Novo Nordisk. Investor presentation: first nine months of 2025. [Link](URL)`
+
+**Proposed Solution**:
+1. Detect document URLs by file extension (`.pdf`, `.pptx`, `.xlsx`, `.docx`, `.zip`)
+2. Extract meaningful title from URL path segments (e.g., "Q3-investor-presentation-2025" → "Q3 Investor Presentation 2025")
+3. Identify document type for label (PDF, Presentation, Spreadsheet, Document)
+4. Format with organization + document type in citation tag
+5. Include direct download link in citation
+
+**Implementation**:
+- Add `_detect_document_url()` method in `http_server.py`
+- Add `_format_document_citation()` for proper formatting
+- Update `_create_fallback_citation()` to handle document types
+
+### v2.4.0 - Reference Manager Integration
 - Zotero library sync (two-way)
 - Mendeley integration
 - EndNote support
