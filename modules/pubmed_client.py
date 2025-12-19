@@ -18,6 +18,14 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     logger.debug("Playwright not available - browser-based scraping disabled")
 
+# Import LLM validator for metadata validation
+try:
+    from .llm_validator import get_validator, MetadataValidationResult
+    LLM_VALIDATOR_AVAILABLE = True
+except ImportError:
+    LLM_VALIDATOR_AVAILABLE = False
+    logger.debug("LLM validator not available")
+
 
 class SimpleCache:
     """Simple in-memory cache for API responses."""
@@ -1796,6 +1804,33 @@ class WebpageScraper:
         
         # Try to extract DOI from HTML body (general pages may have DOI links)
         doi = self._extract_doi_from_body(html)
+        
+        # === LLM VALIDATION LAYER ===
+        # Validate extracted metadata using LLM to catch semantic errors
+        # (e.g., "EM Resident" is not a real author name)
+        if LLM_VALIDATOR_AVAILABLE and authors:
+            try:
+                validator = get_validator()
+                if validator.is_available():
+                    # Validate authors
+                    valid_authors, rejected_authors = validator.validate_authors(authors)
+                    
+                    if rejected_authors:
+                        logger.info(f"LLM validation rejected {len(rejected_authors)} author(s): "
+                                   f"{[r[0] for r in rejected_authors]}")
+                    
+                    if valid_authors:
+                        authors = valid_authors
+                    elif not valid_authors and rejected_authors:
+                        # All authors were rejected - try LLM extraction as fallback
+                        logger.warning("All extracted authors rejected by LLM validation, "
+                                      "attempting LLM extraction...")
+                        llm_metadata = self._extract_with_llm(url, html)
+                        if llm_metadata and llm_metadata.authors:
+                            authors = llm_metadata.authors
+                            logger.info(f"LLM extraction provided {len(authors)} authors")
+            except Exception as e:
+                logger.debug(f"LLM validation failed, using unvalidated data: {e}")
         
         logger.info(f"Extracted general: {title[:50]}... site={site_name}, year={year}, doi={doi[:30] if doi else 'none'}, evergreen={is_evergreen}")
         return WebpageMetadata(
