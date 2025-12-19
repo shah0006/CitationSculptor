@@ -2618,8 +2618,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                             i += 2
                             continue
 
-                    # Keep longer tokens, all-caps tokens, and tokens containing digits (e.g., NLRP3)
-                    if len(t) > 3 or t.isupper() or re.search(r'\d', t):
+                    # Skip very short numeric-only tokens (often volume/issue/page numbers, e.g., "73")
+                    if re.fullmatch(r'\d+', t) and len(t) < 4:
+                        i += 1
+                        continue
+
+                    # Keep longer tokens, all-caps tokens, year tokens, and alphanumeric tokens (e.g., NLRP3)
+                    has_alpha = bool(re.search(r'[A-Za-z]', t))
+                    has_digit = bool(re.search(r'\d', t))
+                    if len(t) > 3 or t.isupper() or (has_alpha and has_digit) or re.fullmatch(r'(19|20)\d{2}', t):
                         terms.append(t)
 
                     i += 1
@@ -2767,7 +2774,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # Determine citation type and organization based on domain
         citation_type = 'webpage'
         # Use extracted year from reference text, or fall back to current year
-        year = extracted_year or datetime.now().strftime('%Y')
+        # Never default publication year to the current year; use a placeholder unless we can extract it.
+        year = extracted_year or "Null_Date"
         
         # Comprehensive domain-specific handling
         domain_orgs = {
@@ -2917,8 +2925,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.debug(f"Error extracting scraped metadata: {e}")
         
-        # Extract year from URL if available
-        if url and year == datetime.now().strftime('%Y'):
+        # Extract year from URL if available (only when publication year is unknown)
+        if url and (not year or year == 'Null_Date'):
             import re
             year_match = re.search(r'/(\d{4})/', url)
             if year_match:
@@ -2981,12 +2989,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # This prevents duplicate labels for different references from the same source
         ref_num = getattr(ref, 'original_number', None)
         if ref_num:
-            inline_label = f"[^{label_org}-{title_part[:6]}-{year}-ref{ref_num}]"
+            # Use ND for labels when the publication year is unknown/placeholder
+            label_year = 'ND' if (not year or year == 'Null_Date') else year
+            inline_label = f"[^{label_org}-{title_part[:6]}-{label_year}-ref{ref_num}]"
         else:
             # Use URL hash for uniqueness if no ref number
             import hashlib
             url_hash = hashlib.md5(url.encode()).hexdigest()[:6] if url else 'x'
-            inline_label = f"[^{label_org}-{title_part[:6]}-{year}-{url_hash}]"
+            label_year = 'ND' if (not year or year == 'Null_Date') else year
+            inline_label = f"[^{label_org}-{title_part[:6]}-{label_year}-{url_hash}]"
         
         # Format the full citation based on type
         if citation_type == 'clinical_trial':
@@ -3207,6 +3218,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
         pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
         doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+        pii = self.type_detector.extract_pii(ref.url) if ref.url else None
         
         # 3. Also check ref.metadata for DOI extracted from reference text
         if not doi and ref.metadata:
@@ -3239,32 +3251,71 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 if ref.url and doi in ref.url:
                     learning.learn_from_url(ref.url, doi, 'doi')
                 return self._format_result(result)
-        
-        # 5. If no identifier found but we have a URL, try scraping the webpage for DOI
+
+        # 4b. Attempt lookup via PII (publisher item identifier) if present
+        # Common on ScienceDirect/Elsevier URLs when DOI is not embedded.
+        if pii:
+            attempted_strategies.append('pii_lookup')
+            try:
+                pmid_from_pii = self.lookup.pubmed_client.resolve_pii_to_pmid(pii)
+                if pmid_from_pii:
+                    logger.info(f"Resolved PII to PMID: {pii} -> {pmid_from_pii}")
+                    result = self.lookup.lookup_pmid(pmid_from_pii)
+                    if result.success:
+                        learning.record_success(ref.url, pmid_from_pii, 'pmid', 'pii_lookup')
+                        return self._format_result(result)
+            except Exception as e:
+                logger.debug(f"PII lookup failed for {pii}: {e}")
+
+        # 5. If no identifier found but we have a URL, try scraping the webpage for DOI/metadata
         if ref.url and not (pmid or pmcid or doi):
             attempted_strategies.append('webpage_scraping')
             try:
                 scraper = WebpageScraper(timeout=10)
-                scraped_metadata = scraper.extract_metadata(ref.url)
+                scraped_metadata, scrape_failure = scraper.extract_metadata_with_status(ref.url)
                 if scraped_metadata:
-                    # Check if scraping found a DOI
-                    if scraped_metadata.doi:
+                    # If scraping found a DOI, treat as an academic article and resolve via DOI
+                    if getattr(scraped_metadata, 'doi', None):
                         logger.info(f"Found DOI via webpage scraping: {scraped_metadata.doi}")
                         result = self.lookup.lookup_doi(scraped_metadata.doi)
                         if result.success:
                             learning.record_success(ref.url, scraped_metadata.doi, 'doi', 'webpage_scraping')
                             return self._format_result(result)
-                    
-                    # Check if scraping found a PMID
-                    if scraped_metadata.pmid:
-                        logger.info(f"Found PMID via webpage scraping: {scraped_metadata.pmid}")
-                        result = self.lookup.lookup_pmid(scraped_metadata.pmid)
+
+                    # If scraping found a PMID (rare), resolve directly
+                    scraped_pmid = getattr(scraped_metadata, 'pmid', None)
+                    if scraped_pmid:
+                        logger.info(f"Found PMID via webpage scraping: {scraped_pmid}")
+                        result = self.lookup.lookup_pmid(str(scraped_pmid))
                         if result.success:
-                            learning.record_success(ref.url, scraped_metadata.pmid, 'pmid', 'webpage_scraping')
+                            learning.record_success(ref.url, str(scraped_pmid), 'pmid', 'webpage_scraping')
                             return self._format_result(result)
+
+                    # If this is a non-journal webpage (e.g., EMRA/organizational pages) and we
+                    # successfully extracted title/authors/date, format it directly instead of
+                    # forcing PubMed/CrossRef lookups that won't exist.
+                    detected = self.type_detector.detect_type(ref.url, ref.title)
+                    if detected in {CitationType.WEBPAGE, CitationType.BLOG, CitationType.NEWSPAPER_ARTICLE}:
+                        formatted = self.lookup.formatter.format_scraped_webpage(scraped_metadata, original_number=ref.original_number)
+                        requires_review = ('Null_' in formatted.full_citation)
+                        confidence = 'low' if requires_review else 'high'
+                        review_reason = None
+                        if requires_review:
+                            review_reason = 'Missing author and/or date metadata (placeholder inserted)'
+                        logger.info(f"Using scraped webpage citation for {ref.url} (confidence={confidence})")
+                        return {
+                            'success': True,
+                            'inline_mark': formatted.label,
+                            'full_citation': formatted.full_citation,
+                            'citation_type': 'webpage',
+                            'confidence': confidence,
+                            'requires_review': requires_review,
+                            'review_reason': review_reason,
+                            'source': 'webpage_scraping',
+                            'attempted_strategies': attempted_strategies,
+                        }
             except Exception as e:
                 logger.debug(f"Webpage scraping failed for {ref.url}: {e}")
-        
         # 6. Try title search as last resort (but only for academic sources)
         # Skip title search for non-academic domains that would return wrong CrossRef results
         NON_ACADEMIC_DOMAINS = {
@@ -3341,7 +3392,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # 8. ABSOLUTE LAST RESORT: Create a minimal citation rather than fail
         # This should basically never happen, but we guarantee no failures
         logger.warning(f"All strategies exhausted for reference {ref.original_number}, creating minimal citation")
-        year = datetime.now().strftime('%Y')
+        year = "Null_Date"
         ref_num = ref.original_number if hasattr(ref, 'original_number') else 'Unknown'
         minimal_label = f"[^Ref{ref_num}]"
         minimal_title = ref.title[:50] if ref.title else f"Reference {ref_num}"

@@ -19,6 +19,7 @@ Options:
 import sys
 import argparse
 import json
+import re
 import subprocess
 import hashlib
 import time
@@ -266,6 +267,17 @@ class CitationLookup:
     def lookup_auto(self, identifier: str) -> LookupResult:
         """Auto-detect identifier type and look up accordingly."""
         identifier = identifier.strip()
+        
+        # ScienceDirect/Elsevier PII URLs (scraping often blocked; DOI may be absent)
+        pii_match = re.search(r'/pii/([A-Z]\d{16})', identifier, re.IGNORECASE)
+        if pii_match:
+            pii = pii_match.group(1).upper()
+            try:
+                pmid_from_pii = self.pubmed_client.resolve_pii_to_pmid(pii)
+                if pmid_from_pii:
+                    return self.lookup_pmid(pmid_from_pii)
+            except Exception as e:
+                logger.debug(f"PII lookup failed for {pii}: {e}")
         
         # PMID (all digits)
         if identifier.isdigit():

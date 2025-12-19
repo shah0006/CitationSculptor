@@ -43,6 +43,15 @@ class CitationTypeDetector:
     # URL path suffixes that are NOT part of DOIs - used to strip trailing paths
     DOI_TRAILING_PATHS = ['/full', '/abstract', '/pdf', '/html', '/epdf', '/summary', '/references']
 
+    # Elsevier/ScienceDirect Publisher Item Identifier (PII) patterns.
+    # Example: https://www.sciencedirect.com/science/article/pii/S0735109720356412
+    # Elsevier serial PIIs are commonly: S + 16 digits (ISSN8 + YY + 6-digit item code)
+    PII_PATTERNS = [
+        r'/pii/([A-Z]\d{16})(?:[/?]|$)',
+        # Fallback: capture any plausible PII-like token after /pii/
+        r'/pii/([A-Z0-9]{12,32})(?:[/?]|$)',
+    ]
+
     JOURNAL_DOMAINS = [
         'biomedcentral.com', 'springer.com', 'link.springer.com', 'sciencedirect.com',
         'nature.com', 'cell.com', 'jamanetwork.com', 'nejm.org', 'thelancet.com',
@@ -180,6 +189,44 @@ class CitationTypeDetector:
                 
                 return doi
         return None
+
+    def extract_pii(self, url: str) -> Optional[str]:
+        """Extract a publisher item identifier (PII) from a URL.
+        
+        This primarily targets Elsevier/ScienceDirect URLs of the form:
+            .../pii/S########YY######
+        where the captured token is often useful for PubMed lookups when
+        DOI extraction/scraping fails.
+        """
+        if not url:
+            return None
+        for pattern in self.PII_PATTERNS:
+            match = re.search(pattern, url, re.IGNORECASE)
+            if match:
+                pii = (match.group(1) or '').strip().upper()
+                # Basic sanity checks
+                if len(pii) >= 12 and re.match(r'^[A-Z0-9]+$', pii):
+                    return pii
+        return None
+
+    def format_elsevier_pii(self, pii: str) -> Optional[str]:
+        """Format an Elsevier *serial* PII to the common hyphen/parentheses form.
+        
+        Converts:
+            S0735109720356412
+        to:
+            S0735-1097(20)35641-2
+        
+        Returns None if the PII does not match the serial pattern.
+        """
+        if not pii:
+            return None
+        pii = pii.strip().upper()
+        m = re.fullmatch(r'S(\d{8})(\d{2})(\d{6})', pii)
+        if not m:
+            return None
+        issn8, yy, rest6 = m.groups()
+        return f"S{issn8[:4]}-{issn8[4:]}({yy}){rest6[:5]}-{rest6[5:]}"
 
     def categorize_references(self, references: List) -> dict:
         """Categorize references by type."""

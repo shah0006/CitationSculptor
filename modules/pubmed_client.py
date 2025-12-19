@@ -549,8 +549,19 @@ class PubMedClient:
         return metadata
 
     def search_by_title(self, title: str, max_results: int = 5) -> List[ArticleMetadata]:
-        """Search PubMed by title."""
-        clean_title = re.sub(r'[^\w\s\-]', ' ', title)
+        """Search PubMed by title.
+        
+        NOTE: Many inputs we receive are *not* true article titles (e.g., "JACC 2020;73 (...)"),
+        but shorthand citation fragments that include year/volume noise. We apply a small amount
+        of normalization to improve PubMed recall without changing the overall behavior.
+        """
+        raw_title = (title or '').strip()
+        # If the string looks like a journal shorthand "YYYY;VOLUME" keep the year but drop the volume.
+        # Example: "2020;73" -> "2020"
+        if re.search(r'\b(19|20)\d{2}\s*;\s*\d{1,4}\b', raw_title):
+            raw_title = re.sub(r'\b((?:19|20)\d{2})\s*;\s*\d{1,4}\b', r'\1', raw_title)
+
+        clean_title = re.sub(r'[^\w\s\-]', ' ', raw_title)
         clean_title = ' '.join(clean_title.split())
         # Truncate to ~100 chars for better search results (long queries often fail)
         # But try to break at a word boundary
@@ -611,6 +622,58 @@ class PubMedClient:
             return []
 
         return self._fetch_from_eutils(pmids)
+
+    
+    def resolve_pii_to_pmid(self, pii: str, max_results: int = 3) -> Optional[str]:
+        """Resolve a publisher item identifier (PII) to a PMID.
+        
+        Rationale:
+        - Some publisher URLs (notably ScienceDirect/Elsevier) use PIIs instead of DOIs.
+        - Those sites frequently block scraping (403/JS challenges).
+        - PubMed records often include the PII as an article identifier.
+        
+        This method performs a small sequence of raw PubMed searches and returns
+        the first PMID found.
+        """
+        if not pii:
+            return None
+        raw = str(pii).strip().upper()
+        if not raw:
+            return None
+
+        # Generate candidate representations (raw + formatted serial PII if applicable)
+        candidates = [raw]
+        try:
+            from .type_detector import CitationTypeDetector
+            formatted = CitationTypeDetector().format_elsevier_pii(raw)
+            if formatted and formatted not in candidates:
+                candidates.append(formatted)
+        except Exception:
+            formatted = None
+
+        # Try increasingly broad queries. Field tags are case-insensitive in PubMed.
+        queries = []
+        for c in candidates:
+            queries.append(f'"{c}"[aid]')
+            # Article Identifier [aid] covers DOI/PII identifiers in PubMed.
+            queries.append(f'"{c}"')
+
+        seen = set()
+        for q in queries:
+            if q in seen:
+                continue
+            seen.add(q)
+            try:
+                hits = self.search_by_query(q, max_results=max_results)
+            except Exception as e:
+                logger.debug(f"PII lookup query failed ({q}): {e}")
+                continue
+            if hits:
+                pmid = getattr(hits[0], 'pmid', None)
+                if pmid:
+                    return str(pmid)
+
+        return None
 
     def verify_article_exists(self, title: str) -> Optional[ArticleMetadata]:
         """Verify article exists in PubMed and return full metadata."""
@@ -1282,6 +1345,7 @@ class WebpageScraper:
         'kff.org': 'Kaiser Family Foundation (KFF)',
         'cbpp.org': 'Center on Budget and Policy Priorities (CBPP)',
         'mckinsey.com': 'McKinsey & Company',
+        'emra.org': 'EM Resident (EMRA)',
     }
     
     # Meta tag patterns for academic pages
@@ -1793,6 +1857,14 @@ class WebpageScraper:
         m = re.match(r'(\d{4})[-/](\d{2})[-/](\d{2})', date_str)
         if m:
             return m.group(1), m.group(2), m.group(3)
+
+        # Try US numeric format: 4/8/2021 or 04/08/2021
+        m = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4})', date_str)
+        if m:
+            month = m.group(1).zfill(2)
+            day = m.group(2).zfill(2)
+            year = m.group(3)
+            return year, month, day
         
         # Try year-month format: 2025-05 or 2025/05
         m = re.match(r'(\d{4})[-/](\d{2})', date_str)
@@ -1859,9 +1931,17 @@ class WebpageScraper:
                         return year, month, day
                 
                 # Try ISO format in text
-                m = re.match(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_text)
+                m = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_text)
                 if m:
                     return m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
+
+                # Try US numeric format M/D/YYYY
+                m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', date_text)
+                if m:
+                    month = m.group(1).zfill(2)
+                    day = m.group(2).zfill(2)
+                    year = m.group(3)
+                    return year, month, day
         
         return "", "", ""
     
@@ -1893,7 +1973,7 @@ class WebpageScraper:
         
         # Pattern 3: <span class="author">Author Name</span> or similar
         author_spans = re.findall(
-            r'<(?:span|div)[^>]*class=["\'][^"\']*author[^"\']*["\'][^>]*>([^<]+)</(?:span|div)>',
+            r'<(?:span|div|a)[^>]*class=[\"\'][^\"\']*author[^\"\']*[\"\'][^>]*>([^<]+)</(?:span|div|a)>',
             html, re.IGNORECASE
         )
         for author in author_spans:
