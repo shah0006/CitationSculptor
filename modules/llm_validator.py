@@ -51,11 +51,18 @@ class LLMValidator:
     
     Uses Ollama for fast local inference. Falls back gracefully
     if Ollama is unavailable.
+    
+    Model Selection:
+    - qwen2.5:32b-instruct: Best for instruction following & JSON output (default)
+    - deepseek-r1:latest: Fast alternative (8B) if speed is critical
+    - llama3:8b: Fallback if larger models unavailable
     """
     
     OLLAMA_URL = "http://localhost:11434/api/generate"
-    DEFAULT_MODEL = "llama3:8b"  # Fast, good for validation
-    TIMEOUT = 30  # seconds (validation should be quick)
+    # Use qwen2.5:32b-instruct for best instruction following and JSON output
+    DEFAULT_MODEL = "qwen2.5:32b-instruct"
+    FALLBACK_MODELS = ["deepseek-r1:latest", "gemma3:27b", "qwen3:latest", "llama3:8b"]
+    TIMEOUT = 45  # seconds (larger model needs more time)
     
     # Validation prompts
     AUTHOR_VALIDATION_PROMPT = """You are validating author names extracted from a webpage.
@@ -135,9 +142,50 @@ Return ONLY valid JSON:
 """
 
     def __init__(self, model: str = None, ollama_url: str = None):
-        self.model = model or self.DEFAULT_MODEL
         self.ollama_url = ollama_url or self.OLLAMA_URL
         self._available = None  # Cached availability check
+        self._selected_model = None  # Cached model selection
+        
+        if model:
+            self.model = model
+        else:
+            # Auto-select best available model
+            self.model = self._select_best_model()
+    
+    def _select_best_model(self) -> str:
+        """Select the best available model for validation tasks."""
+        if self._selected_model:
+            return self._selected_model
+        
+        try:
+            response = requests.get(
+                self.ollama_url.replace('/api/generate', '/api/tags'),
+                timeout=5
+            )
+            if response.status_code != 200:
+                return self.DEFAULT_MODEL
+            
+            available_models = {m['name'] for m in response.json().get('models', [])}
+            
+            # Try preferred models in order
+            preferred_models = [self.DEFAULT_MODEL] + self.FALLBACK_MODELS
+            for model in preferred_models:
+                if model in available_models:
+                    self._selected_model = model
+                    logger.info(f"LLM validator selected model: {model}")
+                    return model
+            
+            # If none of the preferred models available, use first available
+            if available_models:
+                first_model = list(available_models)[0]
+                self._selected_model = first_model
+                logger.warning(f"Using fallback model: {first_model}")
+                return first_model
+            
+        except Exception as e:
+            logger.debug(f"Model selection failed: {e}")
+        
+        return self.DEFAULT_MODEL
     
     def is_available(self) -> bool:
         """Check if Ollama is available for validation."""
@@ -154,7 +202,7 @@ Return ONLY valid JSON:
             self._available = False
         
         if self._available:
-            logger.info("LLM validator available via Ollama")
+            logger.info(f"LLM validator available via Ollama (model: {self.model})")
         else:
             logger.warning("LLM validator unavailable - validation will be skipped")
         

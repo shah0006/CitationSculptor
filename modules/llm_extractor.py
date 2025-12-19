@@ -121,7 +121,9 @@ class LLMMetadataExtractor:
     
     # Ollama configuration
     OLLAMA_URL = "http://localhost:11434/api/generate"
-    DEFAULT_MODEL = "llama3:8b"  # Fast, good for structured extraction
+    # Use qwen2.5:32b-instruct for best instruction following and JSON output
+    DEFAULT_MODEL = "qwen2.5:32b-instruct"
+    FALLBACK_MODELS = ["deepseek-r1:latest", "gemma3:27b", "qwen3:latest", "llama3:8b"]
     TIMEOUT = 60  # seconds
     
     # Extraction prompt template
