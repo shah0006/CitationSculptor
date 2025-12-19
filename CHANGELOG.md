@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2025-12-18
+
+### Added - Citation Format Normalizer (Preprocessing)
+
+This release adds a robust preprocessing step that automatically converts legacy LLM-generated citation formats to Obsidian footnote style before document processing.
+
+#### Citation Normalizer Features
+- **Automatic Preprocessing**: Runs automatically before `process_document` operations
+- **Single Citations**: `[1]` → `[^1]`
+- **Comma-Separated Lists**: `[1, 2]` → `[^1] [^2]`
+- **Range Expansion**: `[6-10]` → `[^6] [^7] [^8] [^9] [^10]`
+- **Mixed Formats**: `[1, 3-5, 8]` → `[^1] [^3] [^4] [^5] [^8]`
+- **Multiple Range Delimiters**: Supports hyphen `-`, en-dash `–`, em-dash `—`, and word `to`
+- **Table Context Awareness**: Auto-escapes brackets `\[^N\]` when inside markdown tables
+- **Dry Run/Preview Mode**: Preview changes before applying with table or diff-style output
+
+#### False Positive Protection
+Uses hybrid placeholder+context strategy to avoid converting non-citations:
+- **Markdown links**: `[text](url)` preserved
+- **Wikilinks**: `[[Note]]` preserved
+- **Images**: `![alt](url)` and `![[image]]` preserved
+- **Existing footnotes**: `[^existing]` not re-converted
+- **Code blocks**: Fenced and inline code excluded
+- **YAML frontmatter**: Document metadata excluded
+- **Math blocks**: `$...$` and `$$...$$` excluded
+- **Consecutive citations**: `[1][2][3]` all converted correctly
+
+#### New MCP Tool
+- `citation_normalize_format`: Standalone tool for manual normalization with dry_run option
+
+#### Integration
+- Normalization statistics included in document processing results
+- SSE streaming shows normalization phase with progress
+- Statistics show how many legacy citations were converted
+
+---
+
 ## [2.2.0] - 2025-12-17
 
 ### Added - Complete Feature Parity Across All Interfaces

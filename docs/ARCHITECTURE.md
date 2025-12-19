@@ -15,14 +15,16 @@ CitationSculptor/
 │   ├── vancouver_formatter.py  # Citation formatting (Vancouver style)
 │   ├── reference_parser.py     # Document parsing (V1-V8 formats)
 │   ├── inline_replacer.py      # [1] → [^AuthorY-2024-PMID] replacement
+│   ├── citation_normalizer.py  # [1,2] → [^1] [^2] preprocessing (v2.3)
 │   ├── type_detector.py        # Citation type detection
 │   ├── output_generator.py     # Output file generation
 │   ├── file_handler.py         # File I/O operations
 │   └── progress_dialog.py      # GUI progress indicators
 ├── mcp_server/
-│   └── server.py           # MCP server for AI agent access
+│   ├── server.py           # MCP server for AI agent access (stdio)
+│   └── http_server.py      # HTTP API server with Web UI
 └── tests/
-    └── *.py                # Unit tests (226 tests)
+    └── *.py                # Unit tests (339+ tests)
 ```
 
 ## Key Classes
@@ -42,6 +44,14 @@ CitationSculptor/
 - Parses reference sections from markdown documents
 - Supports formats V1-V8 (see Reference Formats below)
 - Multi-section mode for documents with multiple reference lists
+
+### CitationNormalizer (`modules/citation_normalizer.py`) - v2.3
+- Preprocesses legacy LLM-generated citation formats before document processing
+- Converts `[1]`, `[1, 2]`, `[6-10]`, `[1, 3-5, 8]` to `[^N]` format
+- Supports range delimiters: hyphen, en-dash, em-dash, "to"
+- Table-aware: Auto-escapes `\[^N\]` when inside markdown tables
+- False positive protection using hybrid placeholder + context strategy
+- Preserves: Markdown links, wikilinks, images, existing footnotes, code blocks, math, YAML
 
 ## Reference Formats Supported
 

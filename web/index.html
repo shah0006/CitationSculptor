@@ -836,7 +836,7 @@
                 <div class="logo-icon">📚</div>
                 <div>
                     <h1>CitationSculptor</h1>
-                    <div class="logo-version">v2.2.0</div>
+                    <div class="logo-version">v2.3.0</div>
                 </div>
             </div>
 
@@ -1084,6 +1084,10 @@
                             <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
                                 <input type="checkbox" id="multiSection" style="width: 18px; height: 18px;">
                                 <span><strong>📑 Multi-Section Mode</strong> — Process documents with multiple reference sections independently</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                                <input type="checkbox" id="processOrphans" style="width: 18px; height: 18px;">
+                                <span><strong>🔗 Process Orphaned References</strong> — Format references not cited in document body (kept in separate section)</span>
                             </label>
                         </div>
                     </div>
@@ -2729,8 +2733,9 @@
             const saveToFile = document.getElementById('saveToFile')?.checked || false;
             const dryRun = document.getElementById('dryRun')?.checked || false;
             const multiSection = document.getElementById('multiSection')?.checked || false;
+            const processOrphans = document.getElementById('processOrphans')?.checked || false;
             
-            let requestBody = { style, dry_run: dryRun, multi_section: multiSection };
+            let requestBody = { style, dry_run: dryRun, multi_section: multiSection, process_orphans: processOrphans };
             
             if (currentDocTab === 'content') {
                 const content = document.getElementById('docContent').value.trim();

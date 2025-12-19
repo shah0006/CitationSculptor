@@ -45,6 +45,7 @@ from modules.bibliography_generator import BibliographyGenerator
 from modules.reference_parser import ReferenceParser, ParsedReference
 from modules.type_detector import CitationTypeDetector, CitationType
 from modules.inline_replacer import InlineReplacer
+from modules.citation_normalizer import CitationNormalizer, normalize_citation_format
 from modules.arxiv_client import ArxivClient
 from modules.preprint_client import PreprintClient
 from modules.book_client import BookClient
@@ -96,6 +97,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
     openalex_client: OpenAlexClient = None
     semantic_scholar_client: SemanticScholarClient = None
     document_intelligence: DocumentIntelligence = None
+    citation_normalizer: CitationNormalizer = None
     
     def log_message(self, format: str, *args) -> None:
         """Suppress logging for cleaner output."""
@@ -222,7 +224,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     content = f.read()
                 self._send_json({
                     'content': content,
-                    'version': '2.2.0',
+                    'version': VERSION,
                 })
             else:
                 self._send_json({'error': 'README not found'}, 404)
@@ -231,12 +233,13 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         if path == '/health':
             self._send_json({
                 'status': 'ok',
-                'version': '2.2.0',
+                'version': VERSION,
                 'features': {
                     'pdf_support': PYMUPDF_AVAILABLE,
                     'citation_styles': get_available_styles(),
                     'database_enabled': self.citation_db is not None,
                     'document_intelligence': True,
+                    'citation_normalizer': True,
                 }
             })
             return
@@ -259,6 +262,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     'document_processing', 'pdf_extraction', 'duplicate_detection', 
                     'bibliography_generation', 'citation_database',
                     'link_verification', 'citation_suggestions', 'citation_compliance',
+                    'citation_normalizer',
                 ],
                 'pdf_support': PYMUPDF_AVAILABLE,
                 'document_intelligence': {
@@ -1179,6 +1183,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             style = data.get('style', 'vancouver')
             create_backup = data.get('create_backup', True)
             save_to_file = data.get('save_to_file', False)
+            process_orphans = data.get('process_orphans', False)  # Option to format orphaned references
             
             backup_path = None
             resolved_file_path = None
@@ -1207,7 +1212,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             # Process with streaming progress
             try:
                 self._process_document_with_progress(
-                    content, style, backup_path, resolved_file_path, save_to_file
+                    content, style, backup_path, resolved_file_path, save_to_file, process_orphans
                 )
             except Exception as e:
                 self._send_sse_error(str(e), backup_path)
@@ -1221,6 +1226,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             save_to_file = data.get('save_to_file', False)  # Option to save processed content back to file
             dry_run = data.get('dry_run', False)  # Preview mode - don't save anything
             multi_section = data.get('multi_section', False)  # Process multiple reference sections
+            process_orphans = data.get('process_orphans', False)  # Option to format orphaned references
             
             backup_path = None
             resolved_file_path = None
@@ -1254,7 +1260,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 return
             
             try:
-                result = self._process_document_content(content, style)
+                result = self._process_document_content(content, style, process_orphans=process_orphans)
                 
                 # Include backup path in response
                 if backup_path:
@@ -1457,6 +1463,38 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
             return
         
+        # === Citation Format Normalizer (v2.3) ===
+        if path == '/api/normalize-citations':
+            content = data.get('content')
+            dry_run = data.get('dry_run', False)
+            
+            if not content:
+                self._send_json({'error': 'Missing content'}, 400)
+                return
+            
+            try:
+                result = self.citation_normalizer.normalize(content, dry_run=dry_run)
+                
+                response = {
+                    'success': True,
+                    'changes_made': result.changes_made,
+                    'change_log': result.change_log,
+                    'skipped_regions': result.skipped_regions,
+                }
+                
+                if dry_run:
+                    # Include preview for dry run
+                    response['preview'] = self.citation_normalizer.preview(content)
+                else:
+                    response['normalized_content'] = result.normalized_content
+                    response['original_content'] = result.original_content
+                
+                self._send_json(response)
+            except Exception as e:
+                logger.error(f"Citation normalization error: {e}")
+                self._send_json({'success': False, 'error': str(e)}, 500)
+            return
+        
         # === Corrections Workflow ===
         if path == '/api/corrections/generate':
             content = data.get('content')
@@ -1632,8 +1670,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
     def _process_document_with_progress(self, content: str, style: str, 
                                          backup_path: str = None, 
                                          resolved_file_path: str = None,
-                                         save_to_file: bool = False):
-        """Process document with streaming progress updates via SSE."""
+                                         save_to_file: bool = False,
+                                         process_orphans: bool = False):
+        """Process document with streaming progress updates via SSE.
+        
+        Args:
+            process_orphans: If True, orphaned references (not cited in body) will still be
+                           formatted using our citation protocol and placed in the 
+                           "Formatted Orphaned References" section.
+        """
         # Send SSE headers
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
@@ -1654,6 +1699,30 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'document_stats': doc_stats,
             'message': 'Document analysis complete',
         })
+        
+        # PREPROCESSING: Normalize legacy citation formats to Obsidian footnote style
+        self._send_sse_event('status', {
+            'phase': 'normalizing',
+            'message': 'Normalizing citation formats...',
+        })
+        
+        normalizer = CitationNormalizer()
+        normalization_result = normalizer.normalize(content)
+        
+        normalization_stats = {
+            'changes_made': normalization_result.changes_made,
+            'change_log': [(orig, repl, line, ctype) for orig, repl, line, ctype in normalization_result.change_log[:20]],
+        }
+        
+        if normalization_result.changes_made > 0:
+            self._send_sse_event('normalization', {
+                'changes_made': normalization_result.changes_made,
+                'examples': normalization_stats['change_log'][:5],
+                'message': f'Normalized {normalization_result.changes_made} legacy citation format(s)',
+            })
+        
+        # Use normalized content for further processing
+        content = normalization_result.normalized_content
         
         # Set citation style
         if style != self.lookup.style:
@@ -1714,7 +1783,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # Track results
         processed_citations = []
         low_confidence_citations = []  # Citations that need manual review
-        orphaned_refs = []  # References not used in document body
+        orphaned_refs = []  # References not used in document body (unprocessed)
+        processed_orphans = []  # References not used in body but processed when process_orphans=True
         number_to_label_map = {}
         failed_refs = []
         duplicates_merged = 0  # Count duplicates (streaming mode doesn't dedupe in real-time)
@@ -1727,15 +1797,17 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         for idx, ref in enumerate(parser.references):
             # Check if this reference is used in the document body
             ref_num = getattr(ref, 'original_number', None)
-            if ref_num and ref_num not in used_ref_numbers:
-                # This is an orphaned reference - not used in the body
+            is_orphan = ref_num and ref_num not in used_ref_numbers
+            
+            if is_orphan and not process_orphans:
+                # Skip processing orphaned references when process_orphans is False
                 orphaned_refs.append({
                     'original_number': ref_num,
                     'title': ref.title[:80] if ref.title else 'Unknown',
                     'url': ref.url if hasattr(ref, 'url') else None,
                 })
                 logger.info(f"Skipping orphaned reference #{ref_num} (not used in body)")
-                continue  # Skip processing orphaned references
+                continue
             
             # Send progress update
             self._send_sse_event('progress', {
@@ -1744,9 +1816,9 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 'percent': round((idx + 1) / total_refs * 100),
                 'processing': ref.title[:60] + '...' if ref.title and len(ref.title) > 60 else (ref.title or f'Reference #{ref.original_number}'),
                 'stats': {
-                    'processed': len(processed_citations),
+                    'processed': len(processed_citations) + len(processed_orphans),
                     'needs_review': len(low_confidence_citations),
-                    'orphaned': len(orphaned_refs),
+                    'orphaned': len(orphaned_refs) + len(processed_orphans),
                     'failed': len(failed_refs),
                 },
             })
@@ -1757,7 +1829,10 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             if result and result.get('success'):
                 # Keep the full inline mark format for proper replacement
                 inline_mark = result.get('inline_mark', '')
-                number_to_label_map[ref.original_number] = inline_mark
+                
+                # Only add to number_to_label_map if not an orphan (orphans don't need inline replacement)
+                if not is_orphan:
+                    number_to_label_map[ref.original_number] = inline_mark
                 
                 # Check confidence level
                 confidence = result.get('confidence', 'high')
@@ -1773,10 +1848,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     'confidence': confidence,
                     'review_reason': result.get('review_reason', ''),
                     'url': ref.url if hasattr(ref, 'url') else None,
+                    'is_orphan': is_orphan,  # Track if this was an orphaned reference
                 }
                 
-                # Route to appropriate list based on confidence
-                if requires_review or confidence == 'low':
+                # Route to appropriate list
+                if is_orphan:
+                    # Processed orphan goes to its own list
+                    processed_orphans.append(citation_entry)
+                    logger.info(f"Processed orphaned reference #{ref.original_number}")
+                elif requires_review or confidence == 'low':
                     low_confidence_citations.append(citation_entry)
                 else:
                     processed_citations.append(citation_entry)
@@ -1787,6 +1867,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     'success': True,
                     'title': ref.title[:50] if ref.title else 'Unknown',
                     'needs_review': requires_review or confidence == 'low',
+                    'is_orphan': is_orphan,
                 })
             else:
                 # Provide detailed error information
@@ -1874,7 +1955,18 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     reference_section += f"- Suggestion: {suggestion}\n"
                 reference_section += "\n"
         
-        # Add orphaned references section if any
+        # Add processed orphaned references section if any (when process_orphans=True)
+        if processed_orphans:
+            reference_section += "\n---\n\n### 🔗 Formatted Orphaned References\n\n"
+            reference_section += "_The following references were not cited in the document body but have been formatted for future use._\n\n"
+            
+            sorted_processed_orphans = sorted(processed_orphans, key=lambda r: r.get('original_number', 0))
+            for cit in sorted_processed_orphans:
+                full_citation = cit.get('full_citation', '')
+                if full_citation:
+                    reference_section += f"{full_citation}\n\n"
+        
+        # Add unprocessed orphaned references section if any (when process_orphans=False)
         if orphaned_refs:
             reference_section += "\n---\n\n### 🗑️ Unused References\n\n"
             reference_section += "_The following references were in the reference section but not cited in the document body. They have been removed._\n\n"
@@ -1894,6 +1986,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         processed_content = updated_body + "\n\n" + reference_section.strip()
         
         # Build final result
+        total_orphaned = len(orphaned_refs) + len(processed_orphans)
         final_result = {
             'success': True,
             'processed_content': processed_content,
@@ -1901,12 +1994,15 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'low_confidence_citations': low_confidence_citations,
             'failed_references': failed_refs,
             'orphaned_references': orphaned_refs,
+            'processed_orphans': processed_orphans,
             'statistics': {
                 'total_references': len(parser.references),
-                'processed': len(processed_citations),
+                'processed': len(processed_citations) + len(processed_orphans),
                 'needs_review': len(low_confidence_citations),
                 'failed': len(failed_refs),
-                'orphaned': len(orphaned_refs),
+                'orphaned': total_orphaned,
+                'orphaned_unprocessed': len(orphaned_refs),
+                'orphaned_processed': len(processed_orphans),
                 'duplicates_merged': duplicates_merged,
                 'inline_replacements': replacements_made,
                 'document_analysis': doc_stats,
@@ -2088,9 +2184,17 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         return stats
     
-    def _process_document_content(self, content: str, style: str = 'vancouver') -> Dict[str, Any]:
+    def _process_document_content(self, content: str, style: str = 'vancouver', 
+                                     process_orphans: bool = False) -> Dict[str, Any]:
         """
         Process a markdown document, looking up all citations and replacing inline references.
+        
+        Args:
+            content: The markdown document content
+            style: Citation style (vancouver, apa, etc.)
+            process_orphans: If True, orphaned references (not cited in body) will still be
+                           formatted using our citation protocol and placed in the 
+                           "Formatted Orphaned References" section.
         
         Returns a dict with:
         - processed_content: The document with updated inline references
@@ -2099,6 +2203,19 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         """
         # First, analyze the document for comprehensive statistics
         doc_stats = self._analyze_document_statistics(content)
+        
+        # PREPROCESSING: Normalize legacy citation formats to Obsidian footnote style
+        # This converts [1], [1, 2], [6-10] → [^1], [^1] [^2], [^6] [^7]... etc.
+        normalizer = CitationNormalizer()
+        normalization_result = normalizer.normalize(content)
+        
+        normalization_stats = {
+            'changes_made': normalization_result.changes_made,
+            'change_log': [(orig, repl, line, ctype) for orig, repl, line, ctype in normalization_result.change_log[:20]],
+        }
+        
+        # Use normalized content for further processing
+        content = normalization_result.normalized_content
         
         # Set citation style
         if style != self.lookup.style:
@@ -2144,7 +2261,8 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # Track results
         processed_citations = []
         low_confidence_citations = []  # Citations that need manual review
-        orphaned_refs = []  # References not used in document body
+        orphaned_refs = []  # References not used in document body (unprocessed)
+        processed_orphans = []  # References not used in body but processed when process_orphans=True
         number_to_label_map = {}
         failed_refs = []
         
@@ -2157,15 +2275,17 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         for ref in parser.references:
             # Check if this reference is used in the document body
             ref_num = getattr(ref, 'original_number', None)
-            if ref_num and ref_num not in used_ref_numbers:
-                # This is an orphaned reference - not used in the body
+            is_orphan = ref_num and ref_num not in used_ref_numbers
+            
+            if is_orphan and not process_orphans:
+                # Skip processing orphaned references when process_orphans is False
                 orphaned_refs.append({
                     'original_number': ref_num,
                     'title': ref.title[:80] if ref.title else 'Unknown',
                     'url': ref.url if hasattr(ref, 'url') else None,
                 })
                 logger.info(f"Skipping orphaned reference #{ref_num} (not used in body)")
-                continue  # Skip processing orphaned references
+                continue
             
             result = self._process_single_reference(ref)
             
@@ -2210,16 +2330,22 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                             'confidence': confidence,
                             'review_reason': review_reason,
                             'url': ref.url if hasattr(ref, 'url') else None,
+                            'is_orphan': is_orphan,  # Track if this was an orphaned reference
                         }
                         
-                        # Route to appropriate list based on confidence
-                        if requires_review or confidence == 'low':
+                        # Route to appropriate list
+                        if is_orphan:
+                            # Processed orphan goes to its own list
+                            processed_orphans.append(citation_entry)
+                            logger.info(f"Processed orphaned reference #{ref.original_number}")
+                        elif requires_review or confidence == 'low':
                             low_confidence_citations.append(citation_entry)
                         else:
                             processed_citations.append(citation_entry)
                 
-                # Always map the original number to the (possibly reused) inline mark
-                number_to_label_map[ref.original_number] = inline_mark
+                # Only add to number_to_label_map if not an orphan (orphans don't need inline replacement)
+                if not is_orphan:
+                    number_to_label_map[ref.original_number] = inline_mark
             else:
                 # Provide detailed error information
                 error_detail = self._get_detailed_error(ref, result)
@@ -2292,7 +2418,18 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                     reference_section += f"- Suggestion: {suggestion}\n"
                 reference_section += "\n"
         
-        # Add orphaned references section if any
+        # Add processed orphaned references section if any (when process_orphans=True)
+        if processed_orphans:
+            reference_section += "\n---\n\n### 🔗 Formatted Orphaned References\n\n"
+            reference_section += "_The following references were not cited in the document body but have been formatted for future use._\n\n"
+            
+            sorted_processed_orphans = sorted(processed_orphans, key=lambda r: r.get('original_number', 0))
+            for cit in sorted_processed_orphans:
+                full_citation = cit.get('full_citation', '')
+                if full_citation:
+                    reference_section += f"{full_citation}\n\n"
+        
+        # Add unprocessed orphaned references section if any (when process_orphans=False)
         if orphaned_refs:
             reference_section += "\n---\n\n### 🗑️ Unused References\n\n"
             reference_section += "_The following references were in the reference section but not cited in the document body. They have been removed._\n\n"
@@ -2311,6 +2448,9 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         # Combine updated body with new references
         processed_content = updated_body + "\n\n" + reference_section.strip()
         
+        # Calculate total orphaned (both processed and unprocessed)
+        total_orphaned = len(orphaned_refs) + len(processed_orphans)
+        
         return {
             'success': True,
             'processed_content': processed_content,
@@ -2318,16 +2458,21 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
             'low_confidence_citations': low_confidence_citations,
             'failed_references': failed_refs,
             'orphaned_references': orphaned_refs,
+            'processed_orphans': processed_orphans,
             'statistics': {
                 'total_references': len(parser.references),
-                'processed': len(processed_citations),
+                'processed': len(processed_citations) + len(processed_orphans),
                 'needs_review': len(low_confidence_citations),
                 'failed': len(failed_refs),
-                'orphaned': len(orphaned_refs),
+                'orphaned': total_orphaned,
+                'orphaned_unprocessed': len(orphaned_refs),
+                'orphaned_processed': len(processed_orphans),
                 'duplicates_merged': duplicates_merged,
                 'inline_replacements': replacements_made,
                 # Include comprehensive document analysis stats
                 'document_analysis': doc_stats,
+                # Include normalization stats if any legacy formats were converted
+                'normalization': normalization_stats if normalization_stats['changes_made'] > 0 else None,
             },
         }
     
@@ -3247,12 +3392,13 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
         pubmed_client=CitationHTTPHandler.lookup.pubmed_client,
         use_llm=True,
     )
+    CitationHTTPHandler.citation_normalizer = CitationNormalizer()
     
     server = HTTPServer((host, port), CitationHTTPHandler)
     
     print(f"")
     print(f"  ╔═══════════════════════════════════════════════════════════════╗")
-    print(f"  ║           📚 CitationSculptor HTTP Server v2.2.0              ║")
+    print(f"  ║           📚 CitationSculptor HTTP Server v{VERSION}              ║")
     print(f"  ╚═══════════════════════════════════════════════════════════════╝")
     print(f"")
     print(f"  🌐 Web UI:    http://{host}:{port}")
@@ -3271,6 +3417,11 @@ def run_server(port: int = 3019, host: str = '127.0.0.1'):
     print(f"    ✓ Automatic citation suggestions")
     print(f"    ✓ Citation compliance checker")
     print(f"    ✓ LLM-powered metadata extraction")
+    print(f"")
+    print(f"  Citation Normalizer (v2.3):")
+    print(f"    ✓ Auto-convert [1,2] → [^1] [^2]")
+    print(f"    ✓ Range expansion [6-10] → [^6]...[^10]")
+    print(f"    ✓ Table-aware escaping")
     print(f"")
     print(f"  Press Ctrl+C to stop")
     print(f"")

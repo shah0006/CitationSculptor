@@ -25,8 +25,13 @@ python -m pytest tests/ --cov=modules --cov-report=html
 | `test_reference_parser.py` | V1-V8 formats, multi-section parsing |
 | `test_type_detector.py` | Citation type detection |
 | `test_inline_replacer.py` | Reference replacement |
+| `test_citation_normalizer.py` | Legacy format preprocessing (v2.3) |
+| `test_mcp_server.py` | MCP server tools |
+| `test_http_server.py` | HTTP API endpoints |
+| `test_document_intelligence.py` | Link verification, suggestions, compliance |
+| `test_save_to_file_safety.py` | Backup/restore safety |
 
-**Total: 166 tests**
+**Total: 339+ tests**
 
 ## Regression Testing
 

@@ -1,8 +1,8 @@
 # CitationSculptor Continuation Prompt
 
-## Current State: v2.2.0 (Complete)
+## Current State: v2.3.0 (Complete)
 
-CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.2. All major features are implemented with **full feature parity** across Web UI, Obsidian Plugin, and CLI.
+CitationSculptor is a comprehensive citation management toolkit that has been fully developed through v2.3. All major features are implemented with **full feature parity** across Web UI, Obsidian Plugin, and CLI, plus automatic citation format normalization.
 
 ## What's Been Completed
 
@@ -48,6 +48,20 @@ CitationSculptor is a comprehensive citation management toolkit that has been fu
 - ✅ **API**: `/api/corrections/generate`, `/api/corrections/apply`, `dry_run` & `multi_section` params
 - ✅ **Statistics**: Comprehensive 7-stat display (Processed, Review, Failed, Orphaned, Duplicates, Replacements)
 - ✅ **Organization Abbreviations**: ACC, AHA, NIH, FDA, etc. in citation tags only
+
+### v2.3.0 - Citation Format Normalizer (Dec 2025)
+- ✅ Auto-convert legacy citation formats to Obsidian footnotes (`modules/citation_normalizer.py`)
+- ✅ Single citations: `[1]` → `[^1]`
+- ✅ Comma-separated: `[1, 2]` → `[^1] [^2]`
+- ✅ Range expansion: `[6-10]` → `[^6] [^7] [^8] [^9] [^10]`
+- ✅ Mixed formats: `[1, 3-5, 8]` → `[^1] [^3] [^4] [^5] [^8]`
+- ✅ Multiple delimiters: hyphen, en-dash, em-dash, "to"
+- ✅ Table-aware: Auto-escapes `\[^N\]` in markdown tables
+- ✅ False positive protection: Preserves links, wikilinks, code, math, YAML
+- ✅ Preview/dry-run mode with change table output
+- ✅ Auto-runs as preprocessing step in `process_document`
+- ✅ New MCP tool: `citation_normalize_format`
+- ✅ 47 comprehensive tests
 
 ### v2.1.0 - Document Intelligence (Dec 2025)
 - ✅ Link verification & broken link detection (`modules/document_intelligence.py`)
@@ -113,6 +127,31 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 ```
 
 ## Recent Updates (Just Completed)
+
+### Dec 18, 2025 - Citation Format Normalizer (v2.3.0)
+**Robust preprocessing for legacy LLM-generated citation formats!**
+
+1. **Citation Normalizer Module (`modules/citation_normalizer.py`):**
+   - Converts `[1]`, `[1, 2]`, `[6-10]`, `[1, 3-5, 8]` to `[^N]` format
+   - Supports range delimiters: hyphen `-`, en-dash `–`, em-dash `—`, word "to"
+   - Auto-escapes brackets `\[^N\]` when inside markdown tables
+   - False positive protection using hybrid placeholder + context strategy
+   - Preserves: Markdown links, wikilinks, images, existing footnotes, code blocks, math, YAML
+
+2. **Integration:**
+   - Auto-runs as preprocessing step in `process_document` (MCP + HTTP)
+   - New MCP tool: `citation_normalize_format` for standalone use
+   - SSE streaming shows normalization phase with progress
+   - Statistics included in processing results
+
+3. **Preview Mode:**
+   - Dry-run shows table of original vs converted citations
+   - Line numbers and change types included
+   - Useful for validating before applying changes
+
+4. **Testing:**
+   - 47 comprehensive tests covering all scenarios
+   - Total test count: 339+ tests
 
 ### Dec 17, 2025 - Feature Parity (v2.2.0)
 **Complete feature parity achieved across all interfaces!**
@@ -261,7 +300,7 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 
 ## Future Roadmap (Planned)
 
-### v2.3.0 - PDF/Document Link Handling (Priority)
+### v2.4.0 - PDF/Document Link Handling (Priority)
 **Problem**: URLs pointing to PDFs, presentations, or downloadable documents are not handled well. Example:
 - Input: `https://www.novonordisk.com/content/dam/nncorp/global/en/investors/pdfs/financial-results/2025/Q3-investor-presentation-2025.pdf`
 - Current output: `[^Ref-Novo-2025-ref67]: Novo Nordisk. 2025.`
@@ -279,31 +318,31 @@ The MCP server is configured in `~/.cursor/mcp.json`:
 - Add `_format_document_citation()` for proper formatting
 - Update `_create_fallback_citation()` to handle document types
 
-### v2.4.0 - Reference Manager Integration
+### v2.5.0 - Reference Manager Integration
 - Zotero library sync (two-way)
 - Mendeley integration
 - EndNote support
 
-### v2.4.0 - Visualization & Analytics
+### v2.6.0 - Visualization & Analytics
 - Citation network graph visualization
 - Co-author network mapping
 
-### v2.5.0 - Collaboration Features
+### v2.7.0 - Collaboration Features
 - Shared citation libraries
 - Team workspaces
 
-> **v2.2.0 Feature Parity - COMPLETED!**
+> **v2.3.0 Citation Format Normalizer - COMPLETED!**
 
 ## Pending Tasks
 
-- Push v2.2.0 changes to GitHub
+- Push v2.3.0 changes to GitHub
 - Run full test suite to verify all new features
 - User may need to hard-refresh browser (Cmd+Shift+R) to see updated features
 
 ## Notes
 
 - HTTP server runs on port 3019 (localhost only, secure)
-- All tests pass (292+ tests including document intelligence, safety, and integration tests)
+- All tests pass (339+ tests including document intelligence, safety, normalizer, and integration tests)
 - bioRxiv/medRxiv API can be finicky (marked as ⚠️ Partial for Lookup)
 - Obsidian plugin requires HTTP server to be running for best performance
 - LLM metadata extraction requires Ollama running locally with llama3:8b model

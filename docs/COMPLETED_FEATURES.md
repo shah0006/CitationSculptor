@@ -4,6 +4,59 @@ This document archives all completed features and implementation details. For ve
 
 ---
 
+## v2.3.0 (Dec 2025) - Citation Format Normalizer
+
+### Citation Normalizer Module
+A robust preprocessing step that automatically converts legacy LLM-generated citation formats to Obsidian footnote style before document processing.
+
+#### Supported Formats
+| Input | Output |
+|-------|--------|
+| `[1]` | `[^1]` |
+| `[1, 2]` | `[^1] [^2]` |
+| `[6-10]` | `[^6] [^7] [^8] [^9] [^10]` |
+| `[6–10]` (en-dash) | `[^6] [^7] [^8] [^9] [^10]` |
+| `[6—10]` (em-dash) | `[^6] [^7] [^8] [^9] [^10]` |
+| `[6 to 10]` | `[^6] [^7] [^8] [^9] [^10]` |
+| `[1, 3-5, 8]` | `[^1] [^3] [^4] [^5] [^8]` |
+
+#### Table Context Awareness
+- Auto-detects markdown table rows
+- Escapes brackets: `[^N]` → `\[^N\]` inside tables
+- Works with `InlineReplacer` which also applies table escaping
+
+#### False Positive Protection
+Uses hybrid placeholder + context strategy:
+- **Markdown links**: `[text](url)` preserved
+- **Wikilinks**: `[[Note]]` preserved  
+- **Images**: `![alt](url)` and `![[image]]` preserved
+- **Existing footnotes**: `[^existing]` not re-converted
+- **Code blocks**: Fenced (```) and inline (`code`) excluded
+- **YAML frontmatter**: Document metadata excluded
+- **Math blocks**: `$...$` and `$$...$$` excluded
+- **Alphanumeric content**: `[Figure 1]`, `[2024]` ignored
+
+#### Integration
+- Auto-runs as preprocessing step in `process_document`
+- Statistics included in processing results
+- SSE streaming shows normalization phase
+
+#### New MCP Tool
+- `citation_normalize_format`: Standalone normalization with `dry_run` option
+
+#### Preview Mode
+- Dry-run shows table of original vs converted citations
+- Displays line numbers and change types
+- Useful for validating before applying changes
+
+#### Files Added/Modified
+- `modules/citation_normalizer.py` - New module
+- `tests/test_citation_normalizer.py` - 47 comprehensive tests
+- `mcp_server/server.py` - Integration + new tool
+- `mcp_server/http_server.py` - Integration in sync and streaming modes
+
+---
+
 ## v2.2.0 (Dec 2025) - Complete Feature Parity
 
 ### Full Feature Parity Across All Interfaces

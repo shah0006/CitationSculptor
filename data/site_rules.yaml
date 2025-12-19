@@ -134,3 +134,25 @@ forbidden.com:
   learned: true
   date_added: '2025-12-17T19:47:30.247552'
   publication_type: webpage
+sciencedirect.com:
+  organization: ScienceDirect
+  publication_name: ''
+  instructions: 'Organization: ScienceDirect
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: 2025-12-18'
+  learned: true
+  date_added: '2025-12-18T16:44:27.635344'
+  publication_type: webpage
+emra.org:
+  organization: EMRA
+  publication_name: ''
+  instructions: 'Organization: EMRA
+
+    Authors: Found 2 author(s)
+
+    Date format: 4/8/2021'
+  learned: true
+  date_added: '2025-12-18T16:45:03.390251'
+  publication_type: organization

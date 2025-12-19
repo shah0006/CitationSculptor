@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -41,6 +41,14 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 - Multi-section support (multiple reference lists)
 - 8 reference format variants (V1-V8)
 - Inline reference transformation (`[1]` → `[^Author-2024-PMID]`)
+
+### 🔄 Citation Format Normalizer (v2.3)
+- **Auto-preprocessing**: Converts legacy LLM-generated citation formats to Obsidian footnotes
+- **Range expansion**: `[6-10]` → `[^6] [^7] [^8] [^9] [^10]`
+- **Mixed formats**: `[1, 3-5, 8]` → `[^1] [^3] [^4] [^5] [^8]`
+- **Multiple delimiters**: Hyphen, en-dash, em-dash, "to"
+- **Table-aware**: Auto-escapes brackets `\[^N\]` in markdown tables
+- **False positive protection**: Preserves links, wikilinks, code blocks, math, YAML
 
 ### 🧠 Document Intelligence (v2.1)
 - **Link Verification**: Check for broken links with Wayback Machine fallback
@@ -313,6 +321,7 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 | `citation_search_pubmed` | Search with multiple results |
 | `citation_batch_lookup` | Multiple identifiers |
 | `citation_process_document` | Process full markdown document |
+| `citation_normalize_format` | Normalize legacy citation formats (`[1,2]` → `[^1] [^2]`) |
 | `citation_test_connection` | Test API connection |
 
 ---
@@ -339,6 +348,20 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 ---
 
 ## 🗺️ Version History
+
+### ✅ v2.3.0 - Citation Format Normalizer (Complete)
+- [x] **Citation Normalizer**: Auto-converts legacy formats to Obsidian footnotes
+- [x] Single citations: `[1]` → `[^1]`
+- [x] Comma-separated: `[1, 2]` → `[^1] [^2]`
+- [x] Range expansion: `[6-10]` → `[^6] [^7] [^8] [^9] [^10]`
+- [x] Mixed formats: `[1, 3-5, 8]` → `[^1] [^3] [^4] [^5] [^8]`
+- [x] Multiple delimiters: hyphen, en-dash, em-dash, "to"
+- [x] Table-aware: Auto-escapes `\[^N\]` in markdown tables
+- [x] False positive protection: Preserves links, wikilinks, code, math, YAML
+- [x] Preview/dry-run mode with change table output
+- [x] Auto-runs as preprocessing step in `process_document`
+- [x] New MCP tool: `citation_normalize_format`
+- [x] 47 comprehensive tests
 
 ### ✅ v2.2.0 - Feature Parity (Complete)
 - [x] **Complete feature parity** across Web UI, Obsidian Plugin, and CLI
@@ -391,19 +414,19 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 We're always looking to improve CitationSculptor. Here's what's planned:
 
-### v2.2.0 - Reference Manager Integration
+### v2.4.0 - Reference Manager Integration
 - [ ] Zotero library sync (two-way)
 - [ ] Mendeley integration
 - [ ] EndNote support
 - [ ] Papers app integration
 
-### v2.3.0 - Visualization & Analytics
+### v2.5.0 - Visualization & Analytics
 - [ ] Citation network graph visualization
 - [ ] Co-author network mapping
 - [ ] Research trend analysis
 - [ ] Journal impact metrics display
 
-### v2.4.0 - Collaboration Features
+### v2.6.0 - Collaboration Features
 - [ ] Shared citation libraries
 - [ ] Team workspaces
 - [ ] Citation annotation & notes sharing
@@ -440,6 +463,7 @@ CitationSculptor/
 │   ├── vancouver_formatter.py
 │   ├── reference_parser.py
 │   ├── inline_replacer.py
+│   ├── citation_normalizer.py  # v2.3: Legacy format preprocessing
 │   └── ...
 ├── scripts/
 │   └── com.citationsculptor.httpserver.plist  # macOS launchd service
@@ -461,7 +485,7 @@ python -m pytest tests/test_pubmed_client.py -v
 python -m pytest tests/ --cov=modules
 ```
 
-**Test Coverage:** 292+ tests across all modules
+**Test Coverage:** 339+ tests across all modules
 
 ---
 

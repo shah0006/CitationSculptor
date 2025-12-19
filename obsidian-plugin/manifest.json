@@ -1,7 +1,7 @@
 {
   "id": "citation-sculptor",
   "name": "CitationSculptor",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "minAppVersion": "1.0.0",
   "description": "Comprehensive citation management: look up and insert citations (PMID, DOI, ISBN, arXiv), process documents, manage library, verify links",
   "author": "CitationSculptor",

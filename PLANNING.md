@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 2.2.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.2 Complete!
+**Version:** 2.3.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.3 Complete!
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -16,7 +16,18 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 
 ---
 
-## ✅ All Phases Complete - v2.2.0 Achieved!
+## ✅ All Phases Complete - v2.3.0 Achieved!
+
+### v2.3.0 - Citation Format Normalizer (Dec 2025) ✅
+- **Citation Normalizer Module**: Auto-converts legacy LLM-generated citation formats to Obsidian footnotes
+- **Format Support**: Single `[1]`, comma-separated `[1, 2]`, ranges `[6-10]`, mixed `[1, 3-5, 8]`
+- **Range Delimiters**: Hyphen `-`, en-dash `–`, em-dash `—`, word `to`
+- **Table Awareness**: Auto-escapes brackets `\[^N\]` when inside markdown tables
+- **False Positive Protection**: Hybrid placeholder + context strategy preserves links, wikilinks, code, math, YAML
+- **Preview Mode**: Dry-run output shows table of original vs converted citations
+- **Integration**: Auto-runs as preprocessing step in `process_document`
+- **New MCP Tool**: `citation_normalize_format` for standalone normalization
+- **Tests**: 47 comprehensive tests covering all scenarios
 
 ### v2.2.0 - Complete Feature Parity (Dec 2025) ✅
 - **Web UI**: Recent Lookups tab, Dry Run preview, Multi-Section mode, Corrections workflow
@@ -86,11 +97,12 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### ✅ Phase 5: v1.10.0 - Import/Export
 ### ✅ Phase 6: v2.0.0 - Smart Features
 
-## 🎯 Future Enhancements (Post v2.3)
+## 🎯 Future Enhancements (Post v2.4)
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
 | **PDF/Document Link Handling** | **High** | Better handling of URLs pointing to PDFs, presentations, spreadsheets. Extract title from URL path, identify document type, format with `[^Org-DocType-Year]` labels |
+| **Superscript Citations** | Medium | Handle `¹²` and `<sup>1,2</sup>` formats |
 | Zotero sync integration | Medium | Bi-directional sync |
 | CSL-JSON export | Medium | For Pandoc/Citation.js |
 | Citation graph visualization | Low | D3.js or Obsidian Graph |
@@ -99,7 +111,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 | Shared citation libraries | Low | Team collaboration |
 | Real-time sync | Low | Multi-device support |
 
-> **Note:** LLM metadata extraction and link verification are now available in v2.3.0
+> **Note:** LLM metadata extraction, link verification, and citation format normalization are now available
 
 ---
 
@@ -125,6 +137,9 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### v2.1.0 - Document Intelligence
 - `modules/document_intelligence.py` - Link verification, citation suggestions, compliance checker
 - `modules/llm_extractor.py` - LLM-powered metadata extraction (enhanced)
+
+### v2.3.0 - Citation Format Normalizer
+- `modules/citation_normalizer.py` - Legacy citation format preprocessing (`[1, 2]` → `[^1] [^2]`)
 
 ---
 
@@ -173,7 +188,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### MCP Server
 - Transport: stdio (stdin/stdout)
 - Python 3.10+ required
-- 17 tools available (12 core + 5 document intelligence)
+- 18 tools available (12 core + 5 document intelligence + 1 normalizer)
 
 ### Key Commands
 ```bash
@@ -207,4 +222,5 @@ python citation_sculptor.py "document.md" --multi-section
 | test_document_intelligence.py | 30 | ✅ |
 | test_document_intelligence_integration.py | 24 | ✅ |
 | test_save_to_file_safety.py | 12 | ✅ |
-| **Total** | **292+** | ✅ |
+| test_citation_normalizer.py | 47 | ✅ |
+| **Total** | **339+** | ✅ |

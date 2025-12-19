@@ -29,6 +29,11 @@ from citation_lookup import CitationLookup, LookupResult
 from modules.reference_parser import ReferenceParser
 from modules.type_detector import CitationTypeDetector
 from modules.inline_replacer import InlineReplacer
+from modules.citation_normalizer import (
+    CitationNormalizer,
+    normalize_citation_format,
+    preview_citation_normalization,
+)
 from modules.document_intelligence import (
     DocumentIntelligence,
     verify_document_links,
@@ -363,6 +368,29 @@ async def list_tools():
                 "required": ["url", "html_content"]
             }
         ),
+        Tool(
+            name="citation_normalize_format",
+            description="Normalize legacy LLM-generated citation formats to Obsidian footnote style. Converts [1], [1, 2], [6-10] to [^1], [^1] [^2], [^6] [^7]... Automatically handles ranges, comma-separated lists, and mixed formats. Protects markdown links, wikilinks, images, code blocks, and math from false positive conversion.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the markdown file to normalize"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Markdown content to normalize (alternative to file_path)"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "If true, preview changes without modifying content (default: false)",
+                        "default": False
+                    }
+                },
+                "required": []
+            }
+        ),
     ]
 
 
@@ -554,6 +582,16 @@ async def call_tool(name: str, arguments: dict):
                 arguments.get('html_content')
             )
             return [TextContent(type="text", text=result)]
+        
+        elif name == "citation_normalize_format":
+            result = await loop.run_in_executor(
+                None,
+                handle_normalize_format,
+                arguments.get('file_path'),
+                arguments.get('content'),
+                arguments.get('dry_run', False)
+            )
+            return [TextContent(type="text", text=result)]
 
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
@@ -620,6 +658,19 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
     
     if not content:
         return "Error: No content provided. Specify either file_path or content."
+    
+    # PREPROCESSING: Normalize legacy citation formats to Obsidian footnote style
+    # This converts [1], [1, 2], [6-10] → [^1], [^1] [^2], [^6] [^7]... etc.
+    normalizer = CitationNormalizer()
+    normalization_result = normalizer.normalize(content)
+    
+    normalization_stats = {
+        'changes_made': normalization_result.changes_made,
+        'change_log': normalization_result.change_log,
+    }
+    
+    # Use normalized content for further processing
+    content = normalization_result.normalized_content
     
     # Set citation style
     if style != lookup.style:
@@ -718,6 +769,21 @@ def process_document_content(file_path: Optional[str], content: Optional[str], s
         f"- **Inline replacements:** {replacements_made}",
         "",
     ])
+    
+    # Add normalization statistics if any changes were made
+    if normalization_stats['changes_made'] > 0:
+        output_lines.extend([
+            "## 🔄 Citation Format Normalization",
+            f"- **Legacy citations converted:** {normalization_stats['changes_made']}",
+            "",
+        ])
+        # Show up to 10 examples
+        examples = normalization_stats['change_log'][:10]
+        for orig, replacement, line_num, change_type in examples:
+            output_lines.append(f"  - Line {line_num}: `{orig}` → `{replacement}`")
+        if len(normalization_stats['change_log']) > 10:
+            output_lines.append(f"  - ... and {len(normalization_stats['change_log']) - 10} more")
+        output_lines.append("")
     
     if failed_refs:
         output_lines.extend([
@@ -1023,6 +1089,86 @@ def handle_extract_metadata_llm(url: str, html_content: str) -> str:
         return "\n".join(output_lines)
     else:
         return "**Error:** LLM extraction failed. Make sure Ollama is running locally with llama3:8b model."
+
+
+def handle_normalize_format(file_path: Optional[str], content: Optional[str], dry_run: bool = False) -> str:
+    """
+    Handle citation format normalization.
+    
+    Converts legacy citation formats to Obsidian footnote style:
+    - [1] → [^1]
+    - [1, 2] → [^1] [^2]
+    - [6-10] → [^6] [^7] [^8] [^9] [^10]
+    - [1, 3-5, 8] → [^1] [^3] [^4] [^5] [^8]
+    """
+    # Get content from file or direct input
+    if file_path:
+        file_path = os.path.expanduser(file_path)
+        if not os.path.exists(file_path):
+            return f"Error: File not found: {file_path}"
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            return f"Error reading file: {e}"
+    
+    if not content:
+        return "Error: No content provided. Specify either file_path or content."
+    
+    # Normalize citation formats
+    normalizer = CitationNormalizer()
+    
+    if dry_run:
+        # Preview mode - show what would change
+        preview = normalizer.preview(content)
+        return preview
+    else:
+        # Apply normalization
+        result = normalizer.normalize(content)
+        
+        if not result.has_changes:
+            return "# Citation Format Normalization\n\nNo legacy citation formats found. Document is already using Obsidian footnote style."
+        
+        output_lines = [
+            "# Citation Format Normalization Complete",
+            "",
+            "## Statistics",
+            f"- **Legacy citations converted:** {result.changes_made}",
+            "",
+        ]
+        
+        # Group changes by type
+        by_type = {}
+        for orig, replacement, line_num, change_type in result.change_log:
+            if change_type not in by_type:
+                by_type[change_type] = []
+            by_type[change_type].append((orig, replacement, line_num))
+        
+        type_names = {
+            "single": "Single Citations [N] → [^N]",
+            "comma_list": "Comma Lists [1, 2] → [^1] [^2]",
+            "range": "Ranges [1-5] → [^1] [^2] [^3] [^4] [^5]",
+            "mixed": "Mixed Formats [1, 3-5] → [^1] [^3] [^4] [^5]",
+        }
+        
+        output_lines.append("## Changes by Type")
+        for change_type, changes in by_type.items():
+            output_lines.append(f"\n### {type_names.get(change_type, change_type)} ({len(changes)})")
+            for orig, replacement, line_num in changes[:10]:
+                output_lines.append(f"- Line {line_num}: `{orig}` → `{replacement}`")
+            if len(changes) > 10:
+                output_lines.append(f"- ... and {len(changes) - 10} more")
+        
+        output_lines.extend([
+            "",
+            "---",
+            "",
+            "## Normalized Document",
+            "",
+            result.normalized_content,
+        ])
+        
+        return "\n".join(output_lines)
 
 
 async def main():

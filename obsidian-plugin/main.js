@@ -622,6 +622,70 @@ var LibrarySearchModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
 };
+var NormalizationPreviewModal = class extends import_obsidian.Modal {
+  constructor(app, result) {
+    super(app);
+    this.result = result;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("citation-sculptor-modal");
+    contentEl.createEl("h2", { text: "\u{1F504} Citation Normalization Preview" });
+    const summaryEl = contentEl.createDiv({ cls: "normalization-summary" });
+    summaryEl.style.marginBottom = "16px";
+    summaryEl.innerHTML = `
+      <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+        <span style="font-weight: 600;">Found ${this.result.changes_made} citation(s) to normalize</span>
+      </div>
+    `;
+    if (this.result.change_log && this.result.change_log.length > 0) {
+      const tableEl = contentEl.createEl("table", { cls: "normalization-table" });
+      tableEl.style.width = "100%";
+      tableEl.style.borderCollapse = "collapse";
+      tableEl.style.fontSize = "13px";
+      const thead = tableEl.createEl("thead");
+      const headerRow = thead.createEl("tr");
+      headerRow.createEl("th", { text: "Line" }).style.padding = "8px";
+      headerRow.createEl("th", { text: "Original" }).style.padding = "8px";
+      headerRow.createEl("th", { text: "\u2192" }).style.padding = "8px";
+      headerRow.createEl("th", { text: "Normalized" }).style.padding = "8px";
+      headerRow.createEl("th", { text: "Type" }).style.padding = "8px";
+      const tbody = tableEl.createEl("tbody");
+      for (const [original, replacement, lineNum, changeType] of this.result.change_log) {
+        const row = tbody.createEl("tr");
+        row.style.borderBottom = "1px solid var(--background-modifier-border)";
+        row.createEl("td", { text: String(lineNum) }).style.padding = "8px";
+        const origCell = row.createEl("td");
+        origCell.style.padding = "8px";
+        origCell.createEl("code", { text: original }).style.background = "rgba(255,0,0,0.1)";
+        row.createEl("td", { text: "\u2192" }).style.padding = "8px";
+        const newCell = row.createEl("td");
+        newCell.style.padding = "8px";
+        newCell.createEl("code", { text: replacement }).style.background = "rgba(0,255,0,0.1)";
+        row.createEl("td", { text: changeType }).style.padding = "8px";
+      }
+    }
+    if (this.result.preview) {
+      const previewSection = contentEl.createDiv({ cls: "preview-section" });
+      previewSection.style.marginTop = "16px";
+      previewSection.createEl("h4", { text: "Preview (first 50 lines):" });
+      const previewEl = previewSection.createEl("pre");
+      previewEl.style.maxHeight = "200px";
+      previewEl.style.overflow = "auto";
+      previewEl.style.background = "var(--background-secondary)";
+      previewEl.style.padding = "12px";
+      previewEl.style.borderRadius = "6px";
+      previewEl.style.fontSize = "12px";
+      previewEl.setText(this.result.preview);
+    }
+    const buttonContainer = contentEl.createDiv({ cls: "modal-button-container" });
+    buttonContainer.style.marginTop = "16px";
+    new import_obsidian.ButtonComponent(buttonContainer).setButtonText("Close").onClick(() => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var LinkVerificationModal = class extends import_obsidian.Modal {
   constructor(app, results) {
     super(app);
@@ -1138,6 +1202,85 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
       }
     });
     this.addCommand({
+      id: "normalize-citations",
+      name: "Normalize Citation Format (Convert [1,2] to [^1] [^2])",
+      editorCallback: async (editor, view) => {
+        const content = editor.getValue();
+        if (!content) {
+          new import_obsidian.Notice("Current note is empty");
+          return;
+        }
+        new import_obsidian.Notice("Analyzing citations...");
+        try {
+          const previewResponse = await (0, import_obsidian.requestUrl)({
+            url: `${this.settings.httpApiUrl}/api/normalize-citations`,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content, dry_run: true })
+          });
+          const preview = previewResponse.json;
+          if (!preview.success) {
+            new import_obsidian.Notice(`Error: ${preview.error}`);
+            return;
+          }
+          if (preview.changes_made === 0) {
+            new import_obsidian.Notice("\u2705 No legacy citations found to normalize");
+            return;
+          }
+          const confirmed = await this.confirmNormalize(preview);
+          if (!confirmed)
+            return;
+          const normalizeResponse = await (0, import_obsidian.requestUrl)({
+            url: `${this.settings.httpApiUrl}/api/normalize-citations`,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content, dry_run: false })
+          });
+          const result = normalizeResponse.json;
+          if (result.success && result.normalized_content) {
+            editor.setValue(result.normalized_content);
+            new import_obsidian.Notice(`\u2705 Normalized ${result.changes_made} citation(s)`);
+          } else {
+            new import_obsidian.Notice(`Error: ${result.error || "Normalization failed"}`);
+          }
+        } catch (e) {
+          new import_obsidian.Notice(`Error: ${e.message}`);
+        }
+      }
+    });
+    this.addCommand({
+      id: "preview-normalize-citations",
+      name: "Preview Citation Normalization (Dry Run)",
+      editorCallback: async (editor) => {
+        const content = editor.getValue();
+        if (!content) {
+          new import_obsidian.Notice("Current note is empty");
+          return;
+        }
+        new import_obsidian.Notice("Analyzing citations...");
+        try {
+          const response = await (0, import_obsidian.requestUrl)({
+            url: `${this.settings.httpApiUrl}/api/normalize-citations`,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content, dry_run: true })
+          });
+          const result = response.json;
+          if (!result.success) {
+            new import_obsidian.Notice(`Error: ${result.error}`);
+            return;
+          }
+          if (result.changes_made === 0) {
+            new import_obsidian.Notice("\u2705 No legacy citations found to normalize");
+            return;
+          }
+          new NormalizationPreviewModal(this.app, result).open();
+        } catch (e) {
+          new import_obsidian.Notice(`Error: ${e.message}`);
+        }
+      }
+    });
+    this.addCommand({
       id: "verify-links",
       name: "Verify Links in Current Note",
       editorCallback: async (editor) => {
@@ -1578,6 +1721,51 @@ var CitationSculptorPlugin = class extends import_obsidian.Plugin {
       });
       const confirmButton = buttonContainer.createEl("button", {
         text: "Restore",
+        cls: "mod-cta"
+      });
+      confirmButton.addEventListener("click", () => {
+        modal.close();
+        resolve(true);
+      });
+      modal.open();
+    });
+  }
+  async confirmNormalize(preview) {
+    return new Promise((resolve) => {
+      const modal = new import_obsidian.Modal(this.app);
+      modal.titleEl.setText("\u{1F504} Normalize Citations?");
+      modal.contentEl.createEl("p", {
+        text: `Found ${preview.changes_made} legacy citation format(s) to convert to Obsidian footnote style.`
+      });
+      if (preview.change_log && preview.change_log.length > 0) {
+        const sampleEl = modal.contentEl.createDiv();
+        sampleEl.style.background = "var(--background-secondary)";
+        sampleEl.style.padding = "12px";
+        sampleEl.style.borderRadius = "6px";
+        sampleEl.style.marginBottom = "12px";
+        sampleEl.style.fontSize = "13px";
+        const maxSamples = Math.min(5, preview.change_log.length);
+        for (let i = 0; i < maxSamples; i++) {
+          const [orig, repl, line, type] = preview.change_log[i];
+          const lineEl = sampleEl.createDiv();
+          lineEl.innerHTML = `<code style="background:rgba(255,0,0,0.1)">${orig}</code> \u2192 <code style="background:rgba(0,255,0,0.1)">${repl}</code>`;
+        }
+        if (preview.change_log.length > 5) {
+          sampleEl.createDiv({ text: `... and ${preview.change_log.length - 5} more` });
+        }
+      }
+      modal.contentEl.createEl("p", {
+        text: "This converts formats like [1, 2] or [6-10] to [^1] [^2] or [^6] [^7]...[^10]",
+        cls: "setting-item-description"
+      });
+      const buttonContainer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
+      cancelButton.addEventListener("click", () => {
+        modal.close();
+        resolve(false);
+      });
+      const confirmButton = buttonContainer.createEl("button", {
+        text: "Normalize",
         cls: "mod-cta"
       });
       confirmButton.addEventListener("click", () => {
