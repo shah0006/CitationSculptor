@@ -1722,6 +1722,10 @@ class WebpageScraper:
         if not authors:
             authors = self._extract_author_from_jsonld(html)
         
+        # Try Schema.org microdata (itemprop="author") - more reliable than class-based
+        if not authors:
+            authors = self._extract_author_from_microdata(html)
+        
         # Try meta description "By: Author Name" pattern (more reliable than HTML)
         if not authors:
             description = self._get_first_value(meta_tags, self.GENERAL_PATTERNS['description']) or ""
@@ -1735,6 +1739,7 @@ class WebpageScraper:
                         logger.debug(f"Extracted author from meta description: {author}")
         
         # If still no authors, try HTML patterns (bylines, author links, etc.)
+        # NOTE: This is a fallback that may pick up related article authors
         if not authors:
             authors = self._extract_author_from_html(html)
         
@@ -1745,6 +1750,10 @@ class WebpageScraper:
         if not year:
             year, month, day = self._extract_date_from_jsonld(html)
         
+        # Try Schema.org microdata (itemprop="datePublished") - more reliable than class-based
+        if not year:
+            year, month, day = self._extract_date_from_microdata(html)
+        
         # Also try to extract date from URL (e.g., /2025-05-12/ or /2025/05/12/)
         if not year:
             url_date = re.search(r'/(\d{4})[-/](\d{2})[-/](\d{2})(?:/|$|-)', url)
@@ -1753,7 +1762,7 @@ class WebpageScraper:
                 month = url_date.group(2)
                 day = url_date.group(3)
         
-        # Try to extract date from common HTML patterns
+        # Try to extract date from common HTML patterns (fallback - may get related article dates)
         if not year:
             year, month, day = self._extract_date_from_html(html)
         
@@ -1945,8 +1954,116 @@ class WebpageScraper:
         
         return "", "", ""
     
+    def _extract_author_from_microdata(self, html: str) -> List[str]:
+        """Extract authors from Schema.org microdata (itemprop='author').
+        
+        This is more reliable than class-based extraction because itemprop
+        specifically marks the main article's authors, not related content.
+        """
+        authors = []
+        
+        # Pattern: <a itemprop="author">...<strong>Author Name</strong>...</a>
+        # or <span itemprop="author">Author Name</span>
+        microdata_patterns = [
+            # Anchor with nested strong (EMRA style)
+            r'<a[^>]*itemprop=["\']author["\'][^>]*>.*?<strong>([^<]+)</strong>',
+            # Direct text in itemprop element
+            r'<(?:a|span|div)[^>]*itemprop=["\']author["\'][^>]*>([^<]+)</(?:a|span|div)>',
+            # Nested name element
+            r'itemprop=["\']author["\'][^>]*>.*?itemprop=["\']name["\'][^>]*>([^<]+)<',
+        ]
+        
+        for pattern in microdata_patterns:
+            matches = re.findall(pattern, html, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                author = match.strip()
+                # Clean up credentials
+                author = re.sub(r',?\s*(?:MD|DO|PhD|FACEP|FACEM|FAAEM|MBA|JD|Esq)\.?\s*$', '', author, flags=re.IGNORECASE)
+                author = author.strip()
+                if self._is_valid_author(author) and author not in authors:
+                    authors.append(author)
+        
+        if authors:
+            logger.debug(f"Extracted authors from microdata (itemprop=author): {authors}")
+        
+        return authors
+    
+    def _extract_date_from_microdata(self, html: str) -> Tuple[str, str, str]:
+        """Extract date from Schema.org microdata (itemprop='datePublished').
+        
+        This is more reliable than class-based extraction because itemprop
+        specifically marks the main article's publication date.
+        """
+        # Pattern: <strong itemprop="datePublished">4/8/2021</strong>
+        # or <time itemprop="datePublished" datetime="2021-04-08">
+        # or <span itemprop="datePublished">April 8, 2021</span>
+        
+        # First try datetime attribute
+        datetime_match = re.search(
+            r'itemprop=["\']datePublished["\'][^>]*datetime=["\']([^"\']+)["\']',
+            html, re.IGNORECASE
+        )
+        if datetime_match:
+            dt = datetime_match.group(1)
+            m = re.match(r'(\d{4})[-/](\d{2})[-/](\d{2})', dt)
+            if m:
+                logger.debug(f"Extracted date from microdata datetime attr: {m.group(1)}-{m.group(2)}-{m.group(3)}")
+                return m.group(1), m.group(2), m.group(3)
+        
+        # Try text content of itemprop element
+        text_patterns = [
+            r'itemprop=["\']datePublished["\'][^>]*>([^<]+)<',
+            r'<[^>]*itemprop=["\']datePublished["\'][^>]*>.*?<strong>([^<]+)</strong>',
+        ]
+        
+        months = {
+            'january': '01', 'february': '02', 'march': '03', 'april': '04',
+            'may': '05', 'june': '06', 'july': '07', 'august': '08',
+            'september': '09', 'october': '10', 'november': '11', 'december': '12',
+            'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+            'jun': '06', 'jul': '07', 'aug': '08', 'sep': '09', 
+            'oct': '10', 'nov': '11', 'dec': '12'
+        }
+        
+        for pattern in text_patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                date_text = match.group(1).strip()
+                
+                # Try M/D/YYYY format (e.g., "4/8/2021")
+                m = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', date_text)
+                if m:
+                    month = m.group(1).zfill(2)
+                    day = m.group(2).zfill(2)
+                    year = m.group(3)
+                    logger.debug(f"Extracted date from microdata (M/D/YYYY): {year}-{month}-{day}")
+                    return year, month, day
+                
+                # Try "Month Day, Year" format
+                m = re.match(r'([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})', date_text)
+                if m:
+                    month_name = m.group(1).lower()
+                    day = m.group(2).zfill(2)
+                    year = m.group(3)
+                    month = months.get(month_name, "")
+                    if month:
+                        logger.debug(f"Extracted date from microdata (Month D, Y): {year}-{month}-{day}")
+                        return year, month, day
+                
+                # Try ISO format
+                m = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_text)
+                if m:
+                    logger.debug(f"Extracted date from microdata (ISO): {m.group(1)}-{m.group(2)}-{m.group(3)}")
+                    return m.group(1), m.group(2).zfill(2), m.group(3).zfill(2)
+        
+        return "", "", ""
+
     def _extract_author_from_html(self, html: str) -> List[str]:
-        """Extract authors from common HTML patterns like bylines and author links."""
+        """Extract authors from common HTML patterns like bylines and author links.
+        
+        NOTE: This is a fallback. Prefer _extract_author_from_microdata() first,
+        as class-based extraction can pick up authors from related articles.
+        """
         authors = []
         
         # Pattern 1: <p id='publication-byline'>by <a...>Author Name</a></p>
@@ -1972,6 +2089,7 @@ class WebpageScraper:
             return authors
         
         # Pattern 3: <span class="author">Author Name</span> or similar
+        # NOTE: This can pick up related article authors - use with caution
         author_spans = re.findall(
             r'<(?:span|div|a)[^>]*class=[\"\'][^\"\']*author[^\"\']*[\"\'][^>]*>([^<]+)</(?:span|div|a)>',
             html, re.IGNORECASE
