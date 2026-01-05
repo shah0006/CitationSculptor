@@ -450,6 +450,8 @@ class VancouverFormatter(BaseFormatter):
         
         # Generate author label
         author_label = metadata.get_first_author_label()
+        if author_label == "Unknown" and hasattr(metadata, 'site_name') and metadata.site_name:
+            author_label = self._generate_org_abbreviation(metadata.site_name)
         
         # Create label with year - check both year and published_date
         year = metadata.year
@@ -485,17 +487,8 @@ class VancouverFormatter(BaseFormatter):
         
         if authors_str:
             citation_parts.append(authors_str + '.')
-        else:
-            # Use Null_Author placeholder when author is missing
-            citation_parts.append('Null_Author.')
         
-        citation_parts.append(title)
-        
-        # Add journal if available (academic sources)
-        if metadata.journal:
-            journal_text = metadata.journal.strip().rstrip('.')
-            citation_parts.append(journal_text + '.')
-        # Otherwise add site_name/organization
+        # If no authors, try to use site_name as the author (Organization as Author)
         elif hasattr(metadata, 'site_name') and metadata.site_name:
             # Get full organization name and abbreviation
             site_name = metadata.site_name.strip()
@@ -507,8 +500,38 @@ class VancouverFormatter(BaseFormatter):
                 org_display = f"{full_org_name} ({org_abbrev.upper()})"
             else:
                 org_display = full_org_name
+                
+            citation_parts.append(org_display + '.')
             
-            # Always include organization (even if we have authors)
+            # Mark that we've used the organization as the author
+            # so we don't duplicate it later
+            org_used_as_author = True
+        else:
+            # truly unknown author
+            # Use Null_Author placeholder when author is missing
+            citation_parts.append('Null_Author.')
+            org_used_as_author = False
+        
+        citation_parts.append(title)
+        
+        # Add journal if available (academic sources)
+        if metadata.journal:
+            journal_text = metadata.journal.strip().rstrip('.')
+            citation_parts.append(journal_text + '.')
+        # Otherwise add site_name/organization ONLY if we haven't used it as the author
+        elif hasattr(metadata, 'site_name') and metadata.site_name and not org_used_as_author:
+            # Get full organization name and abbreviation
+            site_name = metadata.site_name.strip()
+            full_org_name = self._get_org_full_name(site_name) or site_name
+            org_abbrev = self._generate_org_abbreviation(site_name)
+            
+            # Format: "Full Name (ABBREV)" if abbreviation is different and short
+            if org_abbrev.upper() != full_org_name.upper() and len(org_abbrev) <= 6:
+                org_display = f"{full_org_name} ({org_abbrev.upper()})"
+            else:
+                org_display = full_org_name
+            
+            # Append organization
             citation_parts.append(org_display + '.')
         
         # Date and volume/issue/pages

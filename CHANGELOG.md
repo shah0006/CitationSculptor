@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.2] - 2026-01-04
+
+### Improved - Metadata Extraction & Citation Quality
+This release significantly improves the quality of citations generated from web sources, particularly for medical organization websites (AHA, ESC, Mayo Clinic, etc.).
+
+- **Organization-as-Author Logic**: When no individual author is found, the system now automatically promotes the Organization Name to the author field.
+  - Eliminated `Null_Author` placeholders for organizational content.
+  - Citations now correctly format as: `British Heart Foundation (BHF). Title...`
+- **Smart Citation Labels**: Reference labels for organizational content now use the organization abbreviation (e.g., `[^AHA-2025]`) instead of generic `[^Unknown-...]`.
+- **Evergreen Content Detection**: Added support for identifying "evergreen" medical content (e.g., condition overviews, health topics).
+  - Recognized paths like `/conditions/` and `/health-topics/`.
+  - Suppresses `Null_Date` warnings for these timeless pages.
+- **Expanded Medical Domain Knowledge**: Added 13 new medical domains to the scraper's knowledge base for better organization extraction, including:
+  - European Society of Cardiology (`escardio.org`)
+  - American Heart Association (`heart.org`)
+  - British Heart Foundation (`bhf.org.uk`)
+  - Mayo Clinic, Cleveland Clinic, Hopkins Medicine, and more.
+
+### Fixed
+- Fixed issue where scraped webpages with missing authors would default to "Null_Author" even when the site name was known.
+
+---
+
 ## [2.3.0] - 2025-12-18
 
 ### Added - Citation Format Normalizer (Preprocessing)

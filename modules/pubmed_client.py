@@ -1354,6 +1354,16 @@ class WebpageScraper:
         'cbpp.org': 'Center on Budget and Policy Priorities (CBPP)',
         'mckinsey.com': 'McKinsey & Company',
         'emra.org': 'EM Resident (EMRA)',
+        'escardio.org': 'European Society of Cardiology (ESC)',
+        'heart.org': 'American Heart Association (AHA)',
+        'bhf.org.uk': 'British Heart Foundation (BHF)',
+        'cedars-sinai.org': 'Cedars-Sinai',
+        'eternalhospital.com': 'Eternal Hospital',
+        'emedicine.medscape.com': 'Medscape',
+        'medscape.com': 'Medscape',
+        'mayoclinic.org': 'Mayo Clinic',
+        'clevelandclinic.org': 'Cleveland Clinic',
+        'hopkinsmedicine.org': 'Johns Hopkins Medicine',
     }
     
     # Meta tag patterns for academic pages
@@ -1856,6 +1866,9 @@ class WebpageScraper:
             '/what-we-do', '/who-we-are', '/our-mission',
             '/resources', '/tools', '/calculators',
             '/faq', '/help', '/support',
+            '/conditions', '/diseases-and-conditions', '/health-topics',
+            '/health-library', '/encyclopedia', '/medical-library',
+            '/health-wellness', '/advice/',
         ]
         
         # Check URL patterns
@@ -1869,6 +1882,8 @@ class WebpageScraper:
             'find a doctor', 'find a provider', 'patient care',
             'clinical services', 'our practice', 'meet our',
             'locations', 'directions', 'hours',
+            'overview', 'symptoms', 'causes', 'diagnosis', 'treatment',
+            'condition:', 'disease:', 'what is',
         ]
         
         for pattern in evergreen_title_patterns:

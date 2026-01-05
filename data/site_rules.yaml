@@ -156,3 +156,310 @@ emra.org:
   learned: true
   date_added: '2025-12-18T16:45:03.390251'
   publication_type: organization
+emergencymedicine.wustl.edu:
+  organization: WashU Medicine
+  publication_name: Washington University Emergency Medicine Journal Club
+  instructions: 'Organization: WashU Medicine
+
+    Publication: Washington University Emergency Medicine Journal Club
+
+    Authors: Found 1 author(s)
+
+    Authors appear in ''Written by'' byline
+
+    Date format: December 21, 2022'
+  learned: true
+  date_added: '2025-12-19T01:11:30.517537'
+  publication_type: publication
+hopkinsmedicine.org:
+  organization: Johns Hopkins Medicine
+  publication_name: ''
+  instructions: 'Organization: Johns Hopkins Medicine
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:09:05.116506'
+  publication_type: organization
+bhf.org.uk:
+  organization: BHF
+  publication_name: ''
+  instructions: 'Organization: BHF
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: 4 December 2025'
+  learned: true
+  date_added: '2026-01-04T19:10:39.455653'
+  publication_type: organization
+cedars-sinai.org:
+  organization: Cedars-Sinai
+  publication_name: ''
+  instructions: 'Organization: Cedars-Sinai
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:11:04.183221'
+  publication_type: organization
+myheart.org.uk:
+  organization: myheart
+  publication_name: ''
+  instructions: 'Organization: myheart
+
+    Authors: Found 2 author(s)
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:11:37.179523'
+  publication_type: organization
+mayoclinic.org:
+  organization: Mayo Clinic
+  publication_name: ''
+  instructions: 'Organization: Mayo Clinic
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:11:51.788173'
+  publication_type: organization
+eternalhospital.com:
+  organization: Eternal Hospital
+  publication_name: ''
+  instructions: 'Organization: Eternal Hospital
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: 01/29/2025'
+  learned: true
+  date_added: '2026-01-04T19:12:18.999685'
+  publication_type: webpage
+heart.org:
+  organization: American Heart Association
+  publication_name: ''
+  instructions: 'Organization: American Heart Association
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: Sep 11, 2025'
+  learned: true
+  date_added: '2026-01-04T19:12:31.321329'
+  publication_type: organization
+my.clevelandclinic.org:
+  organization: Cleveland Clinic
+  publication_name: ''
+  instructions: 'Organization: Cleveland Clinic
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:13:31.667932'
+  publication_type: organization
+consultqd.clevelandclinic.org:
+  organization: Cleveland Clinic
+  publication_name: ''
+  instructions: 'Organization: Cleveland Clinic
+
+    Authors: Found 2 author(s)
+
+    Date format: October 29, 2024'
+  learned: true
+  date_added: '2026-01-04T19:14:18.977168'
+  publication_type: organization
+escardio.org:
+  organization: European Society of Cardiology
+  publication_name: ''
+  instructions: 'Organization: European Society of Cardiology
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:40:37.243231'
+  publication_type: organization
+arvcstudies.com:
+  organization: Tenaya Therapeutics
+  publication_name: ''
+  instructions: 'Organization: Tenaya Therapeutics
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:46:18.897877'
+  publication_type: webpage
+myocarditisfoundation.org:
+  organization: Myocarditis Foundation
+  publication_name: ''
+  instructions: 'Organization: Myocarditis Foundation
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:47:40.160199'
+  publication_type: organization
+youtube.com:
+  organization: YouTube
+  publication_name: ''
+  instructions: 'Organization: YouTube
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:47:47.899200'
+  publication_type: webpage
+childrenscardiomyopathy.org:
+  organization: CHILDREN’S CARDIOMYOPATHY FOUNDATION
+  publication_name: ''
+  instructions: 'Organization: CHILDREN’S CARDIOMYOPATHY FOUNDATION
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:49:58.347507'
+  publication_type: organization
+healthlibrary.vanderbilthealth.com:
+  organization: Vanderbilt Health
+  publication_name: ''
+  instructions: 'Organization: Vanderbilt Health
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:50:58.306769'
+  publication_type: webpage
+cardiomyopathy.org:
+  organization: Cardiomyopathy UK
+  publication_name: ''
+  instructions: 'Organization: Cardiomyopathy UK
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:51:14.497525'
+  publication_type: organization
+childrenshospital.org:
+  organization: Boston Children's Hospital
+  publication_name: ''
+  instructions: 'Organization: Boston Children''s Hospital
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:51:27.011732'
+  publication_type: organization
+dicardiology.com:
+  organization: DAIC
+  publication_name: ''
+  instructions: 'Organization: DAIC
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: May 14, 2019'
+  learned: true
+  date_added: '2026-01-04T19:52:02.282158'
+  publication_type: webpage
+cardiovascularbusiness.com:
+  organization: Cardiovascular Business
+  publication_name: ''
+  instructions: 'Organization: Cardiovascular Business
+
+    Authors: Found 1 author(s)
+
+    Date format: May 13, 2019'
+  learned: true
+  date_added: '2026-01-04T19:52:56.137829'
+  publication_type: webpage
+news-medical.net:
+  organization: News Medical
+  publication_name: ''
+  instructions: 'Organization: News Medical
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: Oct 22 2024'
+  learned: true
+  date_added: '2026-01-04T19:55:25.969975'
+  publication_type: news
+cpe.psychopen.eu:
+  organization: PsychOpen
+  publication_name: Clinical Psychology in Europe
+  instructions: 'Organization: PsychOpen
+
+    Publication: Clinical Psychology in Europe
+
+    Authors: Not typically available or institutional authorship
+
+    Date extracted from URL path'
+  learned: true
+  date_added: '2026-01-04T19:55:32.978033'
+  publication_type: publication
+webmd.com:
+  organization: WebMD
+  publication_name: ''
+  instructions: 'Organization: WebMD
+
+    Authors: Found 1 author(s)
+
+    Authors appear in ''Written by'' byline
+
+    Date format: August 03, 2024'
+  learned: true
+  date_added: '2026-01-04T19:58:51.310843'
+  publication_type: webpage
+cardiacsolutions.net:
+  organization: Cardiac Solutions
+  publication_name: ''
+  instructions: 'Organization: Cardiac Solutions
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-04T19:59:42.003930'
+  publication_type: webpage
+pennmedicine.org:
+  organization: Penn Medicine
+  publication_name: ''
+  instructions: 'Organization: Penn Medicine
+
+    Authors: Not typically available or institutional authorship
+
+    Date format: September 2018'
+  learned: true
+  date_added: '2026-01-04T19:59:52.853017'
+  publication_type: organization
+eurekalert.org:
+  organization: EurekAlert!
+  publication_name: Heart Rhythm
+  instructions: 'Organization: EurekAlert!
+
+    Publication: Heart Rhythm
+
+    Authors: Found 1 author(s)
+
+    Date format: 2023-07-27'
+  learned: true
+  date_added: '2026-01-04T20:01:32.456354'
+  publication_type: publication
+healio.com:
+  organization: Healio
+  publication_name: ''
+  instructions: 'Organization: Healio
+
+    Authors: Found 1 author(s)
+
+    Date format: July 07, 2015'
+  learned: true
+  date_added: '2026-01-04T20:03:03.388981'
+  publication_type: webpage
