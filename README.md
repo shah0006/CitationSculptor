@@ -4,7 +4,7 @@
 
 Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations, process entire documents with LLM-generated references, and manage your citations directly in Obsidian.
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.4.1-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -50,11 +50,14 @@ Transform identifiers (PMID, DOI, ISBN, URLs) into properly formatted citations,
 - **Table-aware**: Auto-escapes brackets `\[^N\]` in markdown tables
 - **False positive protection**: Preserves links, wikilinks, code blocks, math, YAML
 
-### 🧠 Document Intelligence (v2.1)
+### 🧠 Document Intelligence (v2.4)
+- **Citation Integrity Checker**: Detect duplicate citations `[^A][^A]`, orphaned/missing definitions
+- **Context-Aware Verification**: Verify citations match surrounding text using IDF-weighted keyword matching
+- **Comprehensive Audit**: Combined health check with document score (0-100%)
 - **Link Verification**: Check for broken links with Wayback Machine fallback
 - **Citation Suggestions**: Find passages that may need citations
 - **Compliance Checker**: Detect uncited quotes, claims, and statistics
-- **LLM Extraction**: AI-powered metadata extraction for edge cases
+- **LLM Deep Verification**: Optional Ollama/Groq-powered semantic analysis
 
 ### 🛡️ Safety & Reliability
 - **Automatic Backups**: Creates timestamped backup before any file modification
@@ -309,19 +312,43 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 | Tool | Description |
 |------|-------------|
+| **Core Lookup** | |
 | `citation_lookup_pmid` | Look up by PubMed ID |
 | `citation_lookup_doi` | Look up by DOI |
 | `citation_lookup_pmcid` | Look up by PMC ID |
 | `citation_lookup_title` | Search by title |
 | `citation_lookup_auto` | Auto-detect identifier |
+| `citation_lookup_arxiv` | Look up arXiv preprints |
+| `citation_lookup_isbn` | Look up books by ISBN |
+| **Output Formats** | |
 | `citation_get_inline_only` | Get just `[^Author-Year-PMID]` |
 | `citation_get_endnote_only` | Get just the endnote |
 | `citation_get_metadata` | Get JSON metadata |
 | `citation_get_abstract` | Get article abstract |
-| `citation_search_pubmed` | Search with multiple results |
+| **Search** | |
+| `citation_search_pubmed` | Search PubMed with multiple results |
+| `citation_search_openalex` | Search OpenAlex database |
+| `citation_search_semantic_scholar` | Search Semantic Scholar |
+| **Batch & Document** | |
 | `citation_batch_lookup` | Multiple identifiers |
-| `citation_process_document` | Process full markdown document |
+| `citation_process_document` | Process full markdown document (saves to file) |
 | `citation_normalize_format` | Normalize legacy citation formats (`[1,2]` → `[^1] [^2]`) |
+| **Document Intelligence (v2.4)** | |
+| `citation_find_duplicates` | Detect `[^A][^A]`, orphans, missing definitions |
+| `citation_verify_context` | Verify citations match surrounding text context |
+| `citation_audit_document` | Comprehensive health check with document score |
+| `citation_verify_links` | Check for broken/redirected URLs |
+| `citation_suggest_citations` | Find passages needing citations |
+| `citation_check_compliance` | Detect uncited quotes and claims |
+| **Import/Export** | |
+| `citation_export_bibtex` | Export citations to BibTeX format |
+| `citation_export_ris` | Export citations to RIS format |
+| `citation_import_bibtex` | Import BibTeX files |
+| `citation_import_ris` | Import RIS files |
+| **Utilities** | |
+| `citation_extract_pdf` | Extract metadata from PDF files |
+| `citation_check_article_duplicates` | Find duplicate articles in library |
+| `citation_generate_bibliography` | Generate formatted bibliography |
 | `citation_test_connection` | Test API connection |
 
 ---
@@ -348,6 +375,23 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 ---
 
 ## 🗺️ Version History
+
+### ✅ v2.4.1 - Enhanced Context Verification Algorithm (Complete)
+- [x] **IDF-Weighted Inclusion Coefficient**: Improved scoring that downweights generic terms
+- [x] **Keyphrase Extraction**: Captures multi-word concepts like "cardiac amyloidosis"
+- [x] **Conservative Lemmatization**: Reduces word variants while protecting technical terms
+- [x] **Configurable Options**: Enable/disable lemmatization, keyphrases, IDF weighting
+- [x] 11 new algorithm tests
+
+### ✅ v2.4.0 - Critical Improvements Sprint (Complete)
+- [x] **File Save Fix**: `citation_process_document` now saves directly to file
+- [x] **Citation Integrity Checker**: Detect `[^A][^A]` duplicates, orphans, missing definitions
+- [x] **Context-Aware Verification**: Domain-agnostic keyword matching with tiered warnings
+- [x] **Comprehensive Audit Tool**: Combined health check with document score
+- [x] **LLM Deep Verification**: Optional Ollama/Groq semantic analysis
+- [x] **Security Fix**: Path traversal protection for backup restoration
+- [x] **Feature Parity**: All tools accessible via MCP, HTTP API, CLI, and Web UI
+- [x] 48 new tests across new modules
 
 ### ✅ v2.3.0 - Citation Format Normalizer (Complete)
 - [x] **Citation Normalizer**: Auto-converts legacy formats to Obsidian footnotes
@@ -414,19 +458,19 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 We're always looking to improve CitationSculptor. Here's what's planned:
 
-### v2.4.0 - Reference Manager Integration
+### v2.5.0 - Reference Manager Integration
 - [ ] Zotero library sync (two-way)
 - [ ] Mendeley integration
 - [ ] EndNote support
 - [ ] Papers app integration
 
-### v2.5.0 - Visualization & Analytics
+### v2.6.0 - Visualization & Analytics
 - [ ] Citation network graph visualization
 - [ ] Co-author network mapping
 - [ ] Research trend analysis
 - [ ] Journal impact metrics display
 
-### v2.6.0 - Collaboration Features
+### v2.7.0 - Collaboration Features
 - [ ] Shared citation libraries
 - [ ] Team workspaces
 - [ ] Citation annotation & notes sharing
@@ -485,7 +529,7 @@ python -m pytest tests/test_pubmed_client.py -v
 python -m pytest tests/ --cov=modules
 ```
 
-**Test Coverage:** 339+ tests across all modules
+**Test Coverage:** 471+ tests across all modules
 
 ---
 

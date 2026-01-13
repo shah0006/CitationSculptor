@@ -1314,6 +1314,30 @@ def main():
                        help="Restore from a backup file")
     parser.add_argument("--lookup", metavar="ID",
                        help="Quick lookup: provide PMID, DOI, or title")
+    
+    # Document Intelligence modes (v2.3.0+)
+    parser.add_argument("--verify-links", action="store_true",
+                       help="Verify all URLs in document for broken links and redirects")
+    parser.add_argument("--suggest-citations", action="store_true",
+                       help="Find passages that may need citations (statistics, claims, findings)")
+    parser.add_argument("--check-compliance", action="store_true",
+                       help="Check for citation compliance issues (uncited quotes, unsupported claims)")
+    parser.add_argument("--search-pubmed", action="store_true",
+                       help="Search PubMed for suggested citations (use with --suggest-citations)")
+    
+    # Verification and audit modes (v2.4.0)
+    parser.add_argument("--find-duplicates", action="store_true",
+                       help="Find and report citation integrity issues (duplicates, orphans, missing)")
+    parser.add_argument("--verify-context", action="store_true",
+                       help="Verify citations match their surrounding text context")
+    parser.add_argument("--audit", action="store_true",
+                       help="Comprehensive citation audit (combines duplicates + context verification)")
+    parser.add_argument("--auto-fix", action="store_true",
+                       help="Auto-fix consecutive duplicate citations when using --find-duplicates or --audit")
+    parser.add_argument("--deep-verify", action="store_true",
+                       help="Use LLM for deep context verification (slower but more accurate)")
+    parser.add_argument("--threshold", type=float, default=0.15,
+                       help="Overlap threshold for context verification (default: 0.15)")
 
     args = parser.parse_args()
 
@@ -1391,6 +1415,241 @@ def main():
     # Handle interactive mode
     if args.interactive:
         run_interactive_mode()
+        sys.exit(0)
+
+    # Handle Document Intelligence modes (v2.3.0+)
+    if args.verify_links:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --verify-links[/red]")
+            sys.exit(1)
+        
+        from modules.document_intelligence import verify_document_links
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        console.print(Panel.fit("[bold cyan]Link Verification[/bold cyan]"))
+        console.print("[dim]Checking all URLs in document...[/dim]\n")
+        
+        result = verify_document_links(content)
+        
+        total = result.get('total_urls', 0)
+        status = result.get('status_summary', {})
+        broken = result.get('broken_links', [])
+        
+        console.print(f"[cyan]URLs checked:[/cyan] {total}")
+        console.print(f"[green]✅ OK:[/green] {status.get('ok', 0)}")
+        console.print(f"[yellow]↪️ Redirects:[/yellow] {status.get('redirect', 0)}")
+        console.print(f"[red]❌ Broken:[/red] {status.get('broken', 0) + status.get('error', 0)}")
+        
+        if broken:
+            console.print("\n[red]Broken Links:[/red]")
+            for link in broken[:10]:
+                console.print(f"  • {link.get('url', 'N/A')}")
+                if link.get('archived_url'):
+                    console.print(f"    📦 Archive: {link.get('archived_url')}")
+            if len(broken) > 10:
+                console.print(f"  ... and {len(broken) - 10} more")
+        
+        sys.exit(0)
+    
+    if args.suggest_citations:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --suggest-citations[/red]")
+            sys.exit(1)
+        
+        from modules.document_intelligence import CitationSuggestor
+        from modules.pubmed_client import PubMedClient
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        console.print(Panel.fit("[bold cyan]Citation Suggestions[/bold cyan]"))
+        
+        pubmed_client = PubMedClient() if args.search_pubmed else None
+        suggestor = CitationSuggestor(pubmed_client=pubmed_client)
+        suggestions = suggestor.analyze_document(content, search_suggestions=args.search_pubmed)
+        
+        if not suggestions:
+            console.print("[green]✅ No obvious missing citations detected.[/green]")
+            sys.exit(0)
+        
+        console.print(f"\n[yellow]⚠️ {len(suggestions)} passage(s) may need citations:[/yellow]\n")
+        
+        for s in suggestions:
+            emoji = {'statistic': '📊', 'claim': '💬', 'definition': '📖', 'finding': '🔬'}.get(s.category, '📝')
+            console.print(f"{emoji} [bold]Line {s.line_number}[/bold] (confidence: {s.confidence:.0%})")
+            console.print(f"   [dim]{s.text_excerpt[:80]}...[/dim]")
+            console.print(f"   [italic]{s.reason}[/italic]")
+            if s.pubmed_results:
+                console.print(f"   [cyan]Suggested:[/cyan] {s.pubmed_results[0].get('title', '')[:50]}...")
+            console.print()
+        
+        sys.exit(0)
+    
+    if args.check_compliance:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --check-compliance[/red]")
+            sys.exit(1)
+        
+        from modules.document_intelligence import check_citation_compliance
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        console.print(Panel.fit("[bold cyan]Citation Compliance Check[/bold cyan]"))
+        
+        result = check_citation_compliance(content)
+        
+        score = result.get('compliance_score', 100)
+        score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
+        score_color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
+        
+        console.print(f"\n{score_emoji} [{score_color}]Compliance Score: {score}/100[/{score_color}]")
+        console.print(f"\n[cyan]Summary:[/cyan]")
+        console.print(f"  • Total issues: {result.get('total_issues', 0)}")
+        console.print(f"  • 🔴 High severity: {result.get('high_severity_count', 0)}")
+        console.print(f"  • 🟡 Medium severity: {result.get('medium_severity_count', 0)}")
+        console.print(f"  • 🟢 Low severity: {result.get('low_severity_count', 0)}")
+        
+        issues = result.get('issues', [])
+        if issues:
+            console.print("\n[yellow]Issues Found:[/yellow]")
+            for issue in issues[:10]:
+                severity = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(issue.get('severity'), '⚪')
+                console.print(f"  {severity} Line {issue.get('line_number', 'N/A')}: {issue.get('explanation', '')[:60]}...")
+            if len(issues) > 10:
+                console.print(f"  ... and {len(issues) - 10} more")
+        
+        sys.exit(0)
+
+    # Handle verification and audit modes (v2.4.0)
+    if args.find_duplicates:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --find-duplicates[/red]")
+            sys.exit(1)
+        
+        from modules.citation_integrity_checker import CitationIntegrityChecker
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        checker = CitationIntegrityChecker()
+        report = checker.analyze(content)
+        
+        console.print(Panel.fit("[bold cyan]Citation Integrity Report[/bold cyan]"))
+        
+        if report.is_clean:
+            console.print("[green]✅ No integrity issues found.[/green]")
+            sys.exit(0)
+        
+        if report.same_citation_duplicates:
+            console.print(f"\n[red]❌ Same-Citation Duplicates: {len(report.same_citation_duplicates)}[/red]")
+            for line, orig, fix in report.same_citation_duplicates[:10]:
+                console.print(f"   Line {line}: `{orig}` → `{fix}`")
+            if len(report.same_citation_duplicates) > 10:
+                console.print(f"   ... and {len(report.same_citation_duplicates) - 10} more")
+        
+        if report.orphaned_definitions:
+            console.print(f"\n[yellow]⚠️ Orphaned Definitions: {len(report.orphaned_definitions)}[/yellow]")
+            for orphan in report.orphaned_definitions[:10]:
+                console.print(f"   {orphan}")
+        
+        if report.missing_definitions:
+            console.print(f"\n[red]❌ Missing Definitions: {len(report.missing_definitions)}[/red]")
+            for missing in report.missing_definitions[:10]:
+                console.print(f"   {missing}")
+        
+        # Auto-fix if requested
+        if args.auto_fix and report.same_citation_duplicates:
+            fixed_content, fixes = checker.fix_duplicates(content)
+            output_path = args.output or args.input_file
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(fixed_content)
+            console.print(f"\n[green]✓ Fixed {fixes} duplicates, saved to: {output_path}[/green]")
+        
+        sys.exit(0)
+    
+    if args.verify_context:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --verify-context[/red]")
+            sys.exit(1)
+        
+        import os
+        from modules.citation_context_verifier import CitationContextVerifier
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        groq_api_key = os.environ.get('GROQ_API_KEY')
+        verifier = CitationContextVerifier(groq_api_key=groq_api_key)
+        mismatches = verifier.verify_citations(
+            content, 
+            deep_verify=args.deep_verify,
+            flag_threshold=args.threshold
+        )
+        
+        console.print(Panel.fit("[bold cyan]Citation Context Verification[/bold cyan]"))
+        
+        if not mismatches:
+            console.print("[green]✅ All citations match their context.[/green]")
+            sys.exit(0)
+        
+        console.print(f"\n[yellow]⚠️ {len(mismatches)} potential context mismatches:[/yellow]")
+        for m in mismatches:
+            concern_color = "red" if m.concern_level.value == "HIGH" else "yellow" if m.concern_level.value == "MODERATE" else "dim"
+            console.print(f"[{concern_color}]Line {m.line_number}: {m.citation_tag} (overlap: {m.overlap_score:.0%})[/{concern_color}]")
+            if m.deep_verify_result:
+                console.print(f"   LLM: {m.deep_verify_result[:80]}...")
+        
+        sys.exit(0)
+    
+    if args.audit:
+        if not args.input_file:
+            console.print("[red]Error: Must provide input file with --audit[/red]")
+            sys.exit(1)
+        
+        import os
+        from modules.citation_integrity_checker import CitationIntegrityChecker
+        from modules.citation_context_verifier import CitationContextVerifier
+        
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        groq_api_key = os.environ.get('GROQ_API_KEY')
+        
+        integrity_checker = CitationIntegrityChecker()
+        context_verifier = CitationContextVerifier(groq_api_key=groq_api_key)
+        
+        console.print(Panel.fit("[bold cyan]Citation Audit Report[/bold cyan]"))
+        
+        # Integrity check
+        report = integrity_checker.analyze(content)
+        
+        # Context verification
+        mismatches = context_verifier.verify_citations(content, deep_verify=args.deep_verify)
+        
+        # Calculate health score
+        total_issues = report.total_issues + len(mismatches)
+        health_score = max(0, 100 - (total_issues * 5))
+        
+        score_emoji = "🟢" if health_score >= 80 else "🟡" if health_score >= 60 else "🔴"
+        console.print(f"\n{score_emoji} [bold]Health Score: {health_score}/100[/bold]")
+        
+        console.print(f"\n[cyan]Summary:[/cyan]")
+        console.print(f"  • Same-citation duplicates: {len(report.same_citation_duplicates)}")
+        console.print(f"  • Orphaned definitions: {len(report.orphaned_definitions)}")
+        console.print(f"  • Missing definitions: {len(report.missing_definitions)}")
+        console.print(f"  • Context mismatches: {len(mismatches)}")
+        
+        # Auto-fix if requested
+        if args.auto_fix and report.same_citation_duplicates:
+            fixed_content, fixes = integrity_checker.fix_duplicates(content)
+            output_path = args.output or args.input_file
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(fixed_content)
+            console.print(f"\n[green]✓ Fixed {fixes} duplicates, saved to: {output_path}[/green]")
+        
         sys.exit(0)
 
     # Require input file for normal processing

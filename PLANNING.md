@@ -1,6 +1,6 @@
 # CitationSculptor Planning
 
-**Version:** 2.3.0 | **Updated:** Dec 2025 | **Status:** ✅ v2.3 Complete!
+**Version:** 2.4.1 | **Updated:** Jan 13, 2026 | **Status:** ✅ v2.4.1 Complete
 
 ## Quick Links
 - [CHANGELOG.md](./CHANGELOG.md) - Version history
@@ -44,7 +44,8 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 - **LLM Metadata Extraction**: Ollama-powered metadata extraction for edge cases
 - **HTTP API**: `/api/verify-links`, `/api/suggest-citations`, `/api/check-compliance`, `/api/analyze-document`
 - **MCP Tools**: 5 new tools for AI agents
-- **Auto-Save**: Save processed content directly to file with `save_to_file` parameter
+- **Auto-Save (HTTP API only)**: Save processed content directly to file with `save_to_file` parameter via HTTP API
+  - ⚠️ **Note:** MCP tool `citation_process_document` does NOT currently save to file - this is a v2.4.0 fix
 - **One-Click Restore**: "Restore Original" button in Web UI, `/api/restore-backup` endpoint
 - **Real-Time Progress**: SSE streaming with live progress bar and statistics
 - **Comprehensive Logging**: File-based logging with rotation in `.data/logs/`
@@ -97,21 +98,79 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### ✅ Phase 5: v1.10.0 - Import/Export
 ### ✅ Phase 6: v2.0.0 - Smart Features
 
+## ✅ v2.4.1 - Enhanced Context Verification Algorithm (COMPLETE)
+
+**Status:** COMPLETE  
+**Released:** Jan 13, 2026
+
+### Enhancements Based on IR Research
+- **IDF-Weighted Inclusion**: Generic terms weighted less, specific terms more
+- **Keyphrase Extraction**: Captures multi-word concepts ("cardiac amyloidosis")
+- **Conservative Lemmatization**: Reduces variants, protects technical terms
+- **Configurable Options**: Toggle lemmatization, keyphrases, IDF weighting
+
+---
+
+## ✅ v2.4.0 - Critical Improvements Sprint (COMPLETE)
+
+**Status:** COMPLETE  
+**Released:** Jan 12, 2026  
+**See:** `docs/IMPROVEMENT_PLAN_v2.4.md` for analysis  
+
+> ✅ **Domain-Agnostic Implementation Achieved**
+>
+> All v2.4.0 implementations use dynamic keyword extraction, NOT hardcoded topic lists.
+> Solutions work universally across medical, legal, engineering, humanities, CS, and all domains.
+
+### Issues Fixed ✅
+
+| Issue | Status | Solution |
+|-------|--------|----------|
+| **File not saved after processing** | ✅ Fixed | Added `save_to_file` param, writes directly with backup |
+| **No duplicate detection** | ✅ Fixed | New `citation_find_duplicates` tool + `citation_integrity_checker.py` |
+| **No context verification** | ✅ Fixed | New `citation_verify_context` tool + `citation_context_verifier.py` |
+| **No comprehensive audit** | ✅ Fixed | New `citation_audit_document` tool |
+| **Security vulnerability** | ✅ Fixed | Path traversal protection in `/api/restore-backup` |
+
+### New Tools Added ✅
+
+| Tool | Purpose | Status |
+|------|---------|--------|
+| `citation_find_duplicates` | Detect `[^A][^A]`, orphans, missing defs | ✅ Complete |
+| `citation_verify_context` | IDF-weighted keyword-based context matching | ✅ Complete |
+| `citation_audit_document` | Comprehensive health check with score | ✅ Complete |
+
+### New Modules Added ✅
+
+- `modules/citation_integrity_checker.py` - Duplicate/orphan detection
+- `modules/citation_context_verifier.py` - IDF-weighted context verification with lemmatization & keyphrases
+
+### Feature Parity Achieved ✅
+
+All tools accessible via:
+- MCP Server (stdio)
+- HTTP API
+- CLI
+- Web UI (Document Intelligence section)
+
+---
+
 ## 🎯 Future Enhancements (Post v2.4)
 
 | Feature | Priority | Notes |
 |---------|----------|-------|
-| **PDF/Document Link Handling** | **High** | Better handling of URLs pointing to PDFs, presentations, spreadsheets. Extract title from URL path, identify document type, format with `[^Org-DocType-Year]` labels |
+| **BM25 Scoring** | **High** | Better lexical matching for short query vs long document |
+| **Corpus-Based IDF** | **High** | Use S2ORC or similar for more accurate term specificity |
+| **PDF/Document Link Handling** | **High** | Better handling of URLs pointing to PDFs, presentations, spreadsheets |
 | **Superscript Citations** | Medium | Handle `¹²` and `<sup>1,2</sup>` formats |
 | Zotero sync integration | Medium | Bi-directional sync |
+| Semantic embeddings | Medium | Catch synonyms like "heart" ↔ "cardiac" |
 | CSL-JSON export | Medium | For Pandoc/Citation.js |
 | Citation graph visualization | Low | D3.js or Obsidian Graph |
+| Calibrated thresholds | Low | Learn optimal cutoffs from labeled data |
 | SSRN support | Low | Niche academic |
-| WorldCat integration | Low | Library catalog |
-| Shared citation libraries | Low | Team collaboration |
-| Real-time sync | Low | Multi-device support |
 
-> **Note:** LLM metadata extraction, link verification, and citation format normalization are now available
+> **Note:** LLM metadata extraction, link verification, citation format normalization, context verification, and integrity checking are now available
 
 ---
 
@@ -188,7 +247,7 @@ CitationSculptor aims to be the most comprehensive citation tool for researchers
 ### MCP Server
 - Transport: stdio (stdin/stdout)
 - Python 3.10+ required
-- 18 tools available (12 core + 5 document intelligence + 1 normalizer)
+- 30+ tools available (core lookup, search, batch, document processing, intelligence, import/export)
 
 ### Key Commands
 ```bash
@@ -223,4 +282,6 @@ python citation_sculptor.py "document.md" --multi-section
 | test_document_intelligence_integration.py | 24 | ✅ |
 | test_save_to_file_safety.py | 12 | ✅ |
 | test_citation_normalizer.py | 47 | ✅ |
-| **Total** | **339+** | ✅ |
+| test_citation_integrity_checker.py | 14 | ✅ |
+| test_citation_context_verifier.py | 45 | ✅ |
+| **Total** | **471+** | ✅ |

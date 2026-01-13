@@ -825,11 +825,40 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'Missing backup_path'}, 400)
                 return
             
+            # SECURITY: Define allowed base directories for file operations
+            allowed_base_dirs = []
+            if config.OBSIDIAN_VAULT_PATH:
+                allowed_base_dirs.append(Path(config.OBSIDIAN_VAULT_PATH).resolve())
+            if hasattr(config, 'BACKUP_DIR') and config.BACKUP_DIR:
+                allowed_base_dirs.append(Path(config.BACKUP_DIR).resolve())
+            # Also allow user's home directory subdirectories as fallback
+            home_dir = Path.home()
+            allowed_base_dirs.append(home_dir / 'Documents')
+            allowed_base_dirs.append(home_dir / 'Downloads')
+            
+            def is_path_safe(file_path: str, allowed_dirs: list) -> bool:
+                """Check if path is within allowed directories (path traversal protection)"""
+                try:
+                    resolved = Path(file_path).resolve()
+                    return any(
+                        resolved == allowed_dir or 
+                        str(resolved).startswith(str(allowed_dir) + os.sep)
+                        for allowed_dir in allowed_dirs
+                    )
+                except Exception:
+                    return False
+            
             # Resolve backup path (might be relative to vault)
             resolved_backup = Path(backup_path)
             if not resolved_backup.is_absolute() and config.OBSIDIAN_VAULT_PATH:
                 resolved_backup = Path(config.OBSIDIAN_VAULT_PATH) / backup_path
-            backup_path = str(resolved_backup)
+            backup_path = str(resolved_backup.resolve())
+            
+            # SECURITY: Validate backup path is in allowed directory
+            if not is_path_safe(backup_path, allowed_base_dirs):
+                logger.warning(f"SECURITY: Blocked backup read from unsafe path: {backup_path}")
+                self._send_json({'error': 'Backup path is outside allowed directories'}, 403)
+                return
             
             # If target_path not provided, infer it from backup_path
             # Backup format: filename_backup_YYYYMMDD_HHMMSS.ext
@@ -849,6 +878,12 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 resolved_target = Path(target_path)
                 if not resolved_target.is_absolute() and config.OBSIDIAN_VAULT_PATH:
                     target_path = str(Path(config.OBSIDIAN_VAULT_PATH) / target_path)
+            
+            # SECURITY: Validate target path is in allowed directory (CRITICAL - prevents arbitrary file write)
+            if not is_path_safe(target_path, allowed_base_dirs):
+                logger.warning(f"SECURITY: Blocked restore to unsafe path: {target_path}")
+                self._send_json({'error': 'Target path is outside allowed directories'}, 403)
+                return
             
             try:
                 # Verify backup exists
@@ -1601,6 +1636,310 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': str(e)}, 500)
             return
         
+        # === Citation Integrity Tools (v2.4.0) ===
+        if path == '/api/find-duplicates':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            auto_fix = data.get('auto_fix', False)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = resolve_vault_path(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                from modules.citation_integrity_checker import CitationIntegrityChecker
+                checker = CitationIntegrityChecker()
+                report = checker.analyze(content)
+                
+                result = {
+                    'success': True,
+                    'is_clean': report.is_clean,
+                    'total_issues': report.total_issues,
+                    'same_citation_duplicates': [
+                        {'line': line, 'original': orig, 'fix': fix}
+                        for line, orig, fix in report.same_citation_duplicates
+                    ],
+                    'orphaned_definitions': report.orphaned_definitions,
+                    'missing_definitions': report.missing_definitions,
+                }
+                
+                # Auto-fix if requested
+                if auto_fix and report.same_citation_duplicates:
+                    fixed_content, fixes_applied = checker.fix_duplicates(content)
+                    result['fixed_content'] = fixed_content
+                    result['fixes_applied'] = fixes_applied
+                    
+                    # Save back to file if file_path provided
+                    if data.get('file_path'):
+                        try:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(fixed_content)
+                            result['saved_to_file'] = True
+                        except Exception as e:
+                            result['save_error'] = str(e)
+                
+                self._send_json(result)
+            except Exception as e:
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/verify-context':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            threshold = data.get('threshold', 0.15)
+            deep_verify = data.get('deep_verify', False)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = resolve_vault_path(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                from modules.citation_context_verifier import CitationContextVerifier
+                import os
+                
+                groq_api_key = os.environ.get('GROQ_API_KEY')
+                verifier = CitationContextVerifier(groq_api_key=groq_api_key)
+                mismatches = verifier.verify_citations(
+                    content, 
+                    deep_verify=deep_verify,
+                    flag_threshold=threshold
+                )
+                
+                result = {
+                    'success': True,
+                    'total_verified': verifier.stats.total_citations_verified,
+                    'mismatches_found': len(mismatches),
+                    'threshold': threshold,
+                    'mismatches': [
+                        {
+                            'line_number': m.line_number,
+                            'citation_tag': m.citation_tag,
+                            'surrounding_text': m.surrounding_text[:100] + '...' if len(m.surrounding_text) > 100 else m.surrounding_text,
+                            'overlap_score': m.overlap_score,
+                            'concern_level': m.concern_level.value if hasattr(m.concern_level, 'value') else str(m.concern_level),
+                            'citation_keywords': m.citation_keywords[:5],
+                            'context_keywords': m.context_keywords[:5],
+                            'deep_verify_result': m.deep_verify_result,
+                        }
+                        for m in mismatches
+                    ],
+                }
+                
+                self._send_json(result)
+            except Exception as e:
+                logger.error(f"Context verification error: {e}")
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/audit-document':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            auto_fix_duplicates = data.get('auto_fix_duplicates', False)
+            deep_verify = data.get('deep_verify', False)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = resolve_vault_path(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                from modules.citation_integrity_checker import CitationIntegrityChecker
+                from modules.citation_context_verifier import CitationContextVerifier
+                import os
+                
+                groq_api_key = os.environ.get('GROQ_API_KEY')
+                
+                integrity_checker = CitationIntegrityChecker()
+                context_verifier = CitationContextVerifier(groq_api_key=groq_api_key)
+                
+                # Run integrity analysis
+                integrity_report = integrity_checker.analyze(content)
+                
+                # Run context verification
+                mismatches = context_verifier.verify_citations(content, deep_verify=deep_verify)
+                
+                # Calculate health score
+                total_issues = integrity_report.total_issues + len(mismatches)
+                health_score = max(0, 100 - (total_issues * 5))
+                
+                result = {
+                    'success': True,
+                    'health_score': health_score,
+                    'integrity': {
+                        'is_clean': integrity_report.is_clean,
+                        'total_issues': integrity_report.total_issues,
+                        'same_citation_duplicates': len(integrity_report.same_citation_duplicates),
+                        'orphaned_definitions': len(integrity_report.orphaned_definitions),
+                        'missing_definitions': len(integrity_report.missing_definitions),
+                    },
+                    'context_verification': {
+                        'mismatches_found': len(mismatches),
+                        'high_concern': len([m for m in mismatches if str(m.concern_level).upper() == 'HIGH']),
+                        'moderate_concern': len([m for m in mismatches if str(m.concern_level).upper() == 'MODERATE']),
+                    },
+                }
+                
+                # Auto-fix duplicates if requested
+                if auto_fix_duplicates and integrity_report.same_citation_duplicates:
+                    fixed_content, fixes_applied = integrity_checker.fix_duplicates(content)
+                    result['fixes_applied'] = fixes_applied
+                    result['fixed_content'] = fixed_content
+                    
+                    # Save back to file if file_path provided
+                    if data.get('file_path'):
+                        try:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(fixed_content)
+                            result['saved_to_file'] = True
+                        except Exception as e:
+                            result['save_error'] = str(e)
+                
+                self._send_json(result)
+            except Exception as e:
+                logger.error(f"Audit error: {e}")
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/normalize-format':
+            content = data.get('content')
+            file_path = data.get('file_path')
+            dry_run = data.get('dry_run', True)
+            
+            # Get content from file or direct input
+            if file_path:
+                try:
+                    file_path = resolve_vault_path(file_path)
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                except Exception as e:
+                    self._send_json({'error': f'Error reading file: {e}'}, 500)
+                    return
+            
+            if not content:
+                self._send_json({'error': 'Missing content or file_path'}, 400)
+                return
+            
+            try:
+                from modules.citation_normalizer import normalize_citation_format
+                
+                norm_result = normalize_citation_format(content, dry_run=dry_run)
+                result_content = norm_result.normalized_content
+                changes_made = norm_result.changes_made
+                
+                result = {
+                    'success': True,
+                    'changes_made': changes_made,
+                    'content': result_content,
+                }
+                
+                # Save back to file if not dry_run and file_path provided
+                if not dry_run and data.get('file_path') and changes_made > 0:
+                    try:
+                        with open(file_path, 'w', encoding='utf-8') as f:
+                            f.write(result_content)
+                        result['saved_to_file'] = True
+                    except Exception as e:
+                        result['save_error'] = str(e)
+                
+                self._send_json(result)
+            except Exception as e:
+                logger.error(f"Normalize format error: {e}")
+                self._send_json({'error': str(e)}, 500)
+            return
+        
+        if path == '/api/check-article-duplicates':
+            identifiers = data.get('identifiers', [])
+            
+            if not identifiers:
+                self._send_json({'error': 'Missing identifiers list'}, 400)
+                return
+            
+            try:
+                from modules.duplicate_detector import DuplicateDetector
+                
+                detector = DuplicateDetector()
+                duplicate_groups = []
+                seen_articles = {}  # title -> list of identifiers
+                
+                # Look up each identifier and track by title
+                for ident in identifiers:
+                    ident = str(ident).strip()
+                    if not ident:
+                        continue
+                    
+                    try:
+                        # Try to resolve the identifier
+                        metadata = None
+                        
+                        # Try as PMID
+                        if ident.isdigit():
+                            from modules.pubmed_client import PubMedClient
+                            client = PubMedClient()
+                            metadata = client.fetch_article(ident)
+                        # Try as DOI
+                        elif '10.' in ident:
+                            from modules.crossref_client import CrossRefClient
+                            client = CrossRefClient()
+                            metadata = client.lookup_doi(ident.strip())
+                        
+                        if metadata and metadata.get('title'):
+                            title = metadata['title'].lower().strip()[:100]  # Normalize title
+                            if title in seen_articles:
+                                seen_articles[title].append(ident)
+                            else:
+                                seen_articles[title] = [ident]
+                    except Exception:
+                        pass  # Skip failed lookups
+                
+                # Find duplicates (titles with more than one identifier)
+                for title, idents in seen_articles.items():
+                    if len(idents) > 1:
+                        duplicate_groups.append({
+                            'title': title[:100],
+                            'identifiers': idents,
+                        })
+                
+                result = {
+                    'success': True,
+                    'total_checked': len(identifiers),
+                    'duplicate_groups': duplicate_groups,
+                }
+                
+                self._send_json(result)
+            except Exception as e:
+                logger.error(f"Article duplicates check error: {e}")
+                self._send_json({'error': str(e)}, 500)
+            return
+        
         # Default: 404
         self._send_json({'error': f'Unknown endpoint: {path}'}, 404)
     
@@ -2219,6 +2558,11 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
         
         # Set citation style
         if style != self.lookup.style:
+            # WARNING: This mutates global state (self.lookup). 
+            # In a multi-threaded environment (e.g. production WSGI/ASGI), this could cause race conditions 
+            # where one request changes the style while another is processing.
+            # For the current single-threaded MCP implementation, this is acceptable but should be refactored 
+            # if scaling up.
             self.lookup.set_style(style)
         
         # Parse references

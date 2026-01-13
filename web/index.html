@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CitationSculptor v2.0</title>
+    <title>CitationSculptor v2.4.0</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -836,7 +836,7 @@
                 <div class="logo-icon">📚</div>
                 <div>
                     <h1>CitationSculptor</h1>
-                    <div class="logo-version">v2.3.0</div>
+                    <div class="logo-version">v2.4.0</div>
                 </div>
             </div>
 
@@ -870,6 +870,10 @@
                     <span class="nav-item-icon">🔧</span>
                     Corrections
                 </button>
+                <button type="button" class="nav-item" data-page="normalize">
+                    <span class="nav-item-icon">✨</span>
+                    Normalize
+                </button>
             </nav>
 
             <nav class="nav-section">
@@ -882,6 +886,10 @@
                     <span class="nav-item-icon">📝</span>
                     Bibliography
                 </button>
+                <button type="button" class="nav-item" data-page="article-duplicates">
+                    <span class="nav-item-icon">🧹</span>
+                    Library Hygiene
+                </button>
             </nav>
 
             <nav class="nav-section">
@@ -893,6 +901,34 @@
                 <button type="button" class="nav-item" data-page="export">
                     <span class="nav-item-icon">📤</span>
                     Export
+                </button>
+            </nav>
+
+            <nav class="nav-section">
+                <div class="nav-section-title">Document Intelligence</div>
+                <button type="button" class="nav-item" data-page="verify-links">
+                    <span class="nav-item-icon">🔗</span>
+                    Verify Links
+                </button>
+                <button type="button" class="nav-item" data-page="suggest-citations">
+                    <span class="nav-item-icon">💡</span>
+                    Suggest Citations
+                </button>
+                <button type="button" class="nav-item" data-page="check-compliance">
+                    <span class="nav-item-icon">✅</span>
+                    Check Compliance
+                </button>
+                <button type="button" class="nav-item" data-page="find-duplicates">
+                    <span class="nav-item-icon">🔍</span>
+                    Find Duplicates
+                </button>
+                <button type="button" class="nav-item" data-page="verify-context">
+                    <span class="nav-item-icon">🎯</span>
+                    Verify Context
+                </button>
+                <button type="button" class="nav-item" data-page="audit">
+                    <span class="nav-item-icon">📊</span>
+                    Full Audit
                 </button>
             </nav>
 
@@ -1191,6 +1227,54 @@
                 </div>
             </div>
 
+            <!-- Normalize Page -->
+            <div class="page" id="normalize">
+                <div class="page-header">
+                    <h2 class="page-title">Normalize Citations</h2>
+                    <p class="page-subtitle">Convert legacy citation formats to Obsidian footnote style</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Citation Content</label>
+                        <p class="page-subtitle" style="margin-bottom: 12px;">Paste citations to normalize. Converts [1], [1,2], [6-10] → [^1], [^1][^2], [^6][^7]...</p>
+                        <textarea id="normalizeInput" placeholder="Paste citation text or content with legacy citation formats...
+
+Examples of formats that will be normalized:
+• [1] → [^1]
+• [1, 2, 3] → [^1] [^2] [^3]
+• [6-10] → [^6] [^7] [^8] [^9] [^10]
+• According to studies [1-3, 7]... → According to studies [^1] [^2] [^3] [^7]..." style="min-height: 200px;"></textarea>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="normalizeDryRun" checked>
+                                <span>Preview only (don't modify)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="doNormalize()">✨ Normalize Citations</button>
+                        <button class="btn btn-secondary" onclick="clearNormalize()">Clear</button>
+                    </div>
+                </div>
+
+                <div id="normalizeResult" class="result-card" style="display: none;">
+                    <div class="result-header">
+                        <span class="result-badge result-badge-success">Normalized</span>
+                    </div>
+                    <div class="result-body">
+                        <pre id="normalizeOutput" style="white-space: pre-wrap; font-family: 'JetBrains Mono', monospace;"></pre>
+                    </div>
+                    <div class="result-actions">
+                        <button class="btn btn-sm" onclick="copyNormalizeResult()">📋 Copy Result</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Library Page -->
             <div class="page" id="library">
                 <div class="page-header">
@@ -1266,6 +1350,50 @@
                         <button class="btn btn-secondary" onclick="copyBibliography()">📋 Copy</button>
                     </div>
                     <div id="bibResult"></div>
+                </div>
+            </div>
+
+            <!-- Library Hygiene / Article Duplicates Page -->
+            <div class="page" id="article-duplicates">
+                <div class="page-header">
+                    <h2 class="page-title">Library Hygiene</h2>
+                    <p class="page-subtitle">Check bibliography or library for duplicate articles (same paper cited multiple times)</p>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">Citation Identifiers or Bibliography</label>
+                        <p class="page-subtitle" style="margin-bottom: 12px;">Enter PMIDs, DOIs, or paste a bibliography to check for duplicate papers</p>
+                        <textarea id="articleDuplicatesInput" placeholder="Enter one identifier per line (PMID, DOI, etc.) or paste a bibliography:
+
+32089132
+10.1186/s12968-020-00607-1
+PMC7039045
+..." style="min-height: 200px;"></textarea>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary" onclick="doCheckArticleDuplicates()">🧹 Check for Duplicates</button>
+                        <button class="btn btn-secondary" onclick="clearArticleDuplicates()">Clear</button>
+                    </div>
+                </div>
+
+                <div id="articleDuplicatesResult" class="result-card" style="display: none;">
+                    <div class="result-header">
+                        <span class="result-badge" id="articleDuplicatesBadge">Results</span>
+                    </div>
+                    <div class="result-body">
+                        <div id="articleDuplicatesOutput"></div>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 20px; background: var(--bg-elevated);">
+                    <h3 style="margin-bottom: 8px; font-size: 14px;">About Library Hygiene</h3>
+                    <p class="page-subtitle" style="margin: 0;">
+                        This tool detects when the <strong>same academic article</strong> appears multiple times in your bibliography 
+                        (e.g., once by PMID and once by DOI). This is different from "Find Duplicates" which detects 
+                        consecutive identical citation tags like [^A][^A] in document text.
+                    </p>
                 </div>
             </div>
 
@@ -1430,6 +1558,273 @@
                     </div>
                     
                     <div id="settingsMessage" style="margin-top: 16px;"></div>
+                </div>
+            </div>
+
+            <!-- Verify Links Page -->
+            <div class="page" id="verify-links">
+                <div class="page-header">
+                    <h2 class="page-title">🔗 Verify Links</h2>
+                    <p class="page-subtitle">Check URLs in your document for broken links, redirects, and archived versions</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchVerifyLinksTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchVerifyLinksTab('file')">File Path</button>
+                    <button class="tab" onclick="switchVerifyLinksTab('urls')">URLs Only</button>
+                </div>
+
+                <div class="card">
+                    <div id="verifyLinksContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="verifyLinksInput" rows="6" placeholder="Paste document content with URLs to verify..."></textarea>
+                        </div>
+                    </div>
+                    <div id="verifyLinksFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="verifyLinksFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div id="verifyLinksUrlsTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter URLs directly (one per line)</label>
+                            <textarea id="verifyLinksUrls" rows="6" placeholder="https://example.com/article1&#10;https://example.com/article2"></textarea>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="verifyLinks()">🔗 Verify Links</button>
+                    </div>
+                </div>
+
+                <div class="card" id="verifyLinksResult" style="display: none;">
+                    <h3>Verification Results</h3>
+                    <div id="verifyLinksContent"></div>
+                </div>
+            </div>
+
+            <!-- Suggest Citations Page -->
+            <div class="page" id="suggest-citations">
+                <div class="page-header">
+                    <h2 class="page-title">💡 Suggest Citations</h2>
+                    <p class="page-subtitle">Find passages that may need citations (statistics, claims, research findings)</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchSuggestTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchSuggestTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="suggestContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="suggestCitationsInput" rows="8" placeholder="Paste document content to analyze for missing citations..."></textarea>
+                        </div>
+                    </div>
+                    <div id="suggestFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="suggestFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="searchPubMedSuggestions" style="width: 18px; height: 18px;">
+                            <span>Search PubMed for suggested citations (slower but more helpful)</span>
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="suggestCitations()">💡 Find Citation Opportunities</button>
+                    </div>
+                </div>
+
+                <div class="card" id="suggestCitationsResult" style="display: none;">
+                    <h3>Suggested Citations</h3>
+                    <div id="suggestCitationsContent"></div>
+                </div>
+            </div>
+
+            <!-- Check Compliance Page -->
+            <div class="page" id="check-compliance">
+                <div class="page-header">
+                    <h2 class="page-title">✅ Check Compliance</h2>
+                    <p class="page-subtitle">Find uncited quotes, claims without evidence, and academic phrases that need sources</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchComplianceTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchComplianceTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="complianceContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="checkComplianceInput" rows="8" placeholder="Paste document content to check for citation compliance issues..."></textarea>
+                        </div>
+                    </div>
+                    <div id="complianceFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="complianceFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="checkCompliance()">✅ Check Compliance</button>
+                    </div>
+                </div>
+
+                <div class="card" id="checkComplianceResult" style="display: none;">
+                    <h3>Compliance Report</h3>
+                    <div id="checkComplianceContent"></div>
+                </div>
+            </div>
+
+            <!-- Find Duplicates Page -->
+            <div class="page" id="find-duplicates">
+                <div class="page-header">
+                    <h2 class="page-title">🔍 Find Citation Duplicates</h2>
+                    <p class="page-subtitle">Detect consecutive same citations [^A][^A], orphaned definitions, and missing definitions</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchDuplicatesTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchDuplicatesTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="duplicatesContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="findDuplicatesInput" rows="8" placeholder="Paste document content to check for citation integrity issues..."></textarea>
+                        </div>
+                    </div>
+                    <div id="duplicatesFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="duplicatesFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="autoFixDuplicates" style="width: 18px; height: 18px;">
+                            <span>Auto-fix consecutive duplicate citations</span>
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="findDuplicates()">🔍 Find Duplicates</button>
+                        <button class="btn btn-secondary" onclick="copyDuplicatesResult()">📋 Copy Result</button>
+                    </div>
+                </div>
+
+                <div class="card" id="findDuplicatesResult" style="display: none;">
+                    <h3>Integrity Report</h3>
+                    <div id="findDuplicatesContent"></div>
+                </div>
+            </div>
+
+            <!-- Verify Context Page -->
+            <div class="page" id="verify-context">
+                <div class="page-header">
+                    <h2 class="page-title">🎯 Verify Citation Context</h2>
+                    <p class="page-subtitle">Check if citations match their surrounding text using keyword analysis</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchContextTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchContextTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="contextContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="verifyContextInput" rows="8" placeholder="Paste document content to verify citation contexts..."></textarea>
+                        </div>
+                    </div>
+                    <div id="contextFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="contextFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Overlap Threshold (0-1)</label>
+                            <input type="number" id="contextThreshold" value="0.15" min="0" max="1" step="0.05" style="width: 100px;">
+                            <span style="color: var(--text-muted); font-size: 0.9rem; margin-left: 8px;">Lower = more strict</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="deepVerify" style="width: 18px; height: 18px;">
+                            <span>Deep verify with LLM (uses local Ollama or Groq, slower but more accurate)</span>
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="verifyContext()">🎯 Verify Context</button>
+                        <button class="btn btn-secondary" onclick="copyContextResult()">📋 Copy Result</button>
+                    </div>
+                </div>
+
+                <div class="card" id="verifyContextResult" style="display: none;">
+                    <h3>Context Verification Report</h3>
+                    <div id="verifyContextContent"></div>
+                </div>
+            </div>
+
+            <!-- Full Audit Page -->
+            <div class="page" id="audit">
+                <div class="page-header">
+                    <h2 class="page-title">📊 Full Citation Audit</h2>
+                    <p class="page-subtitle">Comprehensive audit: duplicates, orphans, missing definitions, and context verification</p>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab active" onclick="switchAuditTab('content')">Paste Content</button>
+                    <button class="tab" onclick="switchAuditTab('file')">File Path</button>
+                </div>
+
+                <div class="card">
+                    <div id="auditContentTab">
+                        <div class="form-group">
+                            <label class="form-label">Paste your document content</label>
+                            <textarea id="auditInput" rows="8" placeholder="Paste document content for a comprehensive citation audit..."></textarea>
+                        </div>
+                    </div>
+                    <div id="auditFileTab" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">Enter the path to your file</label>
+                            <input type="text" id="auditFilePath" placeholder="/Users/you/Documents/my-document.md">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="auditAutoFix" style="width: 18px; height: 18px;">
+                            <span>Auto-fix consecutive duplicate citations</span>
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+                            <input type="checkbox" id="auditDeepVerify" style="width: 18px; height: 18px;">
+                            <span>Deep verify with LLM (uses local Ollama or Groq, slower but more accurate)</span>
+                        </label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" onclick="auditDocument()">📊 Run Full Audit</button>
+                        <button class="btn btn-secondary" onclick="copyAuditResult()">📋 Copy Result</button>
+                    </div>
+                </div>
+
+                <div class="card" id="auditResult" style="display: none;">
+                    <div id="auditHealthScore" style="text-align: center; margin-bottom: 20px;">
+                        <div style="font-size: 3rem; font-weight: bold;"></div>
+                        <div style="color: var(--text-muted);">Health Score</div>
+                    </div>
+                    <h3>Audit Report</h3>
+                    <div id="auditContent"></div>
                 </div>
             </div>
 
@@ -2727,6 +3122,71 @@
             document.getElementById('saveOptionsRow').style.display = tab === 'file' ? 'block' : 'none';
         }
 
+        // Tab switching functions for Document Intelligence pages
+        let currentVerifyLinksTab = 'content';
+        function switchVerifyLinksTab(tab) {
+            currentVerifyLinksTab = tab;
+            document.querySelectorAll('#verify-links .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', 
+                    (tab === 'content' && i === 0) || 
+                    (tab === 'file' && i === 1) || 
+                    (tab === 'urls' && i === 2));
+            });
+            document.getElementById('verifyLinksContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('verifyLinksFileTab').style.display = tab === 'file' ? 'block' : 'none';
+            document.getElementById('verifyLinksUrlsTab').style.display = tab === 'urls' ? 'block' : 'none';
+        }
+
+        let currentSuggestTab = 'content';
+        function switchSuggestTab(tab) {
+            currentSuggestTab = tab;
+            document.querySelectorAll('#suggest-citations .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('suggestContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('suggestFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
+        let currentComplianceTab = 'content';
+        function switchComplianceTab(tab) {
+            currentComplianceTab = tab;
+            document.querySelectorAll('#check-compliance .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('complianceContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('complianceFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
+        let currentDuplicatesTab = 'content';
+        function switchDuplicatesTab(tab) {
+            currentDuplicatesTab = tab;
+            document.querySelectorAll('#find-duplicates .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('duplicatesContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('duplicatesFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
+        let currentContextTab = 'content';
+        function switchContextTab(tab) {
+            currentContextTab = tab;
+            document.querySelectorAll('#verify-context .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('contextContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('contextFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
+        let currentAuditTab = 'content';
+        function switchAuditTab(tab) {
+            currentAuditTab = tab;
+            document.querySelectorAll('#audit .tabs .tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'content' && i === 0) || (tab === 'file' && i === 1));
+            });
+            document.getElementById('auditContentTab').style.display = tab === 'content' ? 'block' : 'none';
+            document.getElementById('auditFileTab').style.display = tab === 'file' ? 'block' : 'none';
+        }
+
         async function processDocument() {
             const style = document.getElementById('docStyle').value;
             const container = document.getElementById('docResult');
@@ -3371,6 +3831,610 @@
             }
             
             setTimeout(() => { msgEl.innerHTML = ''; }, 5000);
+        }
+
+        // === Document Intelligence Functions ===
+        
+        async function verifyLinks() {
+            const body = {};
+            
+            if (currentVerifyLinksTab === 'content') {
+                const content = document.getElementById('verifyLinksInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content to verify.');
+                    return;
+                }
+                body.content = content;
+            } else if (currentVerifyLinksTab === 'file') {
+                const filePath = document.getElementById('verifyLinksFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            } else if (currentVerifyLinksTab === 'urls') {
+                const urlsText = document.getElementById('verifyLinksUrls').value.trim();
+                if (!urlsText) {
+                    alert('Please enter URLs to verify.');
+                    return;
+                }
+                body.urls = urlsText.split('\n').map(u => u.trim()).filter(u => u);
+            }
+            
+            const resultCard = document.getElementById('verifyLinksResult');
+            const resultContent = document.getElementById('verifyLinksContent');
+            resultCard.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading"><div class="spinner"></div>Verifying links...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/verify-links`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                let html = `<div class="stats-row" style="margin-bottom: 20px;">
+                    <div class="stat-card"><div class="stat-value">${data.total_urls || data.verified || 0}</div><div class="stat-label">URLs Checked</div></div>
+                    <div class="stat-card"><div class="stat-value" style="color: var(--success);">${data.status_summary?.ok || 0}</div><div class="stat-label">✅ OK</div></div>
+                    <div class="stat-card"><div class="stat-value" style="color: var(--error);">${data.status_summary?.broken || 0}</div><div class="stat-label">❌ Broken</div></div>
+                </div>`;
+                
+                if (data.broken_links?.length > 0) {
+                    html += '<h4>❌ Broken Links</h4><ul>';
+                    for (const link of data.broken_links) {
+                        html += `<li><code>${escHtml(link.url)}</code>`;
+                        if (link.archived_url) html += ` <a href="${escHtml(link.archived_url)}" target="_blank">📦 Archive</a>`;
+                        html += '</li>';
+                    }
+                    html += '</ul>';
+                }
+                
+                resultContent.innerHTML = html || '<div class="message success">✅ All links are working!</div>';
+            } catch (e) {
+                resultContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        async function suggestCitations() {
+            const searchPubMed = document.getElementById('searchPubMedSuggestions').checked;
+            const body = { search_pubmed: searchPubMed };
+            
+            if (currentSuggestTab === 'content') {
+                const content = document.getElementById('suggestCitationsInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content.');
+                    return;
+                }
+                body.content = content;
+            } else {
+                const filePath = document.getElementById('suggestFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            }
+            
+            const resultCard = document.getElementById('suggestCitationsResult');
+            const resultContent = document.getElementById('suggestCitationsContent');
+            resultCard.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading"><div class="spinner"></div>Analyzing document for citation opportunities...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/suggest-citations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                if (!data.count || data.count === 0) {
+                    resultContent.innerHTML = '<div class="message success">✅ No obvious missing citations detected.</div>';
+                    return;
+                }
+                
+                let html = `<p><strong>${data.count}</strong> passage(s) may need citations:</p>`;
+                for (const s of data.suggestions || []) {
+                    const emoji = {statistic: '📊', claim: '💬', definition: '📖', finding: '🔬'}[s.category] || '📝';
+                    html += `<div class="result-item" style="margin-bottom: 16px;">
+                        <strong>${emoji} Line ${s.line_number}</strong> (${Math.round(s.confidence * 100)}% confidence)<br>
+                        <blockquote style="margin: 8px 0; padding: 8px; background: var(--bg-secondary); border-radius: 4px;">${escHtml(s.text_excerpt)}</blockquote>
+                        <em>${escHtml(s.reason)}</em>
+                    </div>`;
+                }
+                resultContent.innerHTML = html;
+            } catch (e) {
+                resultContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        async function checkCompliance() {
+            const body = {};
+            
+            if (currentComplianceTab === 'content') {
+                const content = document.getElementById('checkComplianceInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content.');
+                    return;
+                }
+                body.content = content;
+            } else {
+                const filePath = document.getElementById('complianceFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            }
+            
+            const resultCard = document.getElementById('checkComplianceResult');
+            const resultContent = document.getElementById('checkComplianceContent');
+            resultCard.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading"><div class="spinner"></div>Checking citation compliance...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/check-compliance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                const score = data.compliance_score || 100;
+                const scoreColor = score >= 80 ? 'var(--success)' : score >= 60 ? 'var(--warning)' : 'var(--error)';
+                const scoreEmoji = score >= 80 ? '🟢' : score >= 60 ? '🟡' : '🔴';
+                
+                let html = `<div style="text-align: center; margin-bottom: 20px;">
+                    <div style="font-size: 3rem; font-weight: bold; color: ${scoreColor};">${scoreEmoji} ${score}/100</div>
+                    <div style="color: var(--text-muted);">Compliance Score</div>
+                </div>`;
+                
+                html += `<div class="stats-row" style="margin-bottom: 20px;">
+                    <div class="stat-card"><div class="stat-value">${data.total_issues || 0}</div><div class="stat-label">Total Issues</div></div>
+                    <div class="stat-card"><div class="stat-value" style="color: var(--error);">${data.high_severity_count || 0}</div><div class="stat-label">🔴 High</div></div>
+                    <div class="stat-card"><div class="stat-value" style="color: var(--warning);">${data.medium_severity_count || 0}</div><div class="stat-label">🟡 Medium</div></div>
+                </div>`;
+                
+                if (data.issues?.length > 0) {
+                    html += '<h4>Issues Found</h4>';
+                    for (const issue of data.issues) {
+                        const severity = {high: '🔴', medium: '🟡', low: '🟢'}[issue.severity] || '⚪';
+                        html += `<div class="result-item" style="margin-bottom: 12px;">
+                            <strong>${severity} Line ${issue.line_number}</strong><br>
+                            <code style="font-size: 0.9rem;">${escHtml((issue.text || '').substring(0, 100))}...</code><br>
+                            <em>${escHtml(issue.explanation)}</em>
+                        </div>`;
+                    }
+                }
+                
+                resultContent.innerHTML = html;
+            } catch (e) {
+                resultContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        async function findDuplicates() {
+            const autoFix = document.getElementById('autoFixDuplicates').checked;
+            const body = { auto_fix: autoFix };
+            
+            if (currentDuplicatesTab === 'content') {
+                const content = document.getElementById('findDuplicatesInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content.');
+                    return;
+                }
+                body.content = content;
+            } else {
+                const filePath = document.getElementById('duplicatesFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            }
+            
+            const resultCard = document.getElementById('findDuplicatesResult');
+            const resultContent = document.getElementById('findDuplicatesContent');
+            resultCard.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading"><div class="spinner"></div>Checking citation integrity...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/find-duplicates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                if (data.is_clean) {
+                    resultContent.innerHTML = '<div class="message success">✅ No integrity issues found. Document citations are clean.</div>';
+                    return;
+                }
+                
+                let html = `<div class="stats-row" style="margin-bottom: 20px;">
+                    <div class="stat-card"><div class="stat-value">${data.total_issues || 0}</div><div class="stat-label">Total Issues</div></div>
+                    <div class="stat-card"><div class="stat-value">${(data.same_citation_duplicates || []).length}</div><div class="stat-label">Duplicates</div></div>
+                    <div class="stat-card"><div class="stat-value">${(data.orphaned_definitions || []).length}</div><div class="stat-label">Orphans</div></div>
+                    <div class="stat-card"><div class="stat-value">${(data.missing_definitions || []).length}</div><div class="stat-label">Missing</div></div>
+                </div>`;
+                
+                if (data.same_citation_duplicates?.length > 0) {
+                    html += '<h4>❌ Consecutive Duplicates</h4><ul>';
+                    for (const d of data.same_citation_duplicates) {
+                        html += `<li>Line ${d.line}: <code>${escHtml(d.original)}</code> → <code>${escHtml(d.fix)}</code></li>`;
+                    }
+                    html += '</ul>';
+                }
+                
+                if (data.orphaned_definitions?.length > 0) {
+                    html += '<h4>⚠️ Orphaned Definitions</h4><p>Defined but never used:</p><ul>';
+                    for (const o of data.orphaned_definitions.slice(0, 15)) {
+                        html += `<li><code>${escHtml(o)}</code></li>`;
+                    }
+                    if (data.orphaned_definitions.length > 15) html += `<li>...and ${data.orphaned_definitions.length - 15} more</li>`;
+                    html += '</ul>';
+                }
+                
+                if (data.missing_definitions?.length > 0) {
+                    html += '<h4>❌ Missing Definitions</h4><p>Used but never defined:</p><ul>';
+                    for (const m of data.missing_definitions.slice(0, 15)) {
+                        html += `<li><code>${escHtml(m)}</code></li>`;
+                    }
+                    if (data.missing_definitions.length > 15) html += `<li>...and ${data.missing_definitions.length - 15} more</li>`;
+                    html += '</ul>';
+                }
+                
+                if (data.fixes_applied) {
+                    html += `<div class="message success">✅ Auto-fixed ${data.fixes_applied} duplicate(s)!</div>`;
+                }
+                
+                resultContent.innerHTML = html;
+            } catch (e) {
+                resultContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        function copyDuplicatesResult() {
+            const content = document.getElementById('findDuplicatesContent').innerText;
+            navigator.clipboard.writeText(content);
+        }
+        
+        // Normalize Citations
+        async function doNormalize() {
+            const input = document.getElementById('normalizeInput').value.trim();
+            const dryRun = document.getElementById('normalizeDryRun').checked;
+            
+            if (!input) {
+                alert('Please enter content to normalize.');
+                return;
+            }
+            
+            const resultCard = document.getElementById('normalizeResult');
+            const resultOutput = document.getElementById('normalizeOutput');
+            resultCard.style.display = 'block';
+            resultOutput.innerHTML = '<div class="loading"><div class="spinner"></div>Normalizing citations...</div>';
+            
+            try {
+                const body = { dry_run: dryRun };
+                if (input.startsWith('/') || input.includes(':\\')) {
+                    body.file_path = input;
+                } else {
+                    body.content = input;
+                }
+                
+                const res = await fetch(`${API}/api/normalize-format`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultOutput.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                const badge = document.querySelector('#normalizeResult .result-badge');
+                if (data.changes_made === 0) {
+                    badge.textContent = 'No Changes';
+                    badge.className = 'result-badge result-badge-muted';
+                    resultOutput.innerHTML = `<div class="message success">✅ No legacy citation formats found. Content is already normalized.</div>`;
+                } else {
+                    badge.textContent = `${data.changes_made} Normalized`;
+                    badge.className = 'result-badge result-badge-success';
+                    resultOutput.textContent = data.content || data.normalized_content || '';
+                }
+            } catch (e) {
+                resultOutput.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        function clearNormalize() {
+            document.getElementById('normalizeInput').value = '';
+            document.getElementById('normalizeResult').style.display = 'none';
+        }
+        
+        function copyNormalizeResult() {
+            const content = document.getElementById('normalizeOutput').innerText;
+            navigator.clipboard.writeText(content);
+        }
+        
+        // Library Hygiene - Article Duplicates
+        async function doCheckArticleDuplicates() {
+            const input = document.getElementById('articleDuplicatesInput').value.trim();
+            
+            if (!input) {
+                alert('Please enter identifiers or bibliography content.');
+                return;
+            }
+            
+            const resultCard = document.getElementById('articleDuplicatesResult');
+            const resultOutput = document.getElementById('articleDuplicatesOutput');
+            const badge = document.getElementById('articleDuplicatesBadge');
+            resultCard.style.display = 'block';
+            resultOutput.innerHTML = '<div class="loading"><div class="spinner"></div>Checking for duplicate articles...</div>';
+            
+            try {
+                // Parse input - could be one ID per line or a bibliography
+                const lines = input.split('\n').map(l => l.trim()).filter(l => l);
+                const identifiers = [];
+                
+                for (const line of lines) {
+                    // Extract PMIDs, DOIs, PMCIDs from line
+                    if (/^\d+$/.test(line)) {
+                        identifiers.push(line); // PMID
+                    } else if (line.includes('10.')) {
+                        const doiMatch = line.match(/10\.\d+\/[^\s]+/);
+                        if (doiMatch) identifiers.push(doiMatch[0]);
+                    } else if (/PMC\d+/i.test(line)) {
+                        const pmcMatch = line.match(/PMC\d+/i);
+                        if (pmcMatch) identifiers.push(pmcMatch[0]);
+                    } else if (line.length > 5) {
+                        identifiers.push(line);
+                    }
+                }
+                
+                const res = await fetch(`${API}/api/check-article-duplicates`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ identifiers }),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultOutput.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                const duplicateCount = data.duplicate_groups?.length || 0;
+                
+                if (duplicateCount === 0) {
+                    badge.textContent = 'Clean';
+                    badge.className = 'result-badge result-badge-success';
+                    resultOutput.innerHTML = `<div class="message success">✅ No duplicate articles found! Checked ${data.total_checked || identifiers.length} identifiers.</div>`;
+                } else {
+                    badge.textContent = `${duplicateCount} Duplicates`;
+                    badge.className = 'result-badge result-badge-warning';
+                    
+                    let html = `<div class="message warning">⚠️ Found ${duplicateCount} duplicate article group(s)</div>`;
+                    html += '<h4 style="margin-top: 16px;">Duplicate Groups</h4>';
+                    
+                    for (const group of data.duplicate_groups) {
+                        html += `<div class="result-item" style="margin-bottom: 16px; border-left: 3px solid var(--warning); padding-left: 12px;">`;
+                        html += `<strong>${escHtml(group.title || 'Unknown Title')}</strong><br>`;
+                        html += `<small>Found ${group.identifiers?.length || 0} times: ${(group.identifiers || []).map(id => `<code>${escHtml(id)}</code>`).join(', ')}</small>`;
+                        html += `</div>`;
+                    }
+                    
+                    resultOutput.innerHTML = html;
+                }
+            } catch (e) {
+                resultOutput.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        function clearArticleDuplicates() {
+            document.getElementById('articleDuplicatesInput').value = '';
+            document.getElementById('articleDuplicatesResult').style.display = 'none';
+        }
+        
+        async function verifyContext() {
+            const threshold = parseFloat(document.getElementById('contextThreshold').value) || 0.15;
+            const deepVerify = document.getElementById('deepVerify').checked;
+            const body = { threshold, deep_verify: deepVerify };
+            
+            if (currentContextTab === 'content') {
+                const content = document.getElementById('verifyContextInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content.');
+                    return;
+                }
+                body.content = content;
+            } else {
+                const filePath = document.getElementById('contextFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            }
+            
+            const resultCard = document.getElementById('verifyContextResult');
+            const resultContent = document.getElementById('verifyContextContent');
+            resultCard.style.display = 'block';
+            resultContent.innerHTML = '<div class="loading"><div class="spinner"></div>Verifying citation contexts...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/verify-context`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    resultContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                if (data.mismatches_found === 0) {
+                    resultContent.innerHTML = `<div class="message success">✅ All citations match their context! (Verified ${data.total_verified} citations)</div>`;
+                    return;
+                }
+                
+                let html = `<div class="stats-row" style="margin-bottom: 20px;">
+                    <div class="stat-card"><div class="stat-value">${data.total_verified || 0}</div><div class="stat-label">Citations Verified</div></div>
+                    <div class="stat-card"><div class="stat-value" style="color: var(--warning);">${data.mismatches_found || 0}</div><div class="stat-label">⚠️ Mismatches</div></div>
+                </div>`;
+                
+                html += '<h4>Potential Context Mismatches</h4>';
+                for (const m of data.mismatches || []) {
+                    const concern = m.concern_level?.toUpperCase() || 'MODERATE';
+                    const color = concern === 'HIGH' ? 'var(--error)' : concern === 'MODERATE' ? 'var(--warning)' : 'var(--text-muted)';
+                    const emoji = concern === 'HIGH' ? '🔴' : concern === 'MODERATE' ? '🟡' : '🟢';
+                    
+                    html += `<div class="result-item" style="margin-bottom: 16px; border-left: 3px solid ${color}; padding-left: 12px;">
+                        <strong>${emoji} Line ${m.line_number}: <code>${escHtml(m.citation_tag)}</code></strong>
+                        <span style="color: ${color};">(${Math.round(m.overlap_score * 100)}% overlap)</span><br>
+                        <small>Citation keywords: ${(m.citation_keywords || []).join(', ')}</small><br>
+                        <small>Context keywords: ${(m.context_keywords || []).join(', ')}</small>
+                        ${m.deep_verify_result ? `<br><em>LLM: ${escHtml(m.deep_verify_result)}</em>` : ''}
+                    </div>`;
+                }
+                
+                resultContent.innerHTML = html;
+            } catch (e) {
+                resultContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        function copyContextResult() {
+            const content = document.getElementById('verifyContextContent').innerText;
+            navigator.clipboard.writeText(content);
+        }
+        
+        async function auditDocument() {
+            const autoFix = document.getElementById('auditAutoFix').checked;
+            const deepVerify = document.getElementById('auditDeepVerify').checked;
+            const body = { auto_fix_duplicates: autoFix, deep_verify: deepVerify };
+            
+            if (currentAuditTab === 'content') {
+                const content = document.getElementById('auditInput').value.trim();
+                if (!content) {
+                    alert('Please enter document content.');
+                    return;
+                }
+                body.content = content;
+            } else {
+                const filePath = document.getElementById('auditFilePath').value.trim();
+                if (!filePath) {
+                    alert('Please enter a file path.');
+                    return;
+                }
+                body.file_path = filePath;
+            }
+            
+            const resultCard = document.getElementById('auditResult');
+            const auditContent = document.getElementById('auditContent');
+            const healthScoreEl = document.getElementById('auditHealthScore');
+            resultCard.style.display = 'block';
+            healthScoreEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            auditContent.innerHTML = '<div class="loading"><div class="spinner"></div>Running comprehensive audit...</div>';
+            
+            try {
+                
+                const res = await fetch(`${API}/api/audit-document`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                
+                if (data.error) {
+                    healthScoreEl.innerHTML = '';
+                    auditContent.innerHTML = `<div class="message error">❌ ${escHtml(data.error)}</div>`;
+                    return;
+                }
+                
+                const score = data.health_score || 100;
+                const scoreColor = score >= 80 ? 'var(--success)' : score >= 60 ? 'var(--warning)' : 'var(--error)';
+                const scoreEmoji = score >= 80 ? '🟢' : score >= 60 ? '🟡' : '🔴';
+                
+                healthScoreEl.innerHTML = `
+                    <div style="font-size: 3rem; font-weight: bold; color: ${scoreColor};">${scoreEmoji} ${score}/100</div>
+                    <div style="color: var(--text-muted);">Health Score</div>
+                `;
+                
+                const integrity = data.integrity || {};
+                const context = data.context_verification || {};
+                
+                let html = `<div class="stats-row" style="margin-bottom: 20px;">
+                    <div class="stat-card"><div class="stat-value">${integrity.same_citation_duplicates || 0}</div><div class="stat-label">Duplicates</div></div>
+                    <div class="stat-card"><div class="stat-value">${integrity.orphaned_definitions || 0}</div><div class="stat-label">Orphans</div></div>
+                    <div class="stat-card"><div class="stat-value">${integrity.missing_definitions || 0}</div><div class="stat-label">Missing</div></div>
+                    <div class="stat-card"><div class="stat-value">${context.mismatches_found || 0}</div><div class="stat-label">Context Issues</div></div>
+                </div>`;
+                
+                if (integrity.is_clean && context.mismatches_found === 0) {
+                    html += '<div class="message success">✅ Document passed all audit checks!</div>';
+                } else {
+                    if (integrity.same_citation_duplicates > 0) {
+                        html += `<p>❌ <strong>${integrity.same_citation_duplicates}</strong> consecutive duplicate citations found</p>`;
+                    }
+                    if (integrity.orphaned_definitions > 0) {
+                        html += `<p>⚠️ <strong>${integrity.orphaned_definitions}</strong> orphaned definitions (defined but never used)</p>`;
+                    }
+                    if (integrity.missing_definitions > 0) {
+                        html += `<p>❌ <strong>${integrity.missing_definitions}</strong> missing definitions (used but never defined)</p>`;
+                    }
+                    if (context.high_concern > 0) {
+                        html += `<p>🔴 <strong>${context.high_concern}</strong> high-concern context mismatches</p>`;
+                    }
+                    if (context.moderate_concern > 0) {
+                        html += `<p>🟡 <strong>${context.moderate_concern}</strong> moderate-concern context mismatches</p>`;
+                    }
+                }
+                
+                if (data.fixes_applied) {
+                    html += `<div class="message success">✅ Auto-fixed ${data.fixes_applied} duplicate(s)!</div>`;
+                }
+                
+                auditContent.innerHTML = html;
+            } catch (e) {
+                healthScoreEl.innerHTML = '';
+                auditContent.innerHTML = `<div class="message error">❌ Error: ${escHtml(e.message)}</div>`;
+            }
+        }
+        
+        function copyAuditResult() {
+            const content = document.getElementById('auditContent').innerText;
+            navigator.clipboard.writeText(content);
         }
 
         // About Page

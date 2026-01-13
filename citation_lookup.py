@@ -126,9 +126,29 @@ class CitationLookup:
         logger.add(sys.stderr, level=log_level, format="<level>{level: <8}</level> | <cyan>{message}</cyan>")
     
     def set_style(self, style: str):
-        """Change the citation style."""
+        """Change the citation style.
+        
+        Note: This mutates instance state. For thread-safe operations,
+        prefer passing style to individual methods or use get_formatter_for_style().
+        """
         self.style = style
         self.formatter = get_formatter(style, max_authors=3)
+    
+    def get_formatter_for_style(self, style: Optional[str] = None):
+        """Get a formatter for the specified style, or use instance default.
+        
+        This method is thread-safe - it returns a new formatter if style differs
+        from the instance default, avoiding global state mutation.
+        
+        Args:
+            style: Citation style (vancouver, apa, etc.) or None for instance default
+            
+        Returns:
+            Formatter instance for the requested style
+        """
+        if style is None or style == self.style:
+            return self.formatter
+        return get_formatter(style, max_authors=3)
     
     def test_connection(self) -> bool:
         return self.pubmed_client.test_connection()
@@ -599,6 +619,8 @@ def main():
     id_group.add_argument('--pmid', help='PubMed ID to look up')
     id_group.add_argument('--doi', help='DOI to look up')
     id_group.add_argument('--pmcid', help='PMC ID to look up')
+    id_group.add_argument('--arxiv', help='arXiv ID to look up (e.g., 2301.07041)')
+    id_group.add_argument('--isbn', help='ISBN to look up (e.g., 978-0-13-468599-1)')
     id_group.add_argument('--title', help='Article title to search')
     id_group.add_argument('--auto', help='Auto-detect identifier type')
     id_group.add_argument('--batch', help='File with identifiers (one per line)')
@@ -608,6 +630,16 @@ def main():
                          help='Run in interactive mode (REPL)')
     id_group.add_argument('--list-styles', action='store_true',
                          help='List available citation styles')
+    id_group.add_argument('--export-bibtex', dest='export_bibtex', metavar='FILE',
+                         help='Export citations from file to BibTeX format')
+    id_group.add_argument('--export-ris', dest='export_ris', metavar='FILE',
+                         help='Export citations from file to RIS format')
+    id_group.add_argument('--import-bibtex', dest='import_bibtex', metavar='FILE',
+                         help='Import BibTeX file and show entries')
+    id_group.add_argument('--import-ris', dest='import_ris', metavar='FILE',
+                         help='Import RIS file and show entries')
+    id_group.add_argument('--extract-pdf', dest='extract_pdf', metavar='FILE',
+                         help='Extract citation metadata from PDF file')
     
     parser.add_argument('--style', '-s', choices=get_available_styles(), default=DEFAULT_STYLE,
                        help=f'Citation style (default: {DEFAULT_STYLE})')
@@ -627,7 +659,9 @@ def main():
         console.print()
         sys.exit(0)
     
-    if not any([args.pmid, args.doi, args.pmcid, args.title, args.auto, args.batch, args.search_multi, args.interactive]):
+    if not any([args.pmid, args.doi, args.pmcid, args.arxiv, args.isbn, args.title, args.auto, 
+                args.batch, args.search_multi, args.interactive, args.export_bibtex, args.export_ris,
+                args.import_bibtex, args.import_ris, args.extract_pdf]):
         parser.print_help()
         sys.exit(1)
     
@@ -641,6 +675,75 @@ def main():
     if args.interactive:
         run_interactive_mode(lookup, args.format, args.copy)
         sys.exit(0)
+    
+    # Handle import/export modes (don't need PubMed connection test)
+    if args.import_bibtex:
+        from modules.bibtex_handler import BibTeXParser
+        parser_bib = BibTeXParser()
+        entries = parser_bib.parse_file(args.import_bibtex)
+        if not entries:
+            console.print("[red]No BibTeX entries found.[/red]")
+            sys.exit(1)
+        console.print(f"\n[bold cyan]BibTeX Import: {len(entries)} entries[/bold cyan]\n")
+        for i, entry in enumerate(entries, 1):
+            console.print(f"[green]{i}. {entry.cite_key}[/green] ({entry.entry_type})")
+            console.print(f"   Title: {entry.title[:60]}...")
+            if entry.authors:
+                console.print(f"   Authors: {', '.join(entry.authors[:3])}")
+            if entry.year:
+                console.print(f"   Year: {entry.year}")
+            console.print()
+        sys.exit(0)
+    
+    if args.import_ris:
+        from modules.ris_handler import RISParser
+        parser_ris = RISParser()
+        entries = parser_ris.parse_file(args.import_ris)
+        if not entries:
+            console.print("[red]No RIS entries found.[/red]")
+            sys.exit(1)
+        console.print(f"\n[bold cyan]RIS Import: {len(entries)} entries[/bold cyan]\n")
+        for i, entry in enumerate(entries, 1):
+            console.print(f"[green]{i}.[/green] ({entry.entry_type})")
+            console.print(f"   Title: {entry.title[:60]}...")
+            if entry.authors:
+                console.print(f"   Authors: {', '.join(entry.authors[:3])}")
+            if entry.year:
+                console.print(f"   Year: {entry.year}")
+            console.print()
+        sys.exit(0)
+    
+    if args.extract_pdf:
+        try:
+            from modules.pdf_extractor import PDFExtractor, PYMUPDF_AVAILABLE
+            if not PYMUPDF_AVAILABLE:
+                console.print("[red]Error: PyMuPDF not installed. Run: pip install PyMuPDF[/red]")
+                sys.exit(1)
+            extractor = PDFExtractor()
+            metadata = extractor.extract(args.extract_pdf)
+            if not metadata:
+                console.print("[red]Could not extract metadata from PDF.[/red]")
+                sys.exit(1)
+            console.print(f"\n[bold cyan]PDF Metadata Extraction[/bold cyan]\n")
+            console.print(f"[dim]File: {args.extract_pdf}[/dim]")
+            if metadata.title:
+                console.print(f"[green]Title:[/green] {metadata.title}")
+            if metadata.authors:
+                console.print(f"[green]Authors:[/green] {', '.join(metadata.authors)}")
+            if metadata.doi:
+                console.print(f"[green]DOI:[/green] {metadata.doi}")
+            if metadata.pmid:
+                console.print(f"[green]PMID:[/green] {metadata.pmid}")
+            if metadata.arxiv_id:
+                console.print(f"[green]arXiv:[/green] {metadata.arxiv_id}")
+            console.print(f"[dim]Pages: {metadata.page_count}, Size: {metadata.file_size:,} bytes[/dim]")
+            if metadata.has_identifier:
+                id_type, id_value = metadata.best_identifier
+                console.print(f"\n[cyan]Best identifier: {id_type.upper()} = {id_value}[/cyan]")
+            sys.exit(0)
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
     
     results = []
     
@@ -657,6 +760,10 @@ def main():
         results.append(lookup.lookup_doi(args.doi))
     elif args.pmcid:
         results.append(lookup.lookup_pmcid(args.pmcid))
+    elif args.arxiv:
+        results.append(lookup.lookup_arxiv(args.arxiv))
+    elif args.isbn:
+        results.append(lookup.lookup_isbn(args.isbn))
     elif args.title:
         results.append(lookup.lookup_title(args.title))
     elif args.auto:
@@ -668,6 +775,54 @@ def main():
             sys.exit(1)
         identifiers = batch_file.read_text().strip().split('\n')
         results = lookup.batch_lookup(identifiers)
+    elif args.export_bibtex:
+        # Export to BibTeX from file with identifiers
+        batch_file = Path(args.export_bibtex)
+        if not batch_file.exists():
+            console.print(f"[red]Error: File not found: {args.export_bibtex}[/red]")
+            sys.exit(1)
+        identifiers = batch_file.read_text().strip().split('\n')
+        results = lookup.batch_lookup(identifiers)
+        
+        from modules.bibtex_handler import BibTeXExporter
+        exporter = BibTeXExporter()
+        bibtex_entries = []
+        for r in results:
+            if r.success and r.metadata:
+                entry = exporter.metadata_to_bibtex(r.metadata)
+                bibtex_entries.append(entry)
+        
+        output_text = "\n\n".join(bibtex_entries)
+        if args.output:
+            Path(args.output).write_text(output_text)
+            console.print(f"[green]BibTeX exported to: {args.output}[/green]")
+        else:
+            print(output_text)
+        sys.exit(0)
+    elif args.export_ris:
+        # Export to RIS from file with identifiers
+        batch_file = Path(args.export_ris)
+        if not batch_file.exists():
+            console.print(f"[red]Error: File not found: {args.export_ris}[/red]")
+            sys.exit(1)
+        identifiers = batch_file.read_text().strip().split('\n')
+        results = lookup.batch_lookup(identifiers)
+        
+        from modules.ris_handler import RISExporter
+        exporter = RISExporter()
+        ris_entries = []
+        for r in results:
+            if r.success and r.metadata:
+                entry = exporter.metadata_to_ris(r.metadata)
+                ris_entries.append(entry)
+        
+        output_text = "\n".join(ris_entries)
+        if args.output:
+            Path(args.output).write_text(output_text)
+            console.print(f"[green]RIS exported to: {args.output}[/green]")
+        else:
+            print(output_text)
+        sys.exit(0)
     
     output_lines = []
     for result in results:

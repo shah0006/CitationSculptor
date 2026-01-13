@@ -7,6 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.1] - 2026-01-13
+
+### Added - Enhanced Context Verification Algorithm
+
+This release significantly improves the citation-context verification algorithm based on information retrieval research recommendations.
+
+#### Context Verifier Enhancements
+- **IDF-Weighted Inclusion Coefficient**: Replaced simple overlap scoring with IDF-weighted inclusion
+  - Generic terms (`study`, `patients`, `analysis`) now contribute less to matching scores
+  - Specific terms (`amyloidosis`, `cardiomyopathy`) contribute more appropriately
+  - Formula: `Σ(IDF of matched terms) / Σ(IDF of all citation terms)`
+  
+- **Keyphrase Extraction**: Added n-gram keyphrase extraction alongside unigrams
+  - Captures meaningful phrases: "cardiac amyloidosis", "heart failure", "machine learning"
+  - Phrases weighted higher for precision, unigrams included for recall
+  - Both phrases AND unigrams now included in keyword sets for better matching
+  
+- **Conservative Lemmatization**: Added rule-based lemmatization to reduce word variants
+  - Reduces `therapies → therapy`, `findings → finding`, `studies → study`
+  - Exception list protects technical terms: `amyloidosis`, `diagnosis`, `fibrosis`, `prognosis`
+  - No external dependencies (NLTK not required)
+
+- **Configurable Feature Flags**: New initialization options for `CitationContextVerifier`
+  - `use_lemmatization: bool = True` - Enable/disable lemmatization
+  - `use_keyphrases: bool = True` - Enable/disable keyphrase extraction
+  - `use_idf_weighting: bool = True` - Enable/disable IDF weighting
+
+#### Algorithm Background
+The improvements are based on information retrieval best practices:
+- IDF weighting automatically downweights generic academic terms
+- Keyphrase extraction captures domain-specific multi-word concepts
+- Lemmatization handles inflectional variants without aggressive stemming
+- Hybrid approach (phrases + unigrams) balances precision and recall
+
+### Tests
+- 11 new tests for lemmatization, keyphrase extraction, IDF weighting, and metric options
+- **471 passed** (1 pre-existing failure unrelated to v2.4 changes)
+
+---
+
+## [2.4.0] - 2026-01-12
+
+### Added - Critical v2.4.0 Improvements Sprint
+
+This release addresses critical usability issues discovered during document processing that required manual corrections. All solutions are **domain-agnostic** and work on any document type.
+
+#### File Save Bug Fix (P0 - CRITICAL)
+- **`citation_process_document`** now saves processed content directly to the file
+- Added `save_to_file: bool = True` parameter to control auto-save behavior
+- Added `skip_verification: bool = False` parameter to optionally skip context verification
+- Creates timestamped backup before any file modification
+- Returns confirmation message: "File saved to: X"
+
+#### Citation Integrity Checker (P0 - HIGH VALUE)
+- **New Module**: `modules/citation_integrity_checker.py`
+- **New MCP Tool**: `citation_find_duplicates`
+- Detects same-citation duplicates: `[^A][^A]` → `[^A]`
+- Detects orphaned definitions (defined but never used in text)
+- Detects missing definitions (used in text but never defined)
+- Auto-fix option removes consecutive duplicate citations
+- Integrated as pre-processing step in document processing
+
+#### Context-Aware Citation Verification (P1 - HIGH IMPACT)
+- **New Module**: `modules/citation_context_verifier.py`
+- **New MCP Tool**: `citation_verify_context`
+- **Domain-Agnostic Design**: Uses dynamic keyword extraction, NOT hardcoded topic lists
+- Extracts significant keywords from citation definitions and surrounding text
+- Calculates overlap score using Inclusion Coefficient (asymmetric)
+- Tiered warning system: HIGH (0-10%), MODERATE (10-30%), LOW (30-50%), NONE (50%+)
+- Optional LLM deep verification using local Ollama (DeepSeek-R1) with Groq fallback
+- Integrated as post-processing warning step in document processing
+
+#### Comprehensive Audit Tool (P1)
+- **New MCP Tool**: `citation_audit_document`
+- Combines integrity checking and context verification
+- Generates document health score (0-100%)
+- Single comprehensive report for all citation issues
+
+#### Security Fix
+- **Path Traversal Protection**: Added `is_path_safe()` validation to `/api/restore-backup`
+- Prevents unauthorized file system access through backup restoration endpoint
+
+#### Feature Parity Across All Interfaces
+- **MCP Server**: All new tools available via stdio transport
+- **HTTP API**: New endpoints `/api/find-duplicates`, `/api/verify-context`, `/api/audit-document`
+- **CLI**: New flags `--find-duplicates`, `--verify-context`, `--audit`, `--auto-fix`, `--deep-verify`
+- **Web UI**: New "Document Intelligence" section with 6 dedicated pages
+  - Verify Links, Suggest Citations, Check Compliance
+  - Find Duplicates, Verify Context, Full Audit
+  - Consistent tabbed interface (Paste Content / File Path / URLs Only)
+
+#### Additional Tool Integrations
+- Added handlers for arXiv, ISBN, OpenAlex, Semantic Scholar lookup
+- Added BibTeX/RIS import/export handlers
+- Added PDF metadata extraction handler
+- Added article-level duplicate detection handler
+- Added bibliography generation handler
+
+### Tests
+- **34 tests** for `citation_context_verifier.py`
+- **14 tests** for `citation_integrity_checker.py`
+- Multi-domain test cases: Medical, Legal, Engineering, Humanities
+- **460+ total tests**, all passing (except 1 pre-existing)
+
+### Documentation
+- Updated PLANNING.md with v2.4.0 completion status
+- Created CONTINUATION_PROMPT.md for agent handoff
+- Created docs/IMPROVEMENT_PLAN_v2.4.md with full analysis
+
+---
+
 ## [2.3.2] - 2026-01-04
 
 ### Improved - Metadata Extraction & Citation Quality
