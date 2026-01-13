@@ -458,11 +458,11 @@ curl "http://127.0.0.1:3019/api/search?q=heart+failure"
 
 We're always looking to improve CitationSculptor. Here's what's planned:
 
-### v2.5.0 - Reference Manager Integration
+### v2.5.0 - Zotero Integration
 - [ ] Zotero library sync (two-way)
-- [ ] Mendeley integration
-- [ ] EndNote support
-- [ ] Papers app integration
+- [ ] Import from Zotero collections
+- [ ] Export to Zotero with tags
+- [ ] Zotero Better BibTeX compatibility
 
 ### v2.6.0 - Visualization & Analytics
 - [ ] Citation network graph visualization

@@ -161,14 +161,13 @@ All tools accessible via:
 |---------|----------|-------|
 | **BM25 Scoring** | **High** | Better lexical matching for short query vs long document |
 | **Corpus-Based IDF** | **High** | Use S2ORC or similar for more accurate term specificity |
-| **PDF/Document Link Handling** | **High** | Better handling of URLs pointing to PDFs, presentations, spreadsheets |
+| **Zotero Integration** | **High** | Two-way sync, Better BibTeX compatibility |
+| **PDF/Document Link Handling** | Medium | Better handling of URLs pointing to PDFs, presentations, spreadsheets |
 | **Superscript Citations** | Medium | Handle `¹²` and `<sup>1,2</sup>` formats |
-| Zotero sync integration | Medium | Bi-directional sync |
 | Semantic embeddings | Medium | Catch synonyms like "heart" ↔ "cardiac" |
 | CSL-JSON export | Medium | For Pandoc/Citation.js |
 | Citation graph visualization | Low | D3.js or Obsidian Graph |
 | Calibrated thresholds | Low | Learn optimal cutoffs from labeled data |
-| SSRN support | Low | Niche academic |
 
 > **Note:** LLM metadata extraction, link verification, citation format normalization, context verification, and integrity checking are now available
 
