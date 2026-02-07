@@ -1739,7 +1739,7 @@ class CitationHTTPHandler(BaseHTTPRequestHandler):
                             'concern_level': m.concern_level.value if hasattr(m.concern_level, 'value') else str(m.concern_level),
                             'citation_keywords': m.citation_keywords[:5],
                             'context_keywords': m.context_keywords[:5],
-                            'deep_verify_result': m.deep_verify_result,
+                            'llm_verification': m.llm_verification,
                         }
                         for m in mismatches
                     ],

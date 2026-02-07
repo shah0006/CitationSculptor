@@ -463,3 +463,14 @@ healio.com:
   learned: true
   date_added: '2026-01-04T20:03:03.388981'
   publication_type: webpage
+linkinghub.elsevier.com:
+  organization: Elsevier
+  publication_name: ''
+  instructions: 'Organization: Elsevier
+
+    Authors: Not typically available or institutional authorship
+
+    Date: Check URL path or page content for publication date'
+  learned: true
+  date_added: '2026-01-29T18:00:49.589914'
+  publication_type: webpage

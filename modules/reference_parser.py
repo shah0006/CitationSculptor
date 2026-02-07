@@ -604,32 +604,27 @@ class ReferenceParser:
                 if url_match:
                     url = self._clean_url(url_match.group(0))
             
-            # ALWAYS try to extract DOI from text and store in metadata
-            # DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
-            # Exclude ? from DOI capture to avoid query parameters
-            doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>\?]+)', content, re.IGNORECASE)
-            if doi_match:
-                doi = doi_match.group(1).rstrip('.,;')
+            # ALWAYS try to extract DOI and PMID from text and store in metadata
+            # DOI extraction
+            doi = self._extract_doi_from_text(content)
+            if doi:
                 metadata['doi'] = doi
                 logger.debug(f"Extracted DOI from footnote text: {doi}")
                 # If no URL, construct one from DOI
                 if not url:
                     url = f"https://doi.org/{doi}"
-            
-            # Extract title (best guess: typically between authors and journal)
-            # If we have a URL, title is less critical as we'll lookup by ID
-            # Heuristic: Take the longest segment between periods?
-            # Or just the second segment if it looks like authors are first?
-            parts = content.split('.')
-            title = content
-            if len(parts) > 1:
-                # Often: Authors. Title. Journal.
-                # But could be: Title. Authors.
-                # If first part has many commas, it's likely authors
-                if parts[0].count(',') >= 2:
-                    title = parts[1].strip()
-                else:
-                    title = parts[0].strip()
+
+            # PMID extraction
+            pmid = self._extract_pmid_from_text(content)
+            if pmid:
+                metadata['pmid'] = pmid
+                logger.debug(f"Extracted PMID from footnote text: {pmid}")
+                # If no URL, construct one from PMID
+                if not url:
+                    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+
+            # Extract title using multi-strategy approach
+            title = self._extract_title_from_citation(content)
 
             return ParsedReference(
                 original_number=number,
@@ -669,29 +664,30 @@ class ReferenceParser:
                         if raw_url_match:
                             url = self._clean_url(raw_url_match.group(0))
                 
-                # ALWAYS try to extract DOI from text and store in metadata
-                # This helps even when URL is present but doesn't contain the DOI
-                # DOIs can contain dots (e.g., 10.3389/fcvm.2018.00062)
-                # Exclude ? from DOI capture to avoid query parameters
+                # ALWAYS try to extract DOI and PMID from text and store in metadata
+                # This helps even when URL is present but doesn't contain the identifiers
                 metadata = {}
-                doi_match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\)\]<>\?]+)', content, re.IGNORECASE)
-                if doi_match:
-                    doi = doi_match.group(1).rstrip('.,;')
+
+                # DOI extraction
+                doi = self._extract_doi_from_text(content)
+                if doi:
                     metadata['doi'] = doi
                     logger.debug(f"Extracted DOI from text: {doi}")
                     # If no URL, construct one from DOI
                     if not url:
                         url = f"https://doi.org/{doi}"
-                
-                # Extract title (first sentence or up to first period)
-                title_parts = content.split('.')
-                title = title_parts[0].strip() if title_parts else content
-                
-                # Clean up title if it contains author separators like dashes
-                for sep in [' - ', ' – ', ' — ', ' | ']:
-                    if sep in title:
-                        title = title.split(sep)[0].strip()
-                        break
+
+                # PMID extraction
+                pmid = self._extract_pmid_from_text(content)
+                if pmid:
+                    metadata['pmid'] = pmid
+                    logger.debug(f"Extracted PMID from text: {pmid}")
+                    # If no URL, construct one from PMID
+                    if not url:
+                        url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+
+                # Extract title using multi-strategy approach
+                title = self._extract_title_from_citation(content)
                 
                 return ParsedReference(
                     original_number=number,
@@ -707,6 +703,192 @@ class ReferenceParser:
         
         return None
     
+    def _extract_pmid_from_text(self, text: str) -> Optional[str]:
+        """
+        Extract PMID from citation text if present.
+
+        Handles multiple formats:
+        - PMID: 12345678
+        - PMID 12345678
+        - pubmed.ncbi.nlm.nih.gov/12345678
+        - ncbi.nlm.nih.gov/pubmed/12345678
+
+        Returns:
+            PMID string (8 digits) or None if not found
+        """
+        # Pattern 1: Explicit PMID label
+        match = re.search(r'PMID:?\s*(\d{8})', text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        # Pattern 2: PubMed URL
+        match = re.search(r'pubmed\.ncbi\.nlm\.nih\.gov/(\d{8})', text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        match = re.search(r'ncbi\.nlm\.nih\.gov/pubmed/(\d{8})', text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        return None
+
+    def _extract_doi_from_text(self, text: str) -> Optional[str]:
+        """
+        Extract DOI from citation text if present.
+
+        Handles multiple formats:
+        - DOI: 10.1234/abc
+        - DOI 10.1234/abc
+        - doi.org/10.1234/abc
+        - https://doi.org/10.1234/abc
+        - DOI: 10.1016/S0140-6736(18)31133-4  (with parentheses)
+
+        Returns:
+            DOI string or None if not found
+        """
+        # Pattern 1: Explicit DOI label
+        # DOIs can contain parentheses, so we need to be careful with the pattern
+        # Match until whitespace, closing bracket ], or angle bracket <
+        # But allow parentheses within the DOI
+        match = re.search(r'doi[:\s]+\s*(10\.\d{4,}/[^\s\]<>]+)', text, re.IGNORECASE)
+        if match:
+            # Clean trailing punctuation, but preserve internal parentheses
+            doi = match.group(1).rstrip('.,;?')
+            # Remove trailing closing paren only if it's at the very end and not part of DOI structure
+            # DOIs with parens are like 10.1016/S0140-6736(18)31133-4
+            # We want to keep the complete DOI
+            return doi
+
+        # Pattern 2: DOI URL
+        match = re.search(r'doi\.org/(10\.\d{4,}/[^\s\]<>]+)', text, re.IGNORECASE)
+        if match:
+            doi = match.group(1).rstrip('.,;?')
+            return doi
+
+        return None
+
+    def _extract_title_from_citation(self, content: str) -> str:
+        """
+        Extract article title from citation text using multiple strategies.
+
+        Handles multiple citation formats:
+        1. Vancouver (period-delimited): Authors. Title. Journal. Year;Vol(Issue):Pages.
+        2. Dash-delimited: Authors Year - Title - Journal - Metadata
+        3. Parenthetical year: Authors (Year). Title. Journal, Vol(Issue), Pages.
+
+        Returns the best candidate title, validated to not be a year string,
+        volume number, or other non-title fragment.
+        """
+        # NEW: Detect dash-delimited format first
+        # Pattern: "Authors Year - Title - Journal - ..."
+        # Indicators: multiple " - " delimiters and few/no periods
+        dash_count = content.count(' - ')
+        period_count = content.count('.')
+
+        if dash_count >= 2 and period_count < 3:
+            # Likely dash-delimited format
+            logger.debug(f"Detected dash-delimited format ({dash_count} dashes, {period_count} periods)")
+            parts = content.split(' - ')
+
+            if len(parts) >= 3:
+                # Check if first segment looks like authors + year
+                first = parts[0].strip()
+                has_initials = bool(re.findall(r'\b[A-Z]{1,3}\b', first))
+                has_commas = first.count(',') >= 1
+                has_year = bool(re.search(r'\b(19|20)\d{2}\b', first))
+
+                if has_initials and has_commas and has_year:
+                    # Authors + year in first segment, title is second segment
+                    title_candidate = parts[1].strip()
+                    # Remove markdown italic markers (*Title*)
+                    title_candidate = re.sub(r'^\*+|\*+$', '', title_candidate).strip()
+
+                    if self._is_valid_title(title_candidate):
+                        logger.debug(f"Extracted title from dash format: {title_candidate[:60]}...")
+                        return title_candidate
+
+        # Strip any year in parentheses from the start (common LLM format)
+        # e.g., "Xu S, et al. (2021). Title..." → work with text after "(2021)."
+        content_stripped = re.sub(r'\(\d{4}\)\.\s*', '', content, count=1)
+
+        # Strategy 1: Look for Vancouver author pattern at start
+        # Pattern: "LastName Initials, LastName Initials, et al."
+        # Matches: "Xu S, Ilyas I, Little PJ, et al."
+        author_pattern = r'^((?:[A-Z][a-zÀ-ÿ\-\']+\s+[A-Z]{1,3},?\s*)+(?:et\s+al\.?)?\s*)'
+
+        # Try with year stripped first, then original
+        for text in [content_stripped, content]:
+            parts = text.split('.')
+            if len(parts) >= 3:
+                # Check if first segment looks like an author list (has commas + short uppercase tokens)
+                first = parts[0].strip()
+                # Author indicators: multiple commas, short uppercase tokens (initials)
+                has_initials = bool(re.findall(r'\b[A-Z]{1,3}\b', first))
+                has_commas = first.count(',') >= 1
+
+                if has_initials and has_commas:
+                    # Authors are first segment. Title is the next meaningful segment.
+                    # Skip segments that are just year strings like "(2021)"
+                    for i in range(1, len(parts)):
+                        candidate = parts[i].strip()
+                        # Skip parenthetical years and empty segments
+                        candidate_clean = re.sub(r'^\(\d{4}\)\s*', '', candidate).strip()
+                        if candidate_clean and self._is_valid_title(candidate_clean):
+                            return candidate_clean
+
+        # Strategy 2: Find the longest meaningful segment between periods
+        parts = content.split('.')
+        candidates = []
+        for part in parts:
+            part = part.strip()
+            # Remove leading parenthetical years
+            part = re.sub(r'^\(\d{4}\)\s*', '', part).strip()
+            if self._is_valid_title(part) and len(part) > 15:
+                candidates.append(part)
+
+        if candidates:
+            # Return the longest candidate (article titles are typically the longest segment)
+            return max(candidates, key=len)
+
+        # Strategy 3: Return everything before first year;volume pattern
+        year_vol_match = re.search(r'\b(19|20)\d{2}\s*[;:]', content)
+        if year_vol_match:
+            before = content[:year_vol_match.start()].rstrip('. ')
+            if before and self._is_valid_title(before):
+                return before
+
+        # Fallback: return full content (cross-verify will catch bad matches)
+        logger.warning(f"Title extraction fallback: using full content for: {content[:60]}...")
+        return content
+
+    def _is_valid_title(self, text: str) -> bool:
+        """
+        Check if extracted text is a plausible article title.
+
+        Rejects:
+        - Pure year strings like "(2021)" or "2021"
+        - Journal abbreviation fragments
+        - Volume/issue patterns like "26(15)"
+        - Very short strings
+        """
+        if not text or len(text) < 5:
+            return False
+        # Reject pure year strings (with or without parens)
+        if re.match(r'^\(?\d{4}\)?$', text.strip()):
+            return False
+        # Reject volume/issue patterns
+        if re.match(r'^\d+\s*\(\d+', text.strip()):
+            return False
+        # Reject page range patterns
+        if re.match(r'^\d+[\-–]\d+$', text.strip()):
+            return False
+        # Reject very short text with many periods (journal abbreviations)
+        if len(text) < 15 and text.count('.') > 1:
+            return False
+        # Must contain at least 2 alphabetic words with 3+ characters
+        alpha_words = [w for w in text.split() if re.match(r'^[a-zA-ZÀ-ÿ]{3,}', w)]
+        return len(alpha_words) >= 2
+
     def _clean_url(self, url: str) -> str:
         """
         Clean extracted URLs that may have malformed markdown syntax.

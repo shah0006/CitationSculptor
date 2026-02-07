@@ -2,8 +2,8 @@
 
 import re
 from abc import ABC, abstractmethod
-from typing import Optional, List, Union
-from dataclasses import dataclass
+from typing import Optional, List, Union, Any
+from dataclasses import dataclass, field
 
 from .pubmed_client import ArticleMetadata, CrossRefMetadata, WebpageMetadata
 
@@ -18,6 +18,7 @@ class FormattedCitation:
     pmid: Optional[str] = None
     doi: Optional[str] = None
     style: str = "vancouver"  # Citation style used
+    match_confidence: Optional[Any] = None  # MatchConfidence from cross-verification
 
 
 class BaseFormatter(ABC):

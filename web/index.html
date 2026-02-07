@@ -4324,7 +4324,7 @@ PMC7039045
                         <span style="color: ${color};">(${Math.round(m.overlap_score * 100)}% overlap)</span><br>
                         <small>Citation keywords: ${(m.citation_keywords || []).join(', ')}</small><br>
                         <small>Context keywords: ${(m.context_keywords || []).join(', ')}</small>
-                        ${m.deep_verify_result ? `<br><em>LLM: ${escHtml(m.deep_verify_result)}</em>` : ''}
+                        ${m.llm_verification ? `<br><em>LLM: [${m.llm_verification.is_mismatch ? 'MISMATCH' : 'OK'}] ${escHtml(m.llm_verification.reasoning || '')}</em>` : ''}
                     </div>`;
                 }
                 

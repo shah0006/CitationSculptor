@@ -17,7 +17,8 @@ Options:
 import sys
 import argparse
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
 
 from rich.console import Console
 from rich.table import Table
@@ -34,6 +35,35 @@ from modules.inline_replacer import InlineReplacer
 from modules.output_generator import OutputGenerator, OutputDocument, ManualReviewItem
 
 console = Console(force_terminal=True)
+
+
+@dataclass
+class MatchConfidence:
+    """Confidence scores for a PubMed/CrossRef match."""
+    title_similarity: Optional[float] = None
+    author_match: Optional[bool] = None
+    year_match: Optional[bool] = None
+    year_delta: Optional[int] = None
+    checks_performed: int = 0
+    checks_passed: int = 0
+    accepted: bool = False
+
+    @property
+    def overall_confidence(self) -> float:
+        if self.checks_performed == 0:
+            return 0.0
+        return self.checks_passed / self.checks_performed
+
+    def to_dict(self) -> dict:
+        return {
+            'title_similarity': f"{self.title_similarity:.0%}" if self.title_similarity is not None else "N/A",
+            'author_match': self.author_match,
+            'year_match': self.year_match,
+            'year_delta': self.year_delta,
+            'checks': f"{self.checks_passed}/{self.checks_performed}",
+            'overall_confidence': f"{self.overall_confidence:.0%}",
+            'accepted': self.accepted,
+        }
 
 
 class CitationSculptor:
@@ -536,12 +566,32 @@ class CitationSculptor:
             used_refs, unused_refs = parser.filter_unreferenced()
         
         if unused_refs:
-            console.print(f"[yellow][!][/yellow] Skipping {len(unused_refs)} unreferenced citations:")
-            for ref in unused_refs[:5]:  # Show first 5
-                console.print(f"    - #{ref.original_number}: {ref.title[:50]}...")
-            if len(unused_refs) > 5:
-                console.print(f"    ... and {len(unused_refs) - 5} more")
-        
+            console.print(f"[yellow][!] ORPHANED REFERENCES (defined but never cited in body):[/yellow]")
+            for ref in unused_refs:
+                console.print(f"    - [^{ref.original_number}]: {ref.title[:60]}...")
+            console.print(f"[yellow]    These references exist in the endnotes but are never cited inline.[/yellow]")
+
+        # Also check for undefined references (cited in body but no definition)
+        body = parser.get_body_content()
+        inline_style = parser._detect_inline_style(body)
+        defined_numbers = {ref.original_number for ref in parser.references}
+        # Check for string-label footnotes too (e.g., [^ESC1])
+        defined_labels = set()
+        for ref in parser.references:
+            defined_labels.add(str(ref.original_number))
+            if hasattr(ref, 'original_label') and ref.original_label:
+                defined_labels.add(ref.original_label)
+
+        # Find inline citations not matched to definitions
+        import re
+        inline_pattern = re.compile(r'\[\^([^\]]+)\]')
+        body_citations = set(inline_pattern.findall(body))
+        undefined = body_citations - defined_labels
+        if undefined:
+            console.print(f"[red][!] UNDEFINED REFERENCES (cited in body but no definition):[/red]")
+            for label in sorted(undefined):
+                console.print(f"    - [^{label}]")
+
         console.print(f"[green][OK][/green] {len(used_refs)} citations are used in document")
         return used_refs, unused_refs
 
@@ -703,18 +753,36 @@ class CitationSculptor:
 
     def _process_single_journal_article(self, ref: ParsedReference) -> Optional[FormattedCitation]:
         """Process a single journal article reference."""
-        pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
-        pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
-        doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+        # PRIORITY 0: Check if DOI/PMID/PMCID are embedded in the reference text itself
+        # This is MORE reliable than URL extraction
+        pmid = ref.metadata.get('pmid') if ref.metadata else None
+        pmcid = None  # PMCID extraction from text not yet implemented
+        doi = ref.metadata.get('doi') if ref.metadata else None
+
+        # PRIORITY 1: Fall back to URL extraction if not found in text
+        if not pmid:
+            pmid = self.type_detector.extract_pmid(ref.url) if ref.url else None
+        if not pmcid:
+            pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
+        if not doi:
+            doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+
+        # Log which method found the identifiers
+        if pmid:
+            source = "text metadata" if ref.metadata and ref.metadata.get('pmid') else "URL"
+            logger.info(f"Found PMID {pmid} from {source}")
+        if doi:
+            source = "text metadata" if ref.metadata and ref.metadata.get('doi') else "URL"
+            logger.info(f"Found DOI {doi} from {source}")
 
         metadata: Optional[ArticleMetadata] = None
 
-        # Priority 1: Direct PMID lookup
+        # Priority 2: Direct PMID lookup
         if pmid:
             logger.info(f"Fetching PMID: {pmid}")
             metadata = self.pubmed_client.fetch_article_by_pmid(pmid)
 
-        # Priority 2: PMC ID lookup
+        # Priority 3: PMC ID lookup
         elif pmcid:
             logger.info(f"Looking up PMC ID: {pmcid}")
             metadata = self.pubmed_client.fetch_article_by_pmcid(pmcid)
@@ -730,7 +798,7 @@ class CitationSculptor:
                     self._add_manual_review(ref, f"PMC article ({pmcid}), no PMID or DOI found", "Manually look up")
                     return None
 
-        # Priority 3: DOI lookup
+        # Priority 4: DOI lookup
         elif doi:
             logger.info(f"Looking up DOI: {doi}")
             metadata = self.pubmed_client.fetch_article_by_doi(doi)
@@ -739,16 +807,48 @@ class CitationSculptor:
                 logger.info(f"DOI not in PubMed, trying title search...")
                 metadata = self.pubmed_client.verify_article_exists(ref.title)
 
-        # Priority 4: Title search
+        # Priority 5: Title search (last resort)
         else:
             logger.info(f"Searching by title: {ref.title[:50]}...")
             metadata = self.pubmed_client.verify_article_exists(ref.title)
 
-        # If found in PubMed, format as journal article
+        # If found in PubMed, cross-verify before accepting
         if metadata:
-            return self.formatter.format_journal_article(metadata, ref.original_number)
+            accepted, match_confidence = self._cross_verify_match(ref, metadata)
+            # Log confidence scores for all matches (accepted or rejected)
+            conf_info = match_confidence.to_dict()
+            logger.info(
+                f"Ref #{ref.original_number} match confidence: "
+                f"title={conf_info['title_similarity']}, "
+                f"author={conf_info['author_match']}, "
+                f"year={conf_info['year_match']}, "
+                f"overall={conf_info['overall_confidence']}, "
+                f"accepted={conf_info['accepted']}"
+            )
+            if accepted:
+                result = self.formatter.format_journal_article(metadata, ref.original_number)
+                if result:
+                    result.match_confidence = match_confidence
+                return result
+            else:
+                # Cross-verification failed - the matched article is likely a different paper
+                logger.warning(
+                    f"Rejecting PubMed match for ref #{ref.original_number}: "
+                    f"matched PMID {metadata.pmid} ('{metadata.title[:50]}') "
+                    f"does not match original ('{ref.title[:50]}')"
+                )
+                self._add_manual_review(
+                    ref,
+                    f"Cross-verification failed (confidence: {conf_info['overall_confidence']}): "
+                    f"matched article does not match original citation",
+                    f"PubMed returned PMID {metadata.pmid} but title/author/year mismatch. "
+                    f"Scores: title={conf_info['title_similarity']}, "
+                    f"author={conf_info['author_match']}, year={conf_info['year_match']}. "
+                    f"Verify the correct DOI/PMID and format manually"
+                )
+                return None
 
-        # Priority 5: Try CrossRef for non-PubMed items (books, chapters, etc.)
+        # Priority 6: Try CrossRef for non-PubMed items (books, chapters, etc.)
         crossref_metadata = None
         
         if doi:
@@ -1123,6 +1223,174 @@ class CitationSculptor:
         
         return missing
     
+    def _cross_verify_match(
+        self, ref: ParsedReference, metadata: ArticleMetadata
+    ) -> Tuple[bool, MatchConfidence]:
+        """
+        Cross-verify that PubMed/CrossRef metadata actually matches the original citation.
+
+        Prevents silent replacement when a DOI is wrong by one digit or a title search
+        returns a loosely matching but different paper. Checks three dimensions:
+
+        1. Title similarity (>=60% word overlap)
+        2. Author match (at least one of first two authors shares a last name)
+        3. Year match (within +/-1 year)
+
+        Returns (accepted, MatchConfidence) tuple with detailed scoring.
+        Skips checks where the original citation lacks the relevant data.
+        """
+        import re as _re
+
+        confidence = MatchConfidence()
+        checks_performed = 0
+        checks_passed = 0
+
+        # --- 1. Title similarity (>=60% word overlap) ---
+        if ref.title and metadata.title:
+            clean_ref = _re.sub(r'[^\w\s]', '', ref.title.lower())
+            clean_meta = _re.sub(r'[^\w\s]', '', metadata.title.lower())
+            words_ref = set(clean_ref.split())
+            words_meta = set(clean_meta.split())
+
+            if words_ref and words_meta:
+                checks_performed += 1
+                overlap = len(words_ref & words_meta) / len(words_ref | words_meta)
+                confidence.title_similarity = overlap
+                if overlap >= 0.60:
+                    checks_passed += 1
+                    logger.debug(
+                        f"Cross-verify title PASS (overlap={overlap:.2f}): "
+                        f"ref='{ref.title[:40]}' meta='{metadata.title[:40]}'"
+                    )
+                else:
+                    logger.info(
+                        f"Cross-verify title FAIL (overlap={overlap:.2f}): "
+                        f"ref='{ref.title[:50]}' vs meta='{metadata.title[:50]}'"
+                    )
+
+        # --- 2. Author match (last-name comparison, case-insensitive) ---
+        # Extract author last names from the original reference.
+        # ref.metadata['authors'] is a raw string like "Smith J, Jones K et al."
+        # ref.original_text may also contain author info.
+        ref_author_lastnames: list = []
+
+        raw_authors = ref.metadata.get('authors', '') or ''
+        if not raw_authors:
+            # Try extracting from original_text (common pattern: "Authors. Title. Journal...")
+            text = ref.original_text
+            # Strip leading number/footnote marker
+            text = _re.sub(r'^(\[\^\d+\]:?\s*|\d+\.\s*)', '', text)
+            # If first segment before a period has commas, treat it as author string
+            first_segment = text.split('.')[0] if '.' in text else ''
+            if first_segment and first_segment.count(',') >= 1:
+                raw_authors = first_segment
+
+        if raw_authors:
+            # Clean out "et al." and split on commas or semicolons
+            cleaned = raw_authors.replace('et al.', '').replace('et al', '')
+            author_parts = _re.split(r'[,;]', cleaned)
+            for part in author_parts[:2]:  # Only check first two
+                part = part.strip()
+                if not part:
+                    continue
+                # Last name is typically the first word (Vancouver: "Smith J")
+                # or the word before initials
+                tokens = part.split()
+                if tokens:
+                    # Take the first token that is longer than 1 char as last name
+                    for token in tokens:
+                        token_clean = _re.sub(r'[^\w]', '', token)
+                        if len(token_clean) > 1:
+                            ref_author_lastnames.append(token_clean.lower())
+                            break
+
+        if ref_author_lastnames and metadata.authors:
+            checks_performed += 1
+            # Extract last names from metadata authors (Vancouver format: "LastName Initials")
+            meta_lastnames = set()
+            for author in metadata.authors:
+                tokens = author.replace(',', ' ').split()
+                if tokens:
+                    meta_lastnames.add(tokens[0].lower())
+
+            # At least one of the first two original authors must appear
+            author_found = any(name in meta_lastnames for name in ref_author_lastnames)
+            confidence.author_match = author_found
+            if author_found:
+                checks_passed += 1
+                logger.debug(
+                    f"Cross-verify author PASS: ref={ref_author_lastnames} "
+                    f"found in meta={meta_lastnames}"
+                )
+            else:
+                logger.info(
+                    f"Cross-verify author FAIL: ref={ref_author_lastnames} "
+                    f"not in meta={meta_lastnames}"
+                )
+
+        # --- 3. Year match (within +/-1 year) ---
+        ref_year_str = ref.metadata.get('year', '') or ''
+        if not ref_year_str:
+            # Try extracting year from original_text
+            year_match = _re.search(r'\b(19|20)\d{2}\b', ref.original_text)
+            if year_match:
+                ref_year_str = year_match.group(0)
+
+        if ref_year_str and metadata.year:
+            try:
+                ref_year = int(ref_year_str)
+                meta_year = int(metadata.year)
+                checks_performed += 1
+                confidence.year_delta = abs(ref_year - meta_year)
+                confidence.year_match = abs(ref_year - meta_year) <= 1
+                if confidence.year_match:
+                    checks_passed += 1
+                    logger.debug(
+                        f"Cross-verify year PASS: ref={ref_year} meta={meta_year}"
+                    )
+                else:
+                    logger.info(
+                        f"Cross-verify year FAIL: ref={ref_year} vs meta={meta_year}"
+                    )
+            except (ValueError, TypeError):
+                pass  # Can't parse years, skip this check
+
+        # --- Decision ---
+        confidence.checks_performed = checks_performed
+        confidence.checks_passed = checks_passed
+
+        if checks_performed == 0:
+            logger.warning(
+                f"Cross-verify: no checks possible for ref #{ref.original_number} "
+                f"(title='{(ref.title or '')[:40]}'), REJECTING match"
+            )
+            confidence.accepted = False
+            return False, confidence
+
+        if len(ref.title or '') < 15 and checks_passed < 2:
+            logger.warning(
+                f"Cross-verify: short title and only {checks_passed}/{checks_performed} "
+                f"checks passed for ref #{ref.original_number}, REJECTING"
+            )
+            confidence.accepted = False
+            return False, confidence
+
+        if checks_passed == checks_performed:
+            logger.debug(
+                f"Cross-verify PASSED ({checks_passed}/{checks_performed} checks)"
+            )
+            confidence.accepted = True
+            return True, confidence
+
+        # At least one check failed
+        logger.warning(
+            f"Cross-verify FAILED ({checks_passed}/{checks_performed} checks) "
+            f"for ref #{ref.original_number}: "
+            f"original='{ref.title[:40]}' matched='{metadata.title[:40]}'"
+        )
+        confidence.accepted = False
+        return False, confidence
+
     def _add_manual_review(self, ref: ParsedReference, reason: str, suggested_action: str):
         """Add item to manual review list."""
         self.manual_review_items.append(ManualReviewItem(
@@ -1599,8 +1867,12 @@ def main():
         for m in mismatches:
             concern_color = "red" if m.concern_level.value == "HIGH" else "yellow" if m.concern_level.value == "MODERATE" else "dim"
             console.print(f"[{concern_color}]Line {m.line_number}: {m.citation_tag} (overlap: {m.overlap_score:.0%})[/{concern_color}]")
-            if m.deep_verify_result:
-                console.print(f"   LLM: {m.deep_verify_result[:80]}...")
+            if m.llm_verification:
+                reasoning = m.llm_verification.get('reasoning', '')
+                confidence = m.llm_verification.get('confidence', 0)
+                is_mismatch = m.llm_verification.get('is_mismatch', False)
+                status = "MISMATCH" if is_mismatch else "OK"
+                console.print(f"   LLM: [{status}] (confidence: {confidence:.0%}) {reasoning[:80]}...")
         
         sys.exit(0)
     

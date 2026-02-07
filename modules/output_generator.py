@@ -25,6 +25,7 @@ class ReferenceMapping:
     pmid: Optional[str] = None
     doi: Optional[str] = None
     error_reason: Optional[str] = None
+    match_confidence: Optional[Dict] = None  # Cross-verification confidence scores
 
 
 @dataclass
@@ -191,6 +192,8 @@ class OutputGenerator:
                 mapping.status = "processed"
                 mapping.pmid = citation.pmid
                 mapping.doi = citation.doi
+                if hasattr(citation, 'match_confidence') and citation.match_confidence:
+                    mapping.match_confidence = citation.match_confidence.to_dict()
             elif ref.original_number in review_numbers:
                 review_item = review_numbers[ref.original_number]
                 mapping.status = "manual_review"
@@ -232,6 +235,7 @@ class OutputGenerator:
                     "pmid": m.pmid,
                     "doi": m.doi,
                     "error_reason": m.error_reason,
+                    "match_confidence": m.match_confidence,
                 }
                 for m in sorted(mappings, key=lambda x: x.original_number)
             ]
