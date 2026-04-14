@@ -2,7 +2,7 @@
 
 import re
 from enum import Enum
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from loguru import logger
 
 
@@ -227,6 +227,142 @@ class CitationTypeDetector:
             return None
         issn8, yy, rest6 = m.groups()
         return f"S{issn8[:4]}-{issn8[4:]}({yy}){rest6[:5]}-{rest6[5:]}"
+
+    def strip_proxy_url(self, url: Optional[str]) -> str:
+        """Remove institutional EZProxy wrapper from a URL, returning the canonical form.
+
+        EZProxy rewrites domains by replacing dots with hyphens and appending
+        `.proxy.INSTITUTION.edu`. For example:
+            doi.org         -> doi-org.proxy.lib.ohio-state.edu
+            www.scopus.com  -> www-scopus-com.proxy.lib.ohio-state.edu
+
+        This method detects the pattern and reverses the transformation.
+
+        Args:
+            url: Any URL, possibly proxy-wrapped.
+
+        Returns:
+            Canonical URL with proxy wrapper removed, or original URL if not proxied.
+            Returns empty string for None/empty input.
+        """
+        if not url:
+            return ""
+
+        # EZProxy pattern: scheme://DOMAIN-WITH-HYPHENS.proxy.INSTITUTION.TLD/path
+        # The subdomain before ".proxy." represents the original domain with dots->hyphens
+        match = re.match(
+            r'^(https?://)([a-zA-Z0-9-]+)\.proxy\.[a-zA-Z0-9.-]+(/.*)?$',
+            url
+        )
+        if not match:
+            return url
+
+        scheme = match.group(1)          # "https://"
+        hyphenated_domain = match.group(2)  # "doi-org" or "www-sciencedirect-com"
+        path = match.group(3) or ""      # "/10.1056/..." or "/science/article/..."
+
+        # Convert hyphens back to dots to reconstruct the original domain.
+        # Heuristic: the hyphenated segment is the original domain with dots replaced.
+        canonical_domain = hyphenated_domain.replace('-', '.')
+
+        return f"{scheme}{canonical_domain}{path}"
+
+    def parse_scholar_lookup_url(self, url: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Parse a Google Scholar scholar_lookup URL, extracting title, year, and authors.
+
+        Scholar lookup URLs embed structured citation metadata as query parameters.
+        This method extracts that data for use in PubMed/CrossRef title searches,
+        which is significantly more accurate than passing the raw URL as a title.
+
+        Args:
+            url: A Google Scholar URL (must contain /scholar_lookup path).
+
+        Returns:
+            Dict with keys:
+              - "title" (str): URL-decoded article title
+              - "year"  (str | None): Publication year, or None if absent
+              - "authors" (List[str]): URL-decoded author names (may be empty)
+            Returns None if:
+              - URL is not a scholar_lookup URL
+              - Decoded title has fewer than 4 words (too ambiguous for reliable search)
+              - URL is empty or None
+        """
+        if not url:
+            return None
+
+        # Must be a scholar_lookup URL (not a generic Scholar search)
+        if 'scholar.google.com/scholar_lookup' not in url:
+            return None
+
+        from urllib.parse import urlparse, parse_qs, unquote_plus
+
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query, keep_blank_values=False)
+
+        # Extract title (first value if present)
+        title_raw = params.get('title', [None])[0]
+        if not title_raw:
+            return None
+        title = unquote_plus(title_raw).strip()
+
+        # Reject titles that are too short to be useful for search
+        if len(title.split()) < 4:
+            return None
+
+        # Extract year (optional)
+        year_raw = params.get('publication_year', [None])[0]
+        year = year_raw.strip() if year_raw else None
+
+        # Extract authors (there may be multiple 'author' params)
+        authors = [unquote_plus(a).strip() for a in params.get('author', [])]
+
+        return {
+            "title": title,
+            "year": year,
+            "authors": authors,
+        }
+
+    def extract_scopus_eid(self, url: Optional[str]) -> Optional[str]:
+        """Extract a Scopus Electronic ID (EID) from a Scopus or ScienceDirect URL.
+
+        Scopus EIDs have the format "2-s2.0-{digits}" and appear in:
+        - Scopus record URLs: scopus.com/inward/record.url?eid=2-s2.0-85051788505
+        - ScienceDirect PDF URLs: /pdfft?pid=1-s2.0-85051788505-main.pdf
+          (only when the numeric suffix is all digits -- PII-format pids are excluded)
+
+        EIDs can be resolved to DOI/PMID via the OpenAlex API (free, no key required):
+        GET https://api.openalex.org/works?filter=ids.scopus:{eid}
+
+        Args:
+            url: Any URL, possibly containing a Scopus EID.
+
+        Returns:
+            Normalized EID string (e.g., "2-s2.0-85051788505") or None.
+        """
+        if not url:
+            return None
+
+        from urllib.parse import urlparse, parse_qs
+
+        # Path 1: Scopus record URL -- eid query param
+        # Handles both direct and proxy-wrapped Scopus URLs
+        if 'scopus' in url.lower():
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            eid = params.get('eid', [None])[0]
+            if eid and re.match(r'^2-s2\.0-\d+$', eid):
+                return eid
+
+        # Path 2: ScienceDirect PDF URL -- pid param with numeric Scopus EID
+        # Format: pid=1-s2.0-{digits}-main.pdf  (digits only = Scopus EID)
+        # Contrast: pid=1-s2.0-{PII}-main.pdf   (PII contains letters = not an EID)
+        if 'pdfft' in url or 'pid=' in url:
+            pid_match = re.search(r'pid=1-s2\.0-(\d+)-main\.pdf', url)
+            if pid_match:
+                numeric_id = pid_match.group(1)
+                return f"2-s2.0-{numeric_id}"
+
+        return None
 
     def categorize_references(self, references: List) -> dict:
         """Categorize references by type."""
