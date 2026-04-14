@@ -1,6 +1,7 @@
 """PubMed MCP Client Module - Communicates with PubMed MCP server."""
 
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
 import time
@@ -202,16 +203,24 @@ class PubMedClient:
     MAX_RETRIES = 3
     RETRY_BACKOFF_SECONDS = [1, 2, 4]
 
-    def __init__(self, server_url: Optional[str] = None, requests_per_second: float = 2.5):
+    def __init__(self, server_url: Optional[str] = None, requests_per_second: float = None):
         self.session = requests.Session()
         self._pmid_cache = SimpleCache(max_size=500)
         self._conversion_cache = SimpleCache(max_size=500)
         self._crossref_cache = SimpleCache(max_size=200)
         self.session.headers.update({'User-Agent': 'CitationSculptor/1.0'})
+        # Read API key from environment; with a key NCBI allows 10 req/s vs 2.5 without
+        self.api_key = os.environ.get('NCBI_API_KEY')
+        if requests_per_second is None:
+            requests_per_second = 10.0 if self.api_key else 2.5
         self._rate_limiter = RateLimiter(requests_per_second)
+        if self.api_key:
+            logger.debug("NCBI API key loaded from environment (10 req/s)")
 
     def _eutils_request(self, url: str, params: Dict[str, Any]) -> Optional[Any]:
         """Make request to NCBI E-utilities with rate limiting and retries."""
+        if self.api_key and 'api_key' not in params:
+            params = {**params, 'api_key': self.api_key}
         for attempt in range(self.MAX_RETRIES):
             try:
                 self._rate_limiter.wait_if_needed()
@@ -414,6 +423,19 @@ class PubMedClient:
                 
             title = article.findtext('ArticleTitle', '')
             
+            # CrossRef title fallback for records with missing ArticleTitle
+            # (e.g. JACC Advances article-number format)
+            if not title:
+                doi_elem = article.find(".//ELocationID[@EIdType='doi']")
+                if doi_elem is not None and doi_elem.text:
+                    try:
+                        crossref = self.crossref_lookup_doi(doi_elem.text.strip())
+                        if crossref and crossref.title:
+                            title = crossref.title
+                            logger.info(f"Retrieved title from CrossRef for empty PubMed record: {title[:60]}")
+                    except Exception:
+                        pass
+
             # Authors
             authors = []
             author_list = article.find('AuthorList')

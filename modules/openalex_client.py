@@ -4,6 +4,7 @@ Provides integration with the OpenAlex API for comprehensive scholarly metadata.
 OpenAlex is a free, open catalog of the global research system.
 """
 
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -78,21 +79,24 @@ class OpenAlexClient:
     def __init__(self, email: str = None, request_delay: float = 0.1):
         """
         Initialize the OpenAlex client.
-        
+
         Args:
-            email: Contact email for polite pool (recommended, increases rate limits)
+            email: Contact email for polite pool (recommended, increases rate limits).
+                   If not provided, reads NCBI_EMAIL environment variable.
             request_delay: Minimum seconds between requests
         """
         self.session = requests.Session()
-        self.email = email
+        # Prefer explicit arg; fall back to NCBI_EMAIL env var (shared with PubMed client)
+        self.email = email or os.environ.get('NCBI_EMAIL')
         self.request_delay = request_delay
         self.last_request_time = 0.0
-        
+
         headers = {
             'User-Agent': 'CitationSculptor/1.8.0 (https://github.com/yourusername/CitationSculptor)'
         }
-        if email:
-            headers['User-Agent'] += f'; mailto:{email}'
+        if self.email:
+            headers['User-Agent'] += f'; mailto:{self.email}'
+            logger.debug(f"OpenAlex polite pool enabled with email: {self.email}")
         self.session.headers.update(headers)
     
     def _rate_limit(self):
@@ -169,11 +173,19 @@ class OpenAlexClient:
             return None
     
     def fetch_by_scopus_eid(self, eid: Optional[str]) -> Optional["OpenAlexWork"]:
-        """Fetch a work by Scopus Electronic ID (EID) via the OpenAlex API.
+        """Attempt to resolve a Scopus EID to an OpenAlexWork.
 
-        OpenAlex indexes Scopus EIDs and provides a free, no-key-required resolution
-        path from Scopus EID to DOI and PMID. This is the recommended method for
-        resolving Scopus URLs found in academic article reference lists.
+        NOTE: OpenAlex does NOT expose a Scopus EID filter field in their public API.
+        The `ids.scopus` filter returns HTTP 400 "ids.scopus is not a valid field".
+        Verified 2026-04-14 against live API -- the `ids` object only contains
+        `openalex`, `doi`, `mag`, and `pmid` fields.
+
+        This method normalizes the EID format and returns None. Callers in
+        `citation_lookup.py` will fall through to Google Scholar title-search
+        or other resolution paths.
+
+        If OpenAlex adds Scopus EID support in the future, replace the body
+        below with: `params = self._build_params(filter=f"ids.scopus:{eid_str}")`
 
         Args:
             eid: Scopus EID string. Accepts:
@@ -181,15 +193,7 @@ class OpenAlexClient:
                  - Numeric suffix: "85051788505" (prefix is added automatically)
 
         Returns:
-            OpenAlexWork with doi and pmid populated if found, or None.
-
-        Example:
-            work = client.fetch_by_scopus_eid("2-s2.0-85051788505")
-            if work:
-                print(work.doi)   # "10.1056/nejmra1710575"
-                print(work.pmid)  # "30110588"
-
-        API reference: https://docs.openalex.org/api-entities/works/filter-works#ids.scopus
+            Always None (Scopus EID resolution not supported by OpenAlex).
         """
         if not eid:
             return None
@@ -202,26 +206,11 @@ class OpenAlexClient:
             logger.debug(f"Unrecognized EID format: {eid_str}")
             return None
 
-        self._rate_limit()
-
-        try:
-            url = f"{self.BASE_URL}/works"
-            params = self._build_params(filter=f"ids.scopus:{eid_str}")
-
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
-            results = data.get("results", [])
-            if not results:
-                logger.debug(f"No OpenAlex work found for Scopus EID: {eid_str}")
-                return None
-
-            return self._parse_work(results[0])
-
-        except Exception as e:
-            logger.debug(f"OpenAlex Scopus EID lookup failed for {eid_str}: {e}")
-            return None
+        logger.debug(
+            f"Scopus EID {eid_str}: OpenAlex ids.scopus filter not supported. "
+            "Falling through to next resolver."
+        )
+        return None
 
     def search(
         self,
