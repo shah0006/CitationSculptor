@@ -37,6 +37,9 @@ from modules.arxiv_client import ArxivClient, ArxivMetadata
 from modules.preprint_client import PreprintClient, PreprintMetadata
 from modules.book_client import BookClient, BookMetadata
 from modules.openalex_client import OpenAlexClient
+from modules.semantic_scholar_client import SemanticScholarClient
+from modules.europe_pmc_client import EuropePMCClient
+from modules.datacite_client import DataCiteClient
 from modules.base_formatter import FormattedCitation
 from modules.formatter_factory import get_formatter, get_available_styles, get_style_info, DEFAULT_STYLE
 
@@ -121,6 +124,9 @@ class CitationLookup:
         self.preprint_client = PreprintClient()
         self.book_client = BookClient()
         self.openalex_client = OpenAlexClient()
+        self.semantic_scholar_client = SemanticScholarClient()
+        self.europe_pmc_client = EuropePMCClient()
+        self.datacite_client = DataCiteClient()
         self.formatter = get_formatter(style, max_authors=3)
         
         log_level = "DEBUG" if verbose else "WARNING"
@@ -217,8 +223,48 @@ class CitationLookup:
                 )
                 self._cache_result(result)
                 return result
+            # Semantic Scholar: may surface a PMID not found by PubMed direct DOI lookup
+            s2 = self.semantic_scholar_client.fetch_by_doi(doi)
+            if s2:
+                if s2.pmid:
+                    r = self.lookup_pmid(s2.pmid)
+                    if r.success:
+                        return r
+                elif s2.doi:
+                    # S2 returned a canonical DOI -- re-try PubMed with it
+                    meta = self.pubmed_client.fetch_article_by_doi(s2.doi)
+                    if meta:
+                        citation = self.formatter.format_journal_article(meta, original_number=0)
+                        result = LookupResult(
+                            success=True, identifier=doi, identifier_type="doi",
+                            inline_mark=citation.label, endnote_citation=citation.full_citation,
+                            full_citation=citation.full_citation, metadata=self._metadata_to_dict(meta),
+                        )
+                        self._cache_result(result)
+                        return result
+
+            # Europe PMC: strong biomedical coverage, often has PMID when PubMed direct lookup fails
+            epmc = self.europe_pmc_client.fetch_by_doi(doi)
+            if epmc and epmc.pmid:
+                r = self.lookup_pmid(epmc.pmid)
+                if r.success:
+                    return r
+
+            # DataCite: covers datasets, software, preprints with DOIs not in PubMed/CrossRef
+            dc = self.datacite_client.fetch_by_doi(doi)
+            if dc:
+                result = LookupResult(
+                    success=True, identifier=doi, identifier_type="doi",
+                    inline_mark=f"[^{dc.doi.split('/')[-1][:20]}]",
+                    endnote_citation=f"{', '.join(dc.authors[:3])}. {dc.title}. {dc.publisher or ''}. {dc.year or ''}. doi:{dc.doi}",
+                    full_citation=f"{', '.join(dc.authors[:3])}. {dc.title}. {dc.publisher or ''}. {dc.year or ''}. doi:{dc.doi}",
+                    metadata={"doi": dc.doi, "title": dc.title, "authors": dc.authors, "year": dc.year, "type": dc.resource_type},
+                )
+                self._cache_result(result)
+                return result
+
             return LookupResult(success=False, identifier=doi, identifier_type="doi",
-                               error=f"DOI {doi} not found in PubMed or CrossRef")
+                               error=f"DOI {doi} not found in PubMed, CrossRef, Semantic Scholar, Europe PMC, or DataCite")
         except Exception as e:
             return LookupResult(success=False, identifier=doi, identifier_type="doi", error=str(e))
     
@@ -273,6 +319,32 @@ class CitationLookup:
                 )
                 self._cache_result(result)
                 return result
+            # Semantic Scholar title search: broad coverage, useful for non-PubMed journals
+            s2_results = self.semantic_scholar_client.search(title, max_results=1)
+            if s2_results:
+                s2 = s2_results[0]
+                if s2.pmid:
+                    r = self.lookup_pmid(s2.pmid)
+                    if r.success:
+                        return r
+                elif s2.doi:
+                    r = self.lookup_doi(s2.doi)
+                    if r.success:
+                        return r
+
+            # Europe PMC title search: strong biomedical coverage, includes preprints
+            epmc_results = self.europe_pmc_client.search(title, max_results=1)
+            if epmc_results:
+                epmc = epmc_results[0]
+                if epmc.pmid:
+                    r = self.lookup_pmid(epmc.pmid)
+                    if r.success:
+                        return r
+                elif epmc.doi:
+                    r = self.lookup_doi(epmc.doi)
+                    if r.success:
+                        return r
+
             return LookupResult(success=False, identifier=title, identifier_type="title",
                                error=f"No article found matching: {title[:50]}...")
         except Exception as e:

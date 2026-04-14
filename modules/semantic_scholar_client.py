@@ -1,378 +1,280 @@
 """Semantic Scholar API Client Module.
 
 Provides integration with the Semantic Scholar API for AI-powered scholarly search.
+
+API docs: https://api.semanticscholar.org/api-docs/
+Rate limits: 100 req/5min without key; 10 req/sec with key.
 """
 
-import re
+import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
-from loguru import logger
+from typing import Optional, List
 
 import requests
+from loguru import logger
 
 
 @dataclass
-class SemanticScholarPaper:
-    """Metadata for a paper from Semantic Scholar."""
-    paper_id: str
+class SemanticScholarWork:
+    """Normalized metadata for a scholarly work from Semantic Scholar."""
+
+    s2_id: str
+    doi: Optional[str]
+    pmid: Optional[str]
     title: str
     authors: List[str]
-    year: int
-    venue: Optional[str]
+    year: Optional[int]
+    journal: Optional[str]
+    publication_date: Optional[str]
     abstract: Optional[str]
     citation_count: int
-    influential_citation_count: int
-    is_open_access: bool
     open_access_url: Optional[str]
-    doi: Optional[str] = None
-    arxiv_id: Optional[str] = None
-    pmid: Optional[str] = None
-    fields_of_study: List[str] = field(default_factory=list)
-    tldr: Optional[str] = None  # AI-generated summary
-    
-    def get_first_author_label(self) -> str:
-        """Get label from first author's surname + first initial."""
-        if not self.authors:
-            return "Unknown"
-        first = self.authors[0]
-        parts = first.split()
-        if len(parts) >= 2:
-            surname = parts[-1]
-            initial = parts[0][0] if parts[0] else ""
-            return f"{surname}{initial}"
-        return first[:10] if first else "Unknown"
-    
-    @property
-    def year_str(self) -> str:
-        return str(self.year) if self.year else ""
+
+
+# Backward-compatible alias for existing consumers
+SemanticScholarPaper = SemanticScholarWork
 
 
 class SemanticScholarClient:
     """
     Client for the Semantic Scholar API.
-    
+
     API docs: https://api.semanticscholar.org/api-docs/
-    Free tier: 100 requests per 5 minutes without API key
+    Free tier: 100 requests per 5 minutes without API key.
+    With SEMANTIC_SCHOLAR_API_KEY: 10 requests per second.
     """
-    
+
     BASE_URL = "https://api.semanticscholar.org/graph/v1"
-    
-    # Fields to request from the API
-    PAPER_FIELDS = [
-        'paperId', 'title', 'authors', 'year', 'venue', 'abstract',
-        'citationCount', 'influentialCitationCount', 'isOpenAccess',
-        'openAccessPdf', 'externalIds', 'fieldsOfStudy', 'tldr'
-    ]
-    
+
+    PAPER_FIELDS = ",".join([
+        "paperId",
+        "externalIds",
+        "title",
+        "authors",
+        "year",
+        "venue",
+        "publicationDate",
+        "abstract",
+        "citationCount",
+        "openAccessPdf",
+    ])
+
     def __init__(self, api_key: str = None, request_delay: float = 0.5):
         """
         Initialize the Semantic Scholar client.
-        
+
         Args:
-            api_key: Optional API key for higher rate limits
-            request_delay: Minimum seconds between requests
+            api_key: Optional API key. Falls back to SEMANTIC_SCHOLAR_API_KEY env var.
+            request_delay: Minimum seconds between requests (default 0.5).
         """
         self.session = requests.Session()
-        self.api_key = api_key
+        self.api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
         self.request_delay = request_delay
         self.last_request_time = 0.0
-        
-        headers = {
-            'User-Agent': 'CitationSculptor/1.8.0'
-        }
-        if api_key:
-            headers['x-api-key'] = api_key
+
+        headers = {"User-Agent": "CitationSculptor/1.8.0"}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
         self.session.headers.update(headers)
-    
+
+    # ------------------------------------------------------------------
+    # Rate limiting
+    # ------------------------------------------------------------------
+
     def _rate_limit(self):
         """Enforce rate limiting between requests."""
         elapsed = time.time() - self.last_request_time
         if elapsed < self.request_delay:
             time.sleep(self.request_delay - elapsed)
         self.last_request_time = time.time()
-    
-    def fetch_by_doi(self, doi: str) -> Optional[SemanticScholarPaper]:
+
+    # ------------------------------------------------------------------
+    # Public API: fetch by identifier
+    # ------------------------------------------------------------------
+
+    def fetch_by_doi(self, doi: str) -> Optional[SemanticScholarWork]:
         """
-        Fetch a paper by DOI.
-        
-        Args:
-            doi: DOI string
-        
-        Returns:
-            SemanticScholarPaper or None
+        Fetch a work by DOI.
+
+        Auto-prefixes with ``DOI:`` if not already present.
+        Returns None for None/empty input without making an HTTP call.
         """
-        return self._fetch_by_id(f"DOI:{doi}")
-    
-    def fetch_by_arxiv(self, arxiv_id: str) -> Optional[SemanticScholarPaper]:
+        if not doi:
+            return None
+
+        doi = str(doi).strip()
+        if not doi:
+            return None
+
+        # Auto-prefix, avoid double-prefix
+        if not doi.upper().startswith("DOI:"):
+            doi = f"DOI:{doi}"
+
+        return self._fetch_by_id(doi)
+
+    def fetch_by_pmid(self, pmid: str) -> Optional[SemanticScholarWork]:
         """
-        Fetch a paper by arXiv ID.
-        
+        Fetch a work by PubMed ID.
+
+        Auto-prefixes with ``PMID:`` if not already present.
+        Returns None for None/empty input without making an HTTP call.
+        """
+        if not pmid:
+            return None
+
+        pmid = str(pmid).strip()
+        if not pmid:
+            return None
+
+        # Auto-prefix, avoid double-prefix
+        if not pmid.upper().startswith("PMID:"):
+            pmid = f"PMID:{pmid}"
+
+        return self._fetch_by_id(pmid)
+
+    def fetch_by_arxiv(self, arxiv_id: str) -> Optional[SemanticScholarWork]:
+        """
+        Fetch a work by arXiv ID.
+
         Args:
             arxiv_id: arXiv ID (e.g., '2301.04104')
-        
-        Returns:
-            SemanticScholarPaper or None
         """
-        # Normalize arXiv ID
-        arxiv_id = arxiv_id.lower().replace('arxiv:', '')
-        return self._fetch_by_id(f"ARXIV:{arxiv_id}")
-    
-    def fetch_by_pmid(self, pmid: str) -> Optional[SemanticScholarPaper]:
-        """
-        Fetch a paper by PubMed ID.
-        
-        Args:
-            pmid: PubMed ID
-        
-        Returns:
-            SemanticScholarPaper or None
-        """
-        return self._fetch_by_id(f"PMID:{pmid}")
-    
-    def _fetch_by_id(self, paper_id: str) -> Optional[SemanticScholarPaper]:
-        """Fetch a paper by any supported ID format."""
-        self._rate_limit()
-        
-        try:
-            url = f"{self.BASE_URL}/paper/{paper_id}"
-            params = {'fields': ','.join(self.PAPER_FIELDS)}
-            
-            response = self.session.get(url, params=params, timeout=30)
-            
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            
-            return self._parse_paper(response.json())
-            
-        except requests.RequestException as e:
-            logger.debug(f"Semantic Scholar lookup failed: {e}")
+        if not arxiv_id:
             return None
-    
+
+        arxiv_id = str(arxiv_id).strip().lower().replace("arxiv:", "")
+        if not arxiv_id:
+            return None
+
+        return self._fetch_by_id(f"ARXIV:{arxiv_id}")
+
+    # ------------------------------------------------------------------
+    # Public API: search
+    # ------------------------------------------------------------------
+
     def search(
-        self, 
-        query: str, 
-        max_results: int = 10,
+        self,
+        query: str,
+        max_results: int = 5,
         year_range: tuple = None,
-        fields_of_study: List[str] = None
-    ) -> List[SemanticScholarPaper]:
+        fields_of_study: List[str] = None,
+    ) -> List[SemanticScholarWork]:
         """
-        Search for papers by query.
-        
-        Args:
-            query: Search query
-            max_results: Maximum number of results
-            year_range: Optional (start_year, end_year) tuple
-            fields_of_study: Optional list of fields to filter by
-        
-        Returns:
-            List of SemanticScholarPaper objects
+        Search for papers by query string.
+
+        Returns empty list for None/empty query without making an HTTP call.
         """
+        if not query:
+            return []
+
+        query = str(query).strip()
+        if not query:
+            return []
+
         self._rate_limit()
-        
+
         try:
             url = f"{self.BASE_URL}/paper/search"
             params = {
-                'query': query,
-                'limit': min(max_results, 100),
-                'fields': ','.join(self.PAPER_FIELDS)
+                "query": query,
+                "limit": min(max_results, 100),
+                "fields": self.PAPER_FIELDS,
             }
-            
+
             if year_range:
-                params['year'] = f"{year_range[0]}-{year_range[1]}"
-            
+                params["year"] = f"{year_range[0]}-{year_range[1]}"
             if fields_of_study:
-                params['fieldsOfStudy'] = ','.join(fields_of_study)
-            
+                params["fieldsOfStudy"] = ",".join(fields_of_study)
+
             response = self.session.get(url, params=params, timeout=30)
             response.raise_for_status()
-            
+
             data = response.json()
             results = []
-            
-            for item in data.get('data', []):
-                paper = self._parse_paper(item)
-                if paper:
-                    results.append(paper)
-            
+
+            for item in data.get("data", []):
+                work = self._parse_work(item)
+                if work:
+                    results.append(work)
+
             return results
-            
+
         except requests.RequestException as e:
             logger.debug(f"Semantic Scholar search failed: {e}")
             return []
-    
-    def get_recommendations(
-        self, 
-        paper_id: str, 
-        max_results: int = 10,
-        based_on: str = "allCitations"
-    ) -> List[SemanticScholarPaper]:
-        """
-        Get paper recommendations based on a seed paper.
-        
-        Args:
-            paper_id: Paper ID (DOI, arXiv, S2 ID, etc.)
-            max_results: Maximum number of recommendations
-            based_on: 'allCitations' or 'recentCitations'
-        
-        Returns:
-            List of recommended papers
-        """
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _fetch_by_id(self, paper_id: str) -> Optional[SemanticScholarWork]:
+        """Fetch a single paper by any supported ID format."""
         self._rate_limit()
-        
+
         try:
-            url = f"{self.BASE_URL}/recommendations/v1/papers/forpaper/{paper_id}"
-            params = {
-                'limit': min(max_results, 500),
-                'fields': ','.join(self.PAPER_FIELDS),
-                'from': based_on
-            }
-            
+            url = f"{self.BASE_URL}/paper/{paper_id}"
+            params = {"fields": self.PAPER_FIELDS}
+
             response = self.session.get(url, params=params, timeout=30)
+
+            if response.status_code == 404:
+                return None
             response.raise_for_status()
-            
-            data = response.json()
-            return [self._parse_paper(p) for p in data.get('recommendedPapers', []) if p]
-            
+
+            return self._parse_work(response.json())
+
         except requests.RequestException as e:
-            logger.debug(f"Semantic Scholar recommendations failed: {e}")
-            return []
-    
-    def get_citations(self, paper_id: str, max_results: int = 25) -> List[SemanticScholarPaper]:
-        """
-        Get papers that cite a given paper.
-        
-        Args:
-            paper_id: Paper ID
-            max_results: Maximum number of citing papers
-        
-        Returns:
-            List of citing papers
-        """
-        self._rate_limit()
-        
+            logger.debug(f"Semantic Scholar lookup failed: {e}")
+            return None
+
+    def _parse_work(self, data: dict) -> Optional[SemanticScholarWork]:
+        """Parse Semantic Scholar API response into SemanticScholarWork."""
         try:
-            url = f"{self.BASE_URL}/paper/{paper_id}/citations"
-            params = {
-                'limit': min(max_results, 1000),
-                'fields': ','.join(self.PAPER_FIELDS)
-            }
-            
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            results = []
-            
-            for item in data.get('data', []):
-                citing_paper = item.get('citingPaper', {})
-                if citing_paper:
-                    paper = self._parse_paper(citing_paper)
-                    if paper:
-                        results.append(paper)
-            
-            return results
-            
-        except requests.RequestException as e:
-            logger.debug(f"Semantic Scholar citations failed: {e}")
-            return []
-    
-    def get_references(self, paper_id: str, max_results: int = 25) -> List[SemanticScholarPaper]:
-        """
-        Get papers referenced by a given paper.
-        
-        Args:
-            paper_id: Paper ID
-            max_results: Maximum number of referenced papers
-        
-        Returns:
-            List of referenced papers
-        """
-        self._rate_limit()
-        
-        try:
-            url = f"{self.BASE_URL}/paper/{paper_id}/references"
-            params = {
-                'limit': min(max_results, 1000),
-                'fields': ','.join(self.PAPER_FIELDS)
-            }
-            
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            results = []
-            
-            for item in data.get('data', []):
-                cited_paper = item.get('citedPaper', {})
-                if cited_paper:
-                    paper = self._parse_paper(cited_paper)
-                    if paper:
-                        results.append(paper)
-            
-            return results
-            
-        except requests.RequestException as e:
-            logger.debug(f"Semantic Scholar references failed: {e}")
-            return []
-    
-    def _parse_paper(self, data: dict) -> Optional[SemanticScholarPaper]:
-        """Parse Semantic Scholar API response into SemanticScholarPaper."""
-        try:
-            # Extract authors
-            authors = []
-            for author in data.get('authors', []):
-                name = author.get('name', '')
-                if name:
-                    authors.append(name)
-            
-            # Extract external IDs
-            external_ids = data.get('externalIds', {}) or {}
-            doi = external_ids.get('DOI')
-            arxiv_id = external_ids.get('ArXiv')
-            pmid = external_ids.get('PubMed')
-            
-            # Open access
-            oa_pdf = data.get('openAccessPdf', {}) or {}
-            open_access_url = oa_pdf.get('url')
-            
-            # TLDR (AI summary)
-            tldr_obj = data.get('tldr', {}) or {}
-            tldr = tldr_obj.get('text')
-            
-            return SemanticScholarPaper(
-                paper_id=data.get('paperId', ''),
-                title=data.get('title', ''),
-                authors=authors,
-                year=data.get('year') or 0,
-                venue=data.get('venue'),
-                abstract=data.get('abstract'),
-                citation_count=data.get('citationCount', 0),
-                influential_citation_count=data.get('influentialCitationCount', 0),
-                is_open_access=data.get('isOpenAccess', False),
-                open_access_url=open_access_url,
+            authors = [
+                a.get("name", "")
+                for a in data.get("authors", [])
+                if a.get("name")
+            ]
+
+            external_ids = data.get("externalIds") or {}
+            doi = external_ids.get("DOI")
+            pmid = external_ids.get("PubMed")
+
+            oa_pdf = data.get("openAccessPdf") or {}
+            open_access_url = oa_pdf.get("url")
+
+            return SemanticScholarWork(
+                s2_id=data.get("paperId", ""),
                 doi=doi,
-                arxiv_id=arxiv_id,
                 pmid=pmid,
-                fields_of_study=data.get('fieldsOfStudy', []) or [],
-                tldr=tldr
+                title=data.get("title", ""),
+                authors=authors,
+                year=data.get("year"),
+                journal=data.get("venue"),
+                publication_date=data.get("publicationDate"),
+                abstract=data.get("abstract"),
+                citation_count=data.get("citationCount", 0),
+                open_access_url=open_access_url,
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to parse Semantic Scholar paper: {e}")
             return None
-    
+
+    # ------------------------------------------------------------------
+    # Utility
+    # ------------------------------------------------------------------
+
     def test_connection(self) -> bool:
         """Test connection to Semantic Scholar API."""
         try:
             self._rate_limit()
             response = self.session.get(
                 f"{self.BASE_URL}/paper/search",
-                params={'query': 'test', 'limit': 1},
-                timeout=10
+                params={"query": "test", "limit": 1},
+                timeout=10,
             )
             return response.status_code == 200
         except Exception:
             return False
-
