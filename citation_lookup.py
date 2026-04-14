@@ -287,10 +287,40 @@ class CitationLookup:
             return []
     
     def lookup_auto(self, identifier: str) -> LookupResult:
-        """Auto-detect identifier type and look up accordingly."""
+        """Auto-detect identifier type and look up accordingly.
+
+        Detection order (first match wins):
+        1. Strip institutional proxy wrapper (EZProxy) -- normalizes all URLs before detection
+        2. ScienceDirect/Elsevier PII URL  -> PubMed PMID via resolve_pii_to_pmid()
+        3. Plain PMID (all digits)          -> lookup_pmid()
+        4. PMC ID (starts with PMC)         -> lookup_pmcid()
+        5. arXiv ID                         -> lookup_arxiv()
+        6. ISBN                             -> lookup_isbn()
+        7. DOI (10.xxx or doi.org/...)      -> lookup_doi()
+        8. Scopus EID URL                   -> OpenAlex EID lookup -> lookup_doi()
+        9. Google Scholar scholar_lookup URL -> extract title/year -> lookup_title()
+        10. Full citation text              -> extract title -> lookup_title()
+        11. Default                         -> lookup_title()
+
+        Proxy stripping (step 1) handles institutional EZProxy URLs where
+        doi.org becomes doi-org.proxy.lib.INSTITUTION.edu. This runs first
+        so all downstream detection logic sees canonical URLs.
+
+        Args:
+            identifier: Any string: URL, DOI, PMID, title, full citation text.
+
+        Returns:
+            LookupResult with success=True if found, success=False otherwise.
+        """
+        from modules.type_detector import CitationTypeDetector
+        detector = CitationTypeDetector()
+
         identifier = identifier.strip()
-        
-        # ScienceDirect/Elsevier PII URLs (scraping often blocked; DOI may be absent)
+
+        # Step 1: Strip institutional proxy wrapper (EZProxy normalization)
+        identifier = detector.strip_proxy_url(identifier) or identifier
+
+        # Step 2: ScienceDirect/Elsevier PII URL
         pii_match = re.search(r'/pii/([A-Z]\d{16})', identifier, re.IGNORECASE)
         if pii_match:
             pii = pii_match.group(1).upper()
@@ -300,33 +330,57 @@ class CitationLookup:
                     return self.lookup_pmid(pmid_from_pii)
             except Exception as e:
                 logger.debug(f"PII lookup failed for {pii}: {e}")
-        
-        # PMID (all digits)
+
+        # Step 3: PMID (all digits)
         if identifier.isdigit():
             return self.lookup_pmid(identifier)
-        
-        # PMC ID
+
+        # Step 4: PMC ID
         if identifier.upper().startswith('PMC'):
             return self.lookup_pmcid(identifier)
-        
-        # arXiv ID
+
+        # Step 5: arXiv ID
         if self.arxiv_client.is_arxiv_id(identifier) or identifier.lower().startswith('arxiv:'):
             return self.lookup_arxiv(identifier)
-        
-        # ISBN
+
+        # Step 6: ISBN
         if self.book_client.is_isbn(identifier):
             return self.lookup_isbn(identifier)
-        
-        # DOI (various formats)
+
+        # Step 7: DOI
         if identifier.startswith('10.') or 'doi.org' in identifier.lower():
             doi = identifier.split('doi.org/')[-1] if 'doi.org/' in identifier else identifier
-            # Check if bioRxiv/medRxiv preprint DOI
             if self.preprint_client.is_preprint_doi(doi):
                 return self.lookup_preprint(doi)
             return self.lookup_doi(doi)
-        
-        # Detect full citation text and extract title before falling back to lookup_title
-        # A full citation string typically has: "AuthorA, AuthorB. Title words. Journal. Year"
+
+        # Step 8: Scopus EID URL -> OpenAlex EID lookup
+        scopus_eid = detector.extract_scopus_eid(identifier)
+        if scopus_eid:
+            oa_work = self.openalex_client.fetch_by_scopus_eid(scopus_eid)
+            if oa_work:
+                if oa_work.doi:
+                    result = self.lookup_doi(oa_work.doi)
+                    if result.success:
+                        return result
+                if oa_work.pmid:
+                    result = self.lookup_pmid(oa_work.pmid)
+                    if result.success:
+                        return result
+            # EID found but OpenAlex had no match -- fall through to Scholar/title paths
+
+        # Step 9: Google Scholar scholar_lookup URL
+        scholar_data = detector.parse_scholar_lookup_url(identifier)
+        if scholar_data:
+            title = scholar_data["title"]
+            # If year is available, PubMed title+year search is more precise
+            # Pass year as part of title for now; PubMed client already does fuzzy matching
+            result = self.lookup_title(title)
+            if result.success:
+                return result
+            # Scholar URL found but title lookup failed -- fall through to default
+
+        # Step 10: Full citation text -- extract title and try lookup
         if not identifier.startswith('10.') and '. ' in identifier and re.search(r'\b(19|20)\d{2}\b', identifier):
             extracted_title = self._extract_title_from_citation_text(identifier)
             if extracted_title and len(extracted_title.split()) >= 4:
@@ -335,7 +389,7 @@ class CitationLookup:
                 if result.success:
                     return result
 
-        # Default: title search
+        # Step 11: Default title search
         return self.lookup_title(identifier)
     
     def _extract_title_from_citation_text(self, citation_text: str) -> Optional[str]:
