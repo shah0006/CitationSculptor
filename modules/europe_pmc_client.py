@@ -78,7 +78,7 @@ class EuropePMCClient:
                     "resultType": "core",
                     "pageSize": page_size,
                 },
-                timeout=30,
+                timeout=12,
             )
             response.raise_for_status()
             return response.json()

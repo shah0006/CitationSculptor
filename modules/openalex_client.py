@@ -132,7 +132,7 @@ class OpenAlexClient:
             url = f"{self.BASE_URL}/works/https://doi.org/{doi}"
             params = self._build_params()
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             
             if response.status_code == 404:
                 return None
@@ -160,7 +160,7 @@ class OpenAlexClient:
             url = f"{self.BASE_URL}/works/pmid:{pmid}"
             params = self._build_params()
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             
             if response.status_code == 404:
                 return None
@@ -244,7 +244,7 @@ class OpenAlexClient:
             if filter_type:
                 params['filter'] = f'type:{filter_type}'
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             response.raise_for_status()
             
             data = response.json()
@@ -286,7 +286,7 @@ class OpenAlexClient:
                 sort='publication_date:desc'
             )
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             response.raise_for_status()
             
             data = response.json()
@@ -317,7 +317,7 @@ class OpenAlexClient:
                 url = f"{self.BASE_URL}/works/{work_id}"
             
             params = self._build_params()
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             response.raise_for_status()
             
             data = response.json()
@@ -344,7 +344,7 @@ class OpenAlexClient:
             url = f"{self.BASE_URL}/works/{openalex_id}"
             params = self._build_params()
             
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             if response.status_code == 404:
                 return None
             response.raise_for_status()

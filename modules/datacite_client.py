@@ -87,7 +87,7 @@ class DataCiteClient:
             encoded_doi = quote(doi, safe="")
             url = f"{self.BASE_URL}/dois/{encoded_doi}"
 
-            response = self.session.get(url, timeout=30)
+            response = self.session.get(url, timeout=12)
 
             if response.status_code == 404:
                 return None
@@ -119,7 +119,7 @@ class DataCiteClient:
                 "page[size]": max_results,
             }
 
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             response.raise_for_status()
 
             data = response.json()

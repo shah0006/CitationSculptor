@@ -42,6 +42,7 @@ from modules.europe_pmc_client import EuropePMCClient
 from modules.datacite_client import DataCiteClient
 from modules.base_formatter import FormattedCitation
 from modules.formatter_factory import get_formatter, get_available_styles, get_style_info, DEFAULT_STYLE
+from modules.citation_cache import PersistentCitationCache
 
 console = Console()
 
@@ -118,7 +119,7 @@ class CitationLookup:
         self.verbose = verbose
         self.use_cache = use_cache
         self.style = style
-        self.cache = CitationCache() if use_cache else None
+        self.cache = PersistentCitationCache() if use_cache else None
         self.pubmed_client = PubMedClient()
         self.arxiv_client = ArxivClient()
         self.preprint_client = PreprintClient()
@@ -553,6 +554,69 @@ class CitationLookup:
         except Exception as e:
             return LookupResult(success=False, identifier=isbn, identifier_type="isbn", error=str(e))
     
+    def batch_lookup_pmids(self, pmids: List[str]) -> List[LookupResult]:
+        """Look up multiple PMIDs in optimized batched API calls.
+
+        Uses PubMedClient.batch_fetch_by_pmids() for efficient bulk fetching,
+        then formats each result. Cache-aware: checks cache before fetching,
+        stores results after fetching.
+
+        Args:
+            pmids: List of PMID strings
+
+        Returns:
+            List of LookupResult, one per input PMID, in same order.
+            Failed lookups have success=False.
+        """
+        if not pmids:
+            return []
+
+        # Split into cached vs uncached
+        cached_results: Dict[str, LookupResult] = {}
+        uncached_pmids: List[str] = []
+
+        for pmid in pmids:
+            cached = self._check_cache("pmid", pmid)
+            if cached:
+                cached_results[pmid] = cached
+            else:
+                uncached_pmids.append(pmid)
+
+        # Batch fetch uncached PMIDs
+        fetched: Dict[str, Any] = {}
+        if uncached_pmids:
+            fetched = self.pubmed_client.batch_fetch_by_pmids(uncached_pmids)
+
+        # Build results in original order
+        results: List[LookupResult] = []
+        for pmid in pmids:
+            if pmid in cached_results:
+                results.append(cached_results[pmid])
+                continue
+
+            meta = fetched.get(pmid)
+            if meta:
+                try:
+                    citation = self.formatter.format_journal_article(meta, original_number=0)
+                    result = LookupResult(
+                        success=True, identifier=pmid, identifier_type="pmid",
+                        inline_mark=citation.label, endnote_citation=citation.full_citation,
+                        full_citation=citation.full_citation, metadata=self._metadata_to_dict(meta),
+                    )
+                    self._cache_result(result)
+                    results.append(result)
+                except Exception as e:
+                    results.append(LookupResult(
+                        success=False, identifier=pmid, identifier_type="pmid", error=str(e),
+                    ))
+            else:
+                results.append(LookupResult(
+                    success=False, identifier=pmid, identifier_type="pmid",
+                    error=f"PMID {pmid} not found in batch fetch",
+                ))
+
+        return results
+
     def batch_lookup(self, identifiers: List[str]) -> List[LookupResult]:
         results = []
         for identifier in identifiers:

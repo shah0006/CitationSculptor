@@ -5,14 +5,18 @@ Extracts citation-relevant metadata from PDF files including:
 - DOIs embedded in text
 - arXiv IDs
 - PubMed IDs
+- Hyperlink annotations (embedded DOI/PMID/refhub links in reference sections)
 """
 
 import re
 import os
-from dataclasses import dataclass
-from typing import Optional, List, Tuple
+import time
+from dataclasses import dataclass, field
+from typing import Optional, List, Tuple, Dict
 from pathlib import Path
 from loguru import logger
+
+import requests
 
 try:
     import fitz  # PyMuPDF
@@ -20,6 +24,17 @@ try:
 except ImportError:
     PYMUPDF_AVAILABLE = False
     logger.warning("PyMuPDF not installed. PDF extraction will be limited.")
+
+
+@dataclass
+class PDFReferenceLink:
+    """A hyperlink annotation found in a PDF reference section."""
+    link_type: str          # 'doi', 'pmid', 'refhub', 'pubmed_url', 'other'
+    url: str                # Raw URL from annotation
+    doi: Optional[str] = None    # Extracted DOI (10.xxx/yyy) if link_type == 'doi'
+    pmid: Optional[str] = None   # Extracted PMID if link_type == 'pmid'
+    ref_num: Optional[int] = None  # Reference number (from Elsevier srefN or similar)
+    page_num: int = 0       # 1-indexed page number where found
 
 
 @dataclass
@@ -296,6 +311,153 @@ class PDFExtractor:
         
         return None
     
+    # Patterns for classifying link URLs
+    _DOI_URL_RE = re.compile(
+        r'https?://(?:dx\.)?doi\.org/(10\.\d{4,}/\S+)', re.IGNORECASE
+    )
+    _PUBMED_URL_RE = re.compile(
+        r'https?://pubmed\.ncbi\.nlm\.nih\.gov/(\d{5,8})/?', re.IGNORECASE
+    )
+    _REFHUB_RE = re.compile(
+        r'(?:refhub\.elsevier\.com|sciencedirect\.com/science/refhub)/[^/]+/sref(\d+)',
+        re.IGNORECASE
+    )
+    _DOI_BARE_RE = re.compile(
+        r'^(10\.\d{4,}/\S+)$'
+    )
+
+    def extract_reference_links(self, pdf_path: str) -> List[PDFReferenceLink]:
+        """
+        Extract hyperlink annotations from all pages of a PDF.
+
+        Captures embedded DOI, PubMed, and publisher refhub links that are
+        invisible as plain text but present as clickable annotations. Many
+        journal PDFs (Elsevier, NEJM, JAMA, etc.) embed these links directly
+        on reference entries even when no DOI text is visible in the body.
+
+        Args:
+            pdf_path: Path to the PDF file.
+
+        Returns:
+            List of PDFReferenceLink objects, deduplicated by (link_type, doi/pmid/ref_num).
+            Empty list if PyMuPDF is unavailable or extraction fails.
+        """
+        if not PYMUPDF_AVAILABLE:
+            return []
+
+        path = Path(pdf_path)
+        if not path.exists():
+            logger.warning(f"PDF not found for link extraction: {pdf_path}")
+            return []
+
+        try:
+            doc = fitz.open(str(path))
+            seen: set = set()
+            results: List[PDFReferenceLink] = []
+
+            for page_idx in range(len(doc)):
+                page = doc[page_idx]
+                for link in page.get_links():
+                    uri = link.get('uri', '') or ''
+                    if not uri:
+                        continue
+
+                    parsed = self._classify_link(uri, page_idx + 1)
+                    if parsed is None:
+                        continue
+
+                    # Deduplicate
+                    key = (parsed.link_type, parsed.doi, parsed.pmid, parsed.ref_num)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    results.append(parsed)
+
+            doc.close()
+            logger.debug(
+                f"Extracted {len(results)} unique reference links from {path.name}"
+            )
+            return results
+
+        except Exception as e:
+            logger.debug(f"PDF link extraction failed for {pdf_path}: {e}")
+            return []
+
+    def _classify_link(self, uri: str, page_num: int) -> Optional[PDFReferenceLink]:
+        """Classify a URI and return a PDFReferenceLink or None if not citation-relevant."""
+        # Skip mailto: and javascript: and empty fragments
+        if uri.startswith(('mailto:', 'javascript:', '#')):
+            return None
+
+        # Direct doi.org link
+        m = self._DOI_URL_RE.match(uri)
+        if m:
+            doi = m.group(1).rstrip('.,;)')
+            if doi.startswith('10.') and '/' in doi:
+                return PDFReferenceLink(
+                    link_type='doi', url=uri, doi=doi, page_num=page_num
+                )
+
+        # PubMed URL
+        m = self._PUBMED_URL_RE.search(uri)
+        if m:
+            return PDFReferenceLink(
+                link_type='pmid', url=uri, pmid=m.group(1), page_num=page_num
+            )
+
+        # Elsevier refhub link (srefN → reference number N)
+        m = self._REFHUB_RE.search(uri)
+        if m:
+            return PDFReferenceLink(
+                link_type='refhub', url=uri, ref_num=int(m.group(1)),
+                page_num=page_num
+            )
+
+        # Bare DOI as URI (some PDFs use doi: scheme or raw 10.xxx/yyy)
+        bare = uri.replace('doi:', '').strip()
+        m = self._DOI_BARE_RE.match(bare)
+        if m:
+            doi = m.group(1).rstrip('.,;)')
+            return PDFReferenceLink(
+                link_type='doi', url=uri, doi=doi, page_num=page_num
+            )
+
+        # Any other http URL (web references, etc.)
+        if uri.startswith('http'):
+            return PDFReferenceLink(
+                link_type='other', url=uri, page_num=page_num
+            )
+
+        return None
+
+    def build_ref_doi_map(self, pdf_path: str) -> Dict[int, str]:
+        """
+        Build a mapping of reference number → DOI from PDF link annotations.
+
+        Works best for PDFs that embed direct doi.org hyperlinks on reference
+        entries (common in NEJM, JAMA, BMJ, Lancet, AHA journals, etc.).
+
+        For Elsevier PDFs, refhub links are present but do not directly expose
+        DOIs; the map will be empty in that case.
+
+        Args:
+            pdf_path: Path to PDF.
+
+        Returns:
+            Dict mapping ref_num (int) → doi (str). May be empty.
+        """
+        links = self.extract_reference_links(pdf_path)
+        result: Dict[int, str] = {}
+        for link in links:
+            if link.link_type == 'doi' and link.ref_num is not None and link.doi:
+                result[link.ref_num] = link.doi
+        return result
+
+    def get_all_doi_links(self, pdf_path: str) -> List[str]:
+        """Return all unique DOIs found in hyperlink annotations (no ref number required)."""
+        links = self.extract_reference_links(pdf_path)
+        return [link.doi for link in links if link.link_type == 'doi' and link.doi]
+
     def batch_extract(self, pdf_paths: List[str]) -> List[PDFMetadata]:
         """
         Extract metadata from multiple PDFs.
@@ -330,4 +492,162 @@ class PDFExtractor:
         
         pattern = "**/*.pdf" if recursive else "*.pdf"
         return [str(p) for p in path.glob(pattern)]
+
+
+class CrossRefReferenceResolver:
+    """
+    Resolve the complete reference list of a published article via CrossRef.
+
+    Many publisher PDFs (Elsevier, Springer, Wiley, etc.) embed only their
+    internal resolver links (refhub, etc.) rather than direct DOIs.  However,
+    CrossRef stores the reference list -- including each reference's DOI -- for
+    most journal articles.  Given the *citing article's* DOI we can fetch all
+    reference DOIs in a single API call, then feed them directly into the
+    PubMed/OpenAlex lookup pipeline instead of doing slow title searches.
+
+    This is the preferred resolution path for publisher PDFs where:
+    1. The PDF annotations contain only refhub/internal links (not direct DOIs).
+    2. The article DOI is known (it appears on page 1 of virtually every PDF).
+
+    Usage:
+        resolver = CrossRefReferenceResolver()
+        doi_map = resolver.fetch_reference_dois("10.1016/j.jacc.2021.12.002")
+        # {1: "10.1056/NEJMra1710575", 2: "10.1001/jamacardio.2015.0354", ...}
+    """
+
+    BASE_URL = "https://api.crossref.org/works"
+    _BIB_NUM_RE = re.compile(r'bib(\d+)$', re.IGNORECASE)
+
+    def __init__(self, email: str = None, request_delay: float = 0.5):
+        self.email = email or os.environ.get('NCBI_EMAIL', '')
+        self.request_delay = request_delay
+        self._last_request = 0.0
+        self.session = requests.Session()
+        ua = 'CitationSculptor/1.8.0 (https://github.com/yourusername/CitationSculptor)'
+        if self.email:
+            ua += f'; mailto:{self.email}'
+        self.session.headers['User-Agent'] = ua
+
+    def _throttle(self):
+        elapsed = time.time() - self._last_request
+        if elapsed < self.request_delay:
+            time.sleep(self.request_delay - elapsed)
+        self._last_request = time.time()
+
+    def fetch_reference_dois(self, article_doi: str) -> Dict[int, str]:
+        """
+        Return a mapping of {reference_number: doi} for a published article.
+
+        CrossRef stores the citing article's reference list and, where known,
+        each reference's DOI.  The key format varies by publisher; we parse:
+          - Elsevier:  "{article_doi}_bib{N}"     → ref N
+          - Springer:  "{article_doi}_CR{N}_..."  → ref N
+          - Wiley:     "{article_doi}-bib{N}"     → ref N
+          - Fallback:  sequential position (1-indexed)
+
+        Args:
+            article_doi: DOI of the citing article (with or without prefix).
+
+        Returns:
+            Dict mapping reference number (int) → reference DOI (str).
+            Empty dict if CrossRef has no reference data or request fails.
+        """
+        doi = article_doi.replace('https://doi.org/', '').replace('http://doi.org/', '').strip()
+        self._throttle()
+
+        try:
+            url = f"{self.BASE_URL}/{doi}"
+            params = {}
+            if self.email:
+                params['mailto'] = self.email
+
+            resp = self.session.get(url, params=params, timeout=12)
+            if resp.status_code == 404:
+                logger.debug(f"CrossRef: article DOI not found: {doi}")
+                return {}
+            resp.raise_for_status()
+
+            data = resp.json()
+            refs = data.get('message', {}).get('reference', [])
+            if not refs:
+                logger.debug(f"CrossRef: no reference list for {doi}")
+                return {}
+
+            result: Dict[int, str] = {}
+            for pos, ref in enumerate(refs, start=1):
+                ref_doi = ref.get('DOI', '').strip()
+                if not ref_doi:
+                    continue
+
+                # Try to extract reference number from the key field
+                key = ref.get('key', '')
+                ref_num = self._parse_ref_num(key, pos)
+                result[ref_num] = ref_doi
+
+            logger.debug(
+                f"CrossRef reference list: {len(result)}/{len(refs)} refs have DOIs for {doi}"
+            )
+            return result
+
+        except requests.RequestException as e:
+            logger.debug(f"CrossRef reference fetch failed for {doi}: {e}")
+            return {}
+
+    def _parse_ref_num(self, key: str, fallback_pos: int) -> int:
+        """Parse reference number from CrossRef key field."""
+        if not key:
+            return fallback_pos
+
+        # Elsevier: "10.1016/j.jacc.2021.12.002_bib42" → 42
+        m = self._BIB_NUM_RE.search(key)
+        if m:
+            return int(m.group(1))
+
+        # Springer: "..._CR42_..." → 42
+        cr_m = re.search(r'_CR(\d+)', key)
+        if cr_m:
+            return int(cr_m.group(1))
+
+        # Wiley: "...-bib42" → 42
+        w_m = re.search(r'-bib(\d+)', key)
+        if w_m:
+            return int(w_m.group(1))
+
+        return fallback_pos
+
+    def resolve_from_pdf(self, pdf_path: str) -> Dict[int, str]:
+        """
+        Extract the article DOI from a PDF and fetch its reference DOIs via CrossRef.
+
+        Convenience method combining PDFExtractor (article DOI from annotation) +
+        CrossRef reference list lookup.
+
+        Args:
+            pdf_path: Path to the source PDF.
+
+        Returns:
+            Dict mapping reference number → DOI. Empty if article DOI not found.
+        """
+        extractor = PDFExtractor()
+        links = extractor.extract_reference_links(pdf_path)
+
+        # Article DOI is usually a doi.org link on page 1
+        article_doi = None
+        for link in links:
+            if link.link_type == 'doi' and link.page_num == 1 and link.doi:
+                article_doi = link.doi
+                break
+
+        # Fallback: check PDF text metadata
+        if not article_doi:
+            metadata = extractor.extract_metadata(pdf_path)
+            if metadata and metadata.doi:
+                article_doi = metadata.doi
+
+        if not article_doi:
+            logger.debug(f"Cannot resolve references: no article DOI found in {pdf_path}")
+            return {}
+
+        logger.info(f"Resolving references for article DOI {article_doi} via CrossRef")
+        return self.fetch_reference_dois(article_doi)
 

@@ -9,7 +9,7 @@ Rate limits: 100 req/5min without key; 10 req/sec with key.
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Dict, Optional, List
 
 import requests
 from loguru import logger
@@ -187,7 +187,7 @@ class SemanticScholarClient:
             if fields_of_study:
                 params["fieldsOfStudy"] = ",".join(fields_of_study)
 
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
             response.raise_for_status()
 
             data = response.json()
@@ -205,6 +205,58 @@ class SemanticScholarClient:
             return []
 
     # ------------------------------------------------------------------
+    # Public API: batch fetch
+    # ------------------------------------------------------------------
+
+    def batch_fetch(
+        self,
+        ids: List[str],
+        chunk_size: int = 500,
+    ) -> Dict[str, Optional[SemanticScholarWork]]:
+        """Fetch metadata for multiple papers in one batched POST call.
+
+        Args:
+            ids: List of paper IDs. Each should already be prefixed:
+                 "DOI:10.1056/...", "PMID:30110588", "ARXIV:...", or raw S2 ID.
+            chunk_size: Max IDs per batch call (S2 limit is 500).
+
+        Returns:
+            Dict mapping input_id -> SemanticScholarWork (or None if not found).
+        """
+        if not ids:
+            return {}
+
+        result: Dict[str, Optional[SemanticScholarWork]] = {}
+
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            self._rate_limit()
+
+            try:
+                url = f"{self.BASE_URL}/paper/batch"
+                response = self.session.post(
+                    url,
+                    params={"fields": self.PAPER_FIELDS},
+                    json={"ids": chunk},
+                    timeout=12,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                for input_id, paper_data in zip(chunk, data):
+                    if paper_data is None:
+                        result[input_id] = None
+                    else:
+                        result[input_id] = self._parse_work(paper_data)
+
+            except requests.RequestException as e:
+                logger.debug(f"Semantic Scholar batch fetch failed: {e}")
+                for input_id in chunk:
+                    result[input_id] = None
+
+        return result
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -216,7 +268,7 @@ class SemanticScholarClient:
             url = f"{self.BASE_URL}/paper/{paper_id}"
             params = {"fields": self.PAPER_FIELDS}
 
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=params, timeout=12)
 
             if response.status_code == 404:
                 return None

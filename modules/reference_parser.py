@@ -70,6 +70,9 @@ class ReferenceParser:
     
     # Pattern 4: Footnote definition - "[^1]: Citation text..."
     FOOTNOTE_DEF_PATTERN = r'^\[\^(\d+)\]:\s*(.+)$'
+
+    # Pattern 4b: Named-label footnote definition - "[^AuthorYear-PMID]: Citation text..."
+    NAMED_FOOTNOTE_DEF_PATTERN = r'^\[\^([A-Za-z][^\]]*)\]:\s*(.+)$'
     
     # Pattern 5: Grouped footnotes without colon - "[^1] [^2] [^3] Title text"
     # This captures ALL [^N] groups and the remaining title
@@ -117,7 +120,7 @@ class ReferenceParser:
                         # Other reference formats
                         if re.match(r'^\d+\.', check_line) or \
                            re.match(r'^[-*]\s+.*\[', check_line) or \
-                           re.match(r'^\[\^(\d+)\]:', check_line) or \
+                           re.match(r'^\[\^([^\]]+)\]:', check_line) or \
                            re.match(self.FOOTNOTE_NO_COLON_PATTERN, check_line):  # V6 format
                             has_refs = True
                             break
@@ -134,7 +137,7 @@ class ReferenceParser:
             for i, line in enumerate(self.lines):
                 stripped = line.strip()
                 # Check for [^N]: format (with colon)
-                if re.match(r'^\[\^(\d+)\]:', stripped):
+                if re.match(r'^\[\^([^\]]+)\]:', stripped):
                     implicit_start = i
                     break
                 # Check for [^N] format without colon (V6 format)
@@ -273,8 +276,8 @@ class ReferenceParser:
         return self.sections
     
     def _detect_inline_style(self, body_content: str) -> str:
-        """Detect whether body uses [N] or [^N] style references."""
-        footnote_count = len(re.findall(r'\[\^(\d+)\]', body_content))
+        """Detect whether body uses [N] or [^N] style references (including named labels)."""
+        footnote_count = len(re.findall(r'\[\^([^\]]+)\]', body_content))
         numeric_count = len(re.findall(r'\[(\d+)\]', body_content))
         
         if footnote_count > numeric_count:
@@ -628,6 +631,55 @@ class ReferenceParser:
 
             return ParsedReference(
                 original_number=number,
+                original_text=line,
+                title=title,
+                url=url,
+                source_name=None,
+                line_number=line_number,
+                metadata=metadata,
+            )
+
+        # Try Pattern 4b: Named-label footnote definition "[^AuthorYear-PMID]: ..."
+        match = re.match(self.NAMED_FOOTNOTE_DEF_PATTERN, line)
+        if match:
+            label = match.group(1)
+            content = match.group(2).strip()
+
+            # Initialize metadata
+            metadata = {'raw_content': content, 'named_label': label, 'format': 'named_footnote'}
+
+            # Try to extract URL/DOI from content
+            url = None
+            md_link_match = re.search(r'\[([^\]]*)\]\(([^)]+)\)', content)
+            if md_link_match:
+                url = self._clean_url(md_link_match.group(2))
+            else:
+                url_match = re.search(r'https?://[^\s\)]+', content)
+                if url_match:
+                    url = self._clean_url(url_match.group(0))
+
+            # DOI extraction
+            doi = self._extract_doi_from_text(content)
+            if doi:
+                metadata['doi'] = doi
+                logger.debug(f"Extracted DOI from named footnote text: {doi}")
+                if not url:
+                    url = f"https://doi.org/{doi}"
+
+            # PMID extraction
+            pmid = self._extract_pmid_from_text(content)
+            if pmid:
+                metadata['pmid'] = pmid
+                logger.debug(f"Extracted PMID from named footnote text: {pmid}")
+                if not url:
+                    url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}"
+
+            # Extract title
+            title = self._extract_title_from_citation(content)
+
+            # Use 0 as placeholder number for named labels (not sequentially numbered)
+            return ParsedReference(
+                original_number=0,
                 original_text=line,
                 title=title,
                 url=url,

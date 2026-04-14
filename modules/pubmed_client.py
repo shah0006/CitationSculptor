@@ -211,6 +211,8 @@ class PubMedClient:
         self.session.headers.update({'User-Agent': 'CitationSculptor/1.0'})
         # Read API key from environment; with a key NCBI allows 10 req/s vs 2.5 without
         self.api_key = os.environ.get('NCBI_API_KEY')
+        # CrossRef polite pool email: real email gets faster responses
+        self.crossref_email = os.environ.get('NCBI_EMAIL', '')
         if requests_per_second is None:
             requests_per_second = 10.0 if self.api_key else 2.5
         self._rate_limiter = RateLimiter(requests_per_second)
@@ -577,6 +579,57 @@ class PubMedClient:
             self._pmid_cache.set(pmid, metadata)
         
         return metadata
+
+    def batch_fetch_by_pmids(self, pmids: List[str], chunk_size: int = 200) -> Dict[str, Optional[ArticleMetadata]]:
+        """Fetch metadata for multiple PMIDs in batched API calls.
+
+        Splits pmids into chunks of chunk_size, fires one efetch call per chunk,
+        parses each XML response, and returns a dict mapping pmid -> ArticleMetadata
+        (or None if not found/error for that PMID).
+
+        Args:
+            pmids: List of PMID strings (digits only, no 'PMID:' prefix)
+            chunk_size: Max IDs per efetch call (NCBI limit is 200, default 200)
+
+        Returns:
+            Dict[pmid_str, Optional[ArticleMetadata]]
+        """
+        if not pmids:
+            return {}
+
+        results: Dict[str, Optional[ArticleMetadata]] = {}
+        chunks = [pmids[i:i + chunk_size] for i in range(0, len(pmids), chunk_size)]
+
+        for chunk in chunks:
+            try:
+                root = self._eutils_request(self.EFETCH_URL, {
+                    'db': 'pubmed',
+                    'id': ','.join(chunk),
+                    'retmode': 'xml',
+                    'rettype': 'abstract',
+                })
+                if root is None:
+                    for pmid in chunk:
+                        results[pmid] = None
+                    continue
+
+                # Parse all articles in this chunk's response
+                chunk_articles: Dict[str, ArticleMetadata] = {}
+                for article_xml in root.findall('.//PubmedArticle'):
+                    meta = self._parse_pubmed_article_xml(article_xml)
+                    if meta and meta.pmid:
+                        chunk_articles[meta.pmid] = meta
+
+                # Map requested PMIDs to parsed articles (None if missing)
+                for pmid in chunk:
+                    results[pmid] = chunk_articles.get(pmid)
+
+            except Exception as e:
+                logger.error(f"Batch fetch error for chunk: {e}")
+                for pmid in chunk:
+                    results[pmid] = None
+
+        return results
 
     def search_by_title(self, title: str, max_results: int = 5) -> List[ArticleMetadata]:
         """Search PubMed by title.
@@ -1053,11 +1106,12 @@ class PubMedClient:
             encoded_title = urllib.parse.quote(clean_title)
             url = f"https://api.crossref.org/works?query.title={encoded_title}&rows=5"
             
+            mailto = self.crossref_email or 'citationsculptor@example.com'
             response = requests.get(url, headers={
-                'User-Agent': 'CitationSculptor/1.0 (mailto:support@example.com)'
-            }, timeout=15)
+                'User-Agent': f'CitationSculptor/1.0 (mailto:{mailto})'
+            }, timeout=10)
             response.raise_for_status()
-            
+
             data = response.json()
             items = data.get('message', {}).get('items', [])
             
@@ -1152,9 +1206,10 @@ class PubMedClient:
         
         try:
             url = f"https://api.crossref.org/works/{doi}"
+            mailto = self.crossref_email or 'citationsculptor@example.com'
             response = requests.get(url, headers={
-                'User-Agent': 'CitationSculptor/1.0 (mailto:support@example.com)'
-            }, timeout=15)
+                'User-Agent': f'CitationSculptor/1.0 (mailto:{mailto})'
+            }, timeout=10)
             
             if response.status_code == 404:
                 logger.warning(f"DOI not found in CrossRef: {doi}")

@@ -364,6 +364,152 @@ class CitationTypeDetector:
 
         return None
 
+    # --- Patterns for extract_identifiers_from_text ---
+    # Plain-text DOI: "doi:10.xxx/yyy" or "DOI: 10.xxx/yyy"
+    _PLAIN_DOI_RE = re.compile(
+        r'(?:doi|DOI|Doi)[\s:]*?(10\.\d{4,}/\S+?)(?:\s|$|[.,;)\]\}>])',
+        re.IGNORECASE,
+    )
+    # Inline doi.org URL: "https://doi.org/10.xxx/yyy"
+    _INLINE_DOI_RE = re.compile(
+        r'https?://doi\.org/(10\.[^\s)\]]+)',
+        re.IGNORECASE,
+    )
+    # Inline dx.doi.org URL
+    _INLINE_DX_DOI_RE = re.compile(
+        r'https?://dx\.doi\.org/(10\.[^\s)\]]+)',
+        re.IGNORECASE,
+    )
+    # Plain-text PMID: "PMID: 30110588" or "PubMed PMID: 30110588"
+    _PLAIN_PMID_RE = re.compile(
+        r'(?:PMID|PubMed\s+ID|PubMed\s+PMID)[\s:._]*(\d{5,8})(?:\s|$|[.,;)\]])',
+        re.IGNORECASE,
+    )
+    # Inline PubMed URL
+    _INLINE_PMID_RE = re.compile(
+        r'https?://pubmed\.ncbi\.nlm\.nih\.gov/(\d+)/?',
+        re.IGNORECASE,
+    )
+    # Markdown link anchors: [text](url)
+    _ANCHOR_RE = re.compile(
+        r'\[([^\]]*)\]\((https?://[^\)]+)\)',
+    )
+
+    def extract_identifiers_from_text(self, text: str) -> dict:
+        """Extract all DOIs, PMIDs, and URLs from free-form reference text.
+
+        Handles plain-text patterns (doi:10.xxx, PMID: 12345), inline URLs
+        (https://doi.org/..., https://pubmed.ncbi.nlm.nih.gov/...), and
+        multiple markdown link anchors ([text](url)).
+
+        Returns:
+            {
+                'doi': Optional[str],       # First DOI found (highest confidence)
+                'pmid': Optional[str],      # First PMID found
+                'all_urls': List[str],      # All URLs found in any [text](url) anchors
+                'doi_source': str,          # 'plain_text' | 'inline_url' | 'anchor' | ''
+                'pmid_source': str,         # 'plain_text' | 'inline_url' | ''
+            }
+        """
+        result: Dict[str, Any] = {
+            'doi': None,
+            'pmid': None,
+            'all_urls': [],
+            'doi_source': '',
+            'pmid_source': '',
+        }
+
+        if not text:
+            return result
+
+        # --- Collect all markdown anchor URLs ---
+        anchor_urls: List[str] = []
+        for m in self._ANCHOR_RE.finditer(text):
+            anchor_urls.append(m.group(2))
+        result['all_urls'] = anchor_urls
+
+        # --- DOI extraction (priority order) ---
+        doi: Optional[str] = None
+        doi_source = ''
+
+        # 1. Plain-text DOI
+        m = self._PLAIN_DOI_RE.search(text)
+        if m:
+            doi = m.group(1)
+            doi_source = 'plain_text'
+
+        # 2. Inline doi.org URL
+        if not doi:
+            m = self._INLINE_DOI_RE.search(text)
+            if m:
+                doi = m.group(1)
+                doi_source = 'inline_url'
+
+        # 3. Inline dx.doi.org URL
+        if not doi:
+            m = self._INLINE_DX_DOI_RE.search(text)
+            if m:
+                doi = m.group(1)
+                doi_source = 'inline_url'
+
+        # 4. From anchor URLs containing doi.org
+        if not doi:
+            for url in anchor_urls:
+                m = self._INLINE_DOI_RE.search(url)
+                if not m:
+                    m = self._INLINE_DX_DOI_RE.search(url)
+                if m:
+                    doi = m.group(1)
+                    doi_source = 'anchor'
+                    break
+
+        # Post-process DOI: strip trailing punctuation, validate
+        if doi:
+            doi = re.sub(r'[.,;)\]\}>]+$', '', doi)
+            if not doi.startswith('10.'):
+                doi = None
+                doi_source = ''
+
+        result['doi'] = doi
+        result['doi_source'] = doi_source
+
+        # --- PMID extraction (priority order) ---
+        pmid: Optional[str] = None
+        pmid_source = ''
+
+        # 1. Plain-text PMID
+        m = self._PLAIN_PMID_RE.search(text)
+        if m:
+            candidate = m.group(1)
+            if 5 <= len(candidate) <= 8:
+                pmid = candidate
+                pmid_source = 'plain_text'
+
+        # 2. Inline PubMed URL
+        if not pmid:
+            m = self._INLINE_PMID_RE.search(text)
+            if m:
+                candidate = m.group(1)
+                if 5 <= len(candidate) <= 8:
+                    pmid = candidate
+                    pmid_source = 'inline_url'
+
+        # 3. From anchor URLs containing pubmed
+        if not pmid:
+            for url in anchor_urls:
+                m = self._INLINE_PMID_RE.search(url)
+                if m:
+                    candidate = m.group(1)
+                    if 5 <= len(candidate) <= 8:
+                        pmid = candidate
+                        pmid_source = 'inline_url'
+                        break
+
+        result['pmid'] = pmid
+        result['pmid_source'] = pmid_source
+
+        return result
+
     def categorize_references(self, references: List) -> dict:
         """Categorize references by type."""
         categorized = {ct: [] for ct in CitationType}

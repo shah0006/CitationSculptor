@@ -16,8 +16,10 @@ Options:
 
 import sys
 import argparse
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass, field
 
 from rich.console import Console
@@ -33,6 +35,7 @@ from modules.pubmed_client import PubMedClient, ArticleMetadata
 from modules.vancouver_formatter import VancouverFormatter, FormattedCitation
 from modules.inline_replacer import InlineReplacer
 from modules.output_generator import OutputGenerator, OutputDocument, ManualReviewItem
+from modules.pdf_extractor import PDFExtractor, CrossRefReferenceResolver
 
 console = Console(force_terminal=True)
 
@@ -44,6 +47,8 @@ class MatchConfidence:
     author_match: Optional[bool] = None
     year_match: Optional[bool] = None
     year_delta: Optional[int] = None
+    journal_match: bool = False
+    metadata_mismatch_only: bool = False
     checks_performed: int = 0
     checks_passed: int = 0
     accepted: bool = False
@@ -60,6 +65,8 @@ class MatchConfidence:
             'author_match': self.author_match,
             'year_match': self.year_match,
             'year_delta': self.year_delta,
+            'journal_match': self.journal_match,
+            'metadata_mismatch_only': self.metadata_mismatch_only,
             'checks': f"{self.checks_passed}/{self.checks_performed}",
             'overall_confidence': f"{self.overall_confidence:.0%}",
             'accepted': self.accepted,
@@ -78,6 +85,7 @@ class CitationSculptor:
         create_backup: bool = True,
         use_gui: bool = False,
         multi_section: bool = False,
+        max_workers: int = 8,
     ):
         self.input_path = input_path
         self.output_path = output_path
@@ -86,7 +94,9 @@ class CitationSculptor:
         self.create_backup = create_backup
         self.use_gui = use_gui
         self.multi_section = multi_section
+        self.max_workers = max_workers
         self.gui_dialog = None
+        self._lock = threading.Lock()
 
         log_level = "DEBUG" if verbose else "INFO"
         logger.remove()
@@ -113,6 +123,35 @@ class CitationSculptor:
         self.processed_citations: List[FormattedCitation] = []
         self.manual_review_items: List[ManualReviewItem] = []
         self.number_to_label_map: dict = {}
+
+        # Mapping of reference number → DOI pre-resolved from source PDF annotations
+        # + CrossRef reference list.  Populated by load_pdf_reference_dois().
+        # When populated, _process_single_journal_article uses these DOIs at Priority 0
+        # instead of doing title searches -- much faster and more reliable.
+        self.pdf_ref_doi_map: Dict[int, str] = {}
+
+    def load_pdf_reference_dois(self, pdf_path: str) -> int:
+        """
+        Pre-load reference DOIs from a source PDF using the PDF annotation +
+        CrossRef pipeline.
+
+        Call this before run() when you know the original PDF that the markdown
+        reference list came from (e.g., a journal article PDF).  CitationSculptor
+        will then use these DOIs at highest priority instead of doing title searches.
+
+        Args:
+            pdf_path: Path to the source PDF file.
+
+        Returns:
+            Number of reference DOIs loaded (0 if PDF has no resolvable references).
+        """
+        resolver = CrossRefReferenceResolver()
+        self.pdf_ref_doi_map = resolver.resolve_from_pdf(pdf_path)
+        if self.pdf_ref_doi_map:
+            logger.info(
+                f"Pre-loaded {len(self.pdf_ref_doi_map)} reference DOIs from PDF via CrossRef"
+            )
+        return len(self.pdf_ref_doi_map)
 
     def run(self) -> bool:
         """Run the citation processing pipeline."""
@@ -694,13 +733,24 @@ class CitationSculptor:
         return unique_refs, url_to_numbers
 
     def _step_process_journal_articles(self, journal_refs: List[ParsedReference]):
-        """Process journal article references via PubMed."""
+        """Process journal article references via PubMed using parallel execution."""
         # Deduplicate references by URL to avoid redundant API calls
         unique_refs, url_to_numbers = self._deduplicate_references(journal_refs)
-        
+
         total = len(unique_refs)
         processed_count = 0
         error_count = 0
+
+        def process_one(ref_item):
+            """Worker: calls _process_single_journal_article, returns (ref, result, error)."""
+            try:
+                result = self._process_single_journal_article(ref_item)
+                return (ref_item, result, None)
+            except Exception as e:
+                return (ref_item, None, e)
+
+        # Cap workers at number of refs to avoid idle threads
+        max_workers = min(self.max_workers, max(1, total))
 
         with Progress(
             SpinnerColumn(),
@@ -713,37 +763,30 @@ class CitationSculptor:
         ) as progress:
             task = progress.add_task("Processing journal articles...", total=total)
 
-            for i, ref in enumerate(unique_refs):
-                status_msg = f"Article #{ref.original_number}..."
-                progress.update(task, description=status_msg)
-                
-                # Update GUI dialog if enabled
-                if self.gui_dialog:
-                    self.gui_dialog.update_task(i, status_msg)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_one, ref): ref for ref in unique_refs}
+                for future in as_completed(futures):
+                    ref, result, error = future.result()
+                    with self._lock:
+                        if result:
+                            self.processed_citations.append(result)
 
-                try:
-                    result = self._process_single_journal_article(ref)
-                    if result:
-                        self.processed_citations.append(result)
-                        
-                        # Apply the label to ALL reference numbers pointing to this URL
-                        if ref.url and ref.url in url_to_numbers:
-                            for num in url_to_numbers[ref.url]:
-                                self.number_to_label_map[num] = result.label
-                        else:
-                            self.number_to_label_map[ref.original_number] = result.label
-                        
-                        ref.processed = True
-                        ref.new_label = result.label
-                        processed_count += 1
-                except Exception as e:
-                    logger.error(f"Error processing #{ref.original_number}: {e}")
-                    self._add_manual_review(ref, f"Processing error: {str(e)}", "Manually verify")
-                    error_count += 1
-                
-                progress.update(task, advance=1)
-                if self.gui_dialog:
-                    self.gui_dialog.update_task(i + 1, status_msg)
+                            # Apply the label to ALL reference numbers pointing to this URL
+                            if ref.url and ref.url in url_to_numbers:
+                                for num in url_to_numbers[ref.url]:
+                                    self.number_to_label_map[num] = result.label
+                            else:
+                                self.number_to_label_map[ref.original_number] = result.label
+
+                            ref.processed = True
+                            ref.new_label = result.label
+                            processed_count += 1
+                        elif error:
+                            logger.error(f"Error processing #{ref.original_number}: {error}")
+                            self._add_manual_review(ref, f"Processing error: {str(error)}", "Manually verify")
+                            error_count += 1
+
+                    progress.update(task, advance=1)
 
         console.print(f"[green][OK][/green] Processed {processed_count} unique sources" +
                      (f" ({len(journal_refs)} total refs)" if len(journal_refs) != processed_count else "") +
@@ -753,11 +796,38 @@ class CitationSculptor:
 
     def _process_single_journal_article(self, ref: ParsedReference) -> Optional[FormattedCitation]:
         """Process a single journal article reference."""
+        # PRIORITY -1: Use pre-resolved DOI from source PDF annotation + CrossRef pipeline.
+        # When the caller ran load_pdf_reference_dois() before run(), every reference
+        # number maps directly to a DOI -- no title search needed.
+        doi = None
+        pmid = None
+        pmcid = None
+        if self.pdf_ref_doi_map and ref.original_number in self.pdf_ref_doi_map:
+            doi = self.pdf_ref_doi_map[ref.original_number]
+            logger.info(f"Ref #{ref.original_number}: using PDF-annotation DOI {doi}")
+
         # PRIORITY 0: Check if DOI/PMID/PMCID are embedded in the reference text itself
         # This is MORE reliable than URL extraction
-        pmid = ref.metadata.get('pmid') if ref.metadata else None
-        pmcid = None  # PMCID extraction from text not yet implemented
-        doi = ref.metadata.get('doi') if ref.metadata else None
+        if not pmid:
+            pmid = ref.metadata.get('pmid') if ref.metadata else None
+        if not doi:
+            doi = ref.metadata.get('doi') if ref.metadata else None
+
+        # PRIORITY 0.5: Scan full reference text for embedded identifiers
+        # Catches plain-text DOIs (doi:10.xxx), PMIDs (PMID: nnnnn), inline URLs
+        # (https://doi.org/..., https://pubmed.ncbi.nlm.nih.gov/...), and
+        # multiple markdown link anchors. Critical for Docling-converted PDFs
+        # where identifiers appear as plain text rather than markdown link anchors.
+        all_text_urls: list = []
+        if ref.original_text and (not pmid or not doi):
+            text_ids = self.type_detector.extract_identifiers_from_text(ref.original_text)
+            if not doi and text_ids.get('doi'):
+                doi = text_ids['doi']
+                logger.info(f"Found DOI in reference text ({text_ids['doi_source']}): {doi}")
+            if not pmid and text_ids.get('pmid'):
+                pmid = text_ids['pmid']
+                logger.info(f"Found PMID in reference text ({text_ids['pmid_source']}): {pmid}")
+            all_text_urls = text_ids.get('all_urls', [])
 
         # PRIORITY 1: Fall back to URL extraction if not found in text
         if not pmid:
@@ -766,6 +836,24 @@ class CitationSculptor:
             pmcid = self.type_detector.extract_pmcid(ref.url) if ref.url else None
         if not doi:
             doi = self.type_detector.extract_doi(ref.url) if ref.url else None
+
+        # PRIORITY 1.5: Try additional URLs found in reference text
+        # Covers references with multiple [text](url) anchors where the primary
+        # ref.url is a Scholar link but a DOI or PubMed link also exists.
+        if all_text_urls and (not pmid or not doi):
+            for extra_url in all_text_urls:
+                if extra_url == ref.url:
+                    continue  # Already tried this one
+                if not doi:
+                    extra_doi = self.type_detector.extract_doi(extra_url)
+                    if extra_doi:
+                        doi = extra_doi
+                        logger.info(f"Found DOI from extra anchor URL: {doi}")
+                if not pmid:
+                    extra_pmid = self.type_detector.extract_pmid(extra_url)
+                    if extra_pmid:
+                        pmid = extra_pmid
+                        logger.info(f"Found PMID from extra anchor URL: {pmid}")
 
         # Log which method found the identifiers
         if pmid:
@@ -831,21 +919,62 @@ class CitationSculptor:
                     result.match_confidence = match_confidence
                 return result
             else:
-                # Cross-verification failed - the matched article is likely a different paper
+                # Cross-verification failed
+                if match_confidence.metadata_mismatch_only:
+                    reason_msg = (
+                        f"Metadata mismatch (confidence: {conf_info['overall_confidence']}): "
+                        f"correct paper but citation metadata differs (journal/year)"
+                    )
+                    action_msg = (
+                        f"PMID {metadata.pmid} appears correct (title/author match) "
+                        f"but journal or year in citation differs from PubMed record. "
+                        f"Scores: title={conf_info['title_similarity']}, "
+                        f"author={conf_info['author_match']}, year={conf_info['year_match']}, "
+                        f"journal_match={conf_info.get('journal_match', 'N/A')}. "
+                        f"Update the citation metadata to match PubMed"
+                    )
+                else:
+                    reason_msg = (
+                        f"Cross-verification failed (confidence: {conf_info['overall_confidence']}): "
+                        f"matched article does not match original citation"
+                    )
+                    action_msg = (
+                        f"PubMed returned PMID {metadata.pmid} but title/author/year mismatch. "
+                        f"Scores: title={conf_info['title_similarity']}, "
+                        f"author={conf_info['author_match']}, year={conf_info['year_match']}. "
+                        f"Verify the correct DOI/PMID and format manually"
+                    )
+
                 logger.warning(
                     f"Rejecting PubMed match for ref #{ref.original_number}: "
                     f"matched PMID {metadata.pmid} ('{metadata.title[:50]}') "
                     f"does not match original ('{ref.title[:50]}')"
                 )
-                self._add_manual_review(
-                    ref,
-                    f"Cross-verification failed (confidence: {conf_info['overall_confidence']}): "
-                    f"matched article does not match original citation",
-                    f"PubMed returned PMID {metadata.pmid} but title/author/year mismatch. "
-                    f"Scores: title={conf_info['title_similarity']}, "
-                    f"author={conf_info['author_match']}, year={conf_info['year_match']}. "
-                    f"Verify the correct DOI/PMID and format manually"
-                )
+                self._add_manual_review(ref, reason_msg, action_msg)
+
+                # Suggest alternative PMIDs via title search
+                if ref.title and len(ref.title.split()) >= 4:
+                    try:
+                        suggestions = self.pubmed_client.search_by_title(ref.title, max_results=3)
+                        if suggestions:
+                            suggestion_lines = []
+                            for s in suggestions[:3]:
+                                auth_str = ', '.join(s.authors[:2])
+                                if len(s.authors) > 2:
+                                    auth_str += '...'
+                                suggestion_lines.append(
+                                    f"  - PMID {s.pmid}: {s.title[:60]}... ({auth_str}, {s.year})"
+                                )
+                            with self._lock:
+                                if self.manual_review_items:
+                                    last = self.manual_review_items[-1]
+                                    last.suggested_action += (
+                                        f"\nSuggested alternatives (search by title '{ref.title[:40]}...'):\n"
+                                        + "\n".join(suggestion_lines)
+                                    )
+                    except Exception:
+                        pass
+
                 return None
 
         # Priority 6: Try CrossRef for non-PubMed items (books, chapters, etc.)
@@ -1355,6 +1484,19 @@ class CitationSculptor:
             except (ValueError, TypeError):
                 pass  # Can't parse years, skip this check
 
+        # --- 4. Journal abbreviation check (supplementary, low weight — not counted in accept/reject) ---
+        ref_journal = (ref.source_name or ref.metadata.get('journal', '') or '').strip()
+        meta_journal = getattr(metadata, 'journal_abbreviation', '') or getattr(metadata, 'journal', '') or ''
+        if ref_journal and meta_journal:
+            ref_j_clean = _re.sub(r'[^\w]', '', ref_journal.lower())
+            meta_j_clean = _re.sub(r'[^\w]', '', meta_journal.lower())
+            if ref_j_clean and meta_j_clean:
+                confidence.journal_match = (ref_j_clean in meta_j_clean or meta_j_clean in ref_j_clean)
+                title_ok = confidence.title_similarity is not None and confidence.title_similarity >= 0.6
+                author_ok = confidence.author_match is True
+                if title_ok and author_ok and not confidence.journal_match:
+                    confidence.metadata_mismatch_only = True
+
         # --- Decision ---
         confidence.checks_performed = checks_performed
         confidence.checks_passed = checks_passed
@@ -1392,39 +1534,41 @@ class CitationSculptor:
         return False, confidence
 
     def _add_manual_review(self, ref: ParsedReference, reason: str, suggested_action: str):
-        """Add item to manual review list."""
-        self.manual_review_items.append(ManualReviewItem(
-            original_number=ref.original_number,
-            original_text=ref.original_text,
-            reason=reason,
-            suggested_action=suggested_action,
-            additional_info={'url': ref.url, 'title': ref.title}
-        ))
+        """Add item to manual review list. Thread-safe via self._lock."""
+        with self._lock:
+            self.manual_review_items.append(ManualReviewItem(
+                original_number=ref.original_number,
+                original_text=ref.original_text,
+                reason=reason,
+                suggested_action=suggested_action,
+                additional_info={'url': ref.url, 'title': ref.title}
+            ))
         ref.needs_review = True
         ref.review_reason = reason
-    
+
     def _add_manual_review_detailed(
-        self, 
-        ref: ParsedReference, 
-        reason: str, 
+        self,
+        ref: ParsedReference,
+        reason: str,
         label: str,
         missing_fields: List[dict],
         scrape_failure: str = "",
     ):
-        """Add item to manual review list with detailed field information."""
-        self.manual_review_items.append(ManualReviewItem(
-            original_number=ref.original_number,
-            original_text=ref.original_text,
-            reason=reason,
-            suggested_action="",  # We'll use missing_fields instead
-            additional_info={
-                'url': ref.url, 
-                'title': ref.title,
-                'label': label,
-                'missing_fields': missing_fields,
-                'scrape_failure': scrape_failure,
-            }
-        ))
+        """Add item to manual review list with detailed field information. Thread-safe via self._lock."""
+        with self._lock:
+            self.manual_review_items.append(ManualReviewItem(
+                original_number=ref.original_number,
+                original_text=ref.original_text,
+                reason=reason,
+                suggested_action="",  # We'll use missing_fields instead
+                additional_info={
+                    'url': ref.url,
+                    'title': ref.title,
+                    'label': label,
+                    'missing_fields': missing_fields,
+                    'scrape_failure': scrape_failure,
+                }
+            ))
         ref.needs_review = True
         ref.review_reason = reason
 
@@ -1566,8 +1710,14 @@ def main():
     parser.add_argument("--dry-run", "-n", action="store_true", help="Preview only")
     parser.add_argument("--no-backup", action="store_true", help="Skip backup")
     parser.add_argument("--gui", action="store_true", help="Show progress in popup dialog")
-    parser.add_argument("--multi-section", "-m", action="store_true", 
+    parser.add_argument("--multi-section", "-m", action="store_true",
                        help="Process documents with multiple reference sections independently")
+    parser.add_argument("--workers", type=int, default=8,
+                       help="Max parallel workers for reference processing (default: 8)")
+    parser.add_argument("--source-pdf", metavar="PDF",
+                       help="Path to the original PDF the reference list was extracted from. "
+                            "CitationSculptor will extract embedded annotation links and query "
+                            "CrossRef for reference DOIs, bypassing slow title searches.")
     
     # Corrections workflow
     parser.add_argument("--generate-corrections", action="store_true",
@@ -1941,7 +2091,20 @@ def main():
         create_backup=not args.no_backup,
         use_gui=args.gui,
         multi_section=args.multi_section,
+        max_workers=args.workers,
     )
+
+    # Pre-resolve reference DOIs from source PDF if provided
+    if getattr(args, 'source_pdf', None):
+        source_pdf = args.source_pdf
+        if Path(source_pdf).exists():
+            n = sculptor.load_pdf_reference_dois(source_pdf)
+            if n:
+                console.print(f"[green]Pre-loaded {n} reference DOIs from {source_pdf}[/green]")
+            else:
+                console.print(f"[yellow]No reference DOIs found in {source_pdf} (will use title search)[/yellow]")
+        else:
+            console.print(f"[red]--source-pdf not found: {source_pdf}[/red]")
 
     success = sculptor.run()
     
