@@ -168,9 +168,64 @@ class OpenAlexClient:
             logger.debug(f"OpenAlex PMID lookup failed: {e}")
             return None
     
+    def fetch_by_scopus_eid(self, eid: Optional[str]) -> Optional["OpenAlexWork"]:
+        """Fetch a work by Scopus Electronic ID (EID) via the OpenAlex API.
+
+        OpenAlex indexes Scopus EIDs and provides a free, no-key-required resolution
+        path from Scopus EID to DOI and PMID. This is the recommended method for
+        resolving Scopus URLs found in academic article reference lists.
+
+        Args:
+            eid: Scopus EID string. Accepts:
+                 - Full EID:       "2-s2.0-85051788505"
+                 - Numeric suffix: "85051788505" (prefix is added automatically)
+
+        Returns:
+            OpenAlexWork with doi and pmid populated if found, or None.
+
+        Example:
+            work = client.fetch_by_scopus_eid("2-s2.0-85051788505")
+            if work:
+                print(work.doi)   # "10.1056/nejmra1710575"
+                print(work.pmid)  # "30110588"
+
+        API reference: https://docs.openalex.org/api-entities/works/filter-works#ids.scopus
+        """
+        if not eid:
+            return None
+
+        # Normalize: ensure EID has the standard "2-s2.0-" prefix
+        eid_str = str(eid).strip()
+        if re.match(r'^\d+$', eid_str):
+            eid_str = f"2-s2.0-{eid_str}"
+        elif not eid_str.startswith('2-s2.0-'):
+            logger.debug(f"Unrecognized EID format: {eid_str}")
+            return None
+
+        self._rate_limit()
+
+        try:
+            url = f"{self.BASE_URL}/works"
+            params = self._build_params(filter=f"ids.scopus:{eid_str}")
+
+            response = self.session.get(url, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+            results = data.get("results", [])
+            if not results:
+                logger.debug(f"No OpenAlex work found for Scopus EID: {eid_str}")
+                return None
+
+            return self._parse_work(results[0])
+
+        except Exception as e:
+            logger.debug(f"OpenAlex Scopus EID lookup failed for {eid_str}: {e}")
+            return None
+
     def search(
-        self, 
-        query: str, 
+        self,
+        query: str,
         max_results: int = 10,
         filter_type: str = None,
         sort: str = "relevance_score"
@@ -346,8 +401,8 @@ class OpenAlexClient:
             
             # Extract IDs
             ids = data.get('ids', {})
-            pmid = ids.get('pmid', '').replace('https://pubmed.ncbi.nlm.nih.gov/', '') if ids.get('pmid') else None
-            pmcid = ids.get('pmcid', '').replace('https://www.ncbi.nlm.nih.gov/pmc/articles/', '') if ids.get('pmcid') else None
+            pmid = ids.get('pmid', '').replace('https://pubmed.ncbi.nlm.nih.gov/', '').strip('/') if ids.get('pmid') else None
+            pmcid = ids.get('pmcid', '').replace('https://www.ncbi.nlm.nih.gov/pmc/articles/', '').strip('/') if ids.get('pmcid') else None
             
             return OpenAlexWork(
                 openalex_id=data.get('id', ''),
