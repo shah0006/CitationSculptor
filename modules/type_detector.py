@@ -306,7 +306,7 @@ class CitationTypeDetector:
         title = unquote_plus(title_raw).strip()
 
         # Reject titles that are too short to be useful for search
-        if len(title.split()) < 4:
+        if len(title.split()) < 3:
             return None
 
         # Extract year (optional)
