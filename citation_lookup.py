@@ -36,6 +36,7 @@ from modules.pubmed_client import PubMedClient, ArticleMetadata, CrossRefMetadat
 from modules.arxiv_client import ArxivClient, ArxivMetadata
 from modules.preprint_client import PreprintClient, PreprintMetadata
 from modules.book_client import BookClient, BookMetadata
+from modules.openalex_client import OpenAlexClient
 from modules.base_formatter import FormattedCitation
 from modules.formatter_factory import get_formatter, get_available_styles, get_style_info, DEFAULT_STYLE
 
@@ -119,6 +120,7 @@ class CitationLookup:
         self.arxiv_client = ArxivClient()
         self.preprint_client = PreprintClient()
         self.book_client = BookClient()
+        self.openalex_client = OpenAlexClient()
         self.formatter = get_formatter(style, max_authors=3)
         
         log_level = "DEBUG" if verbose else "WARNING"
@@ -323,9 +325,45 @@ class CitationLookup:
                 return self.lookup_preprint(doi)
             return self.lookup_doi(doi)
         
+        # Detect full citation text and extract title before falling back to lookup_title
+        # A full citation string typically has: "AuthorA, AuthorB. Title words. Journal. Year"
+        if not identifier.startswith('10.') and '. ' in identifier and re.search(r'\b(19|20)\d{2}\b', identifier):
+            extracted_title = self._extract_title_from_citation_text(identifier)
+            if extracted_title and len(extracted_title.split()) >= 4:
+                logger.info(f"Citation text detected, extracted title: {extracted_title[:60]}...")
+                result = self.lookup_title(extracted_title)
+                if result.success:
+                    return result
+
         # Default: title search
         return self.lookup_title(identifier)
     
+    def _extract_title_from_citation_text(self, citation_text: str) -> Optional[str]:
+        """
+        Extract probable article title from a full citation string.
+        
+        Uses two-format detection: period-delimited (Vancouver) and dash-delimited.
+        """
+        text = citation_text.strip()
+
+        # Dash-delimited format: "Author Year - Title - Journal"
+        if text.count(' - ') >= 2:
+            parts = text.split(' - ')
+            if len(parts) >= 3:
+                return parts[1].strip().strip('*')
+
+        # Period-delimited Vancouver format: "Authors. Title. Journal. Year;..."
+        parts = text.split('. ')
+        if len(parts) >= 3:
+            candidate = parts[1].strip()
+            if (len(candidate.split()) >= 4 and
+                    not re.match(r'^(19|20)\d{2}', candidate) and
+                    not re.match(r'^\d', candidate) and
+                    len(candidate) > 20):
+                return candidate
+
+        return None
+
     def lookup_arxiv(self, arxiv_id: str) -> LookupResult:
         """Look up an arXiv preprint by ID."""
         cached = self._check_cache("arxiv", arxiv_id)
